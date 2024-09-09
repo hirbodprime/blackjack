@@ -737,6 +737,7 @@ def player_turn(update: Update, context: CallbackContext):
         #     parse_mode="MarkdownV2"
         # )
             # Send the private message with the full hand and value
+        time.sleep(2)
         context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",parse_mode="MarkdownV2", timeout=20)
     else:
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
@@ -746,6 +747,7 @@ def player_turn(update: Update, context: CallbackContext):
         #     f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", 
         #     parse_mode="MarkdownV2"
         # )
+        time.sleep(2)
         context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", parse_mode="MarkdownV2", timeout=20)
 
 
@@ -811,6 +813,8 @@ def hit(update: Update, context: CallbackContext):
 
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     # Use safe_send_message to send messages safely
+    time.sleep(3)
+
     safe_send_message(context.bot, chat_id, f"{mention} drew: {new_card}")
 
     # Calculate the hand value and send it privately to the player
@@ -821,12 +825,15 @@ def hit(update: Update, context: CallbackContext):
 
     # Check for bust or 21
     if hand_value == 21:
+        time.sleep(3)
         safe_send_message(context.bot, chat_id, f"{mention} reached 21\\! They automatically stand\\.")
         next_player_turn(update, context)
     elif hand_value > 21:
+        time.sleep(3)
         safe_send_message(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\.")
         next_player_turn(update, context)
     else:
+        time.sleep(3)
         safe_send_message(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
 
 
@@ -865,11 +872,13 @@ def stand(update: Update, context: CallbackContext):
 
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     # Use safe_send_message to send messages safely
+    time.sleep(3)
     safe_send_message(context.bot, chat_id, f"{mention} has chosen to stand\\.")
 
     # Send the private message with the full hand and value
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
+    time.sleep(2)
 
     safe_send_message(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
 
@@ -916,6 +925,7 @@ def next_player_turn(update: Update, context: CallbackContext):
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', next_player.name)
 
         mention = f"[{user_name_escaped}](tg://user?id={next_player_id})"
+        time.sleep(3)
         safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
     else:
         # All players have finished their turns, now it's the dealer's turn

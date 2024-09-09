@@ -205,6 +205,22 @@ def start_blackjack(update: Update, context: CallbackContext):
         update.message.reply_text("An error occurred, please try again.")
         return
 
+def safe_send_poll(bot, chat_id, question, options, timeout=20, max_retries=5):
+    retries = 0
+    while retries < max_retries:
+        try:
+            message = bot.send_poll(chat_id=chat_id, question=question, options=options, is_anonymous=False)
+            return message  # Exit if successful
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while sending poll. Retrying {retries}/{max_retries}...")
+            time.sleep(3)  # Wait before retrying
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Flood control triggered. Retrying in {retry_after} seconds...")
+            time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
+            retries += 1
+    print("Failed to send the poll after retries.")
 
 def create_poll(update: Update, context: CallbackContext):
     question = "How much do you want to bet?"
@@ -212,12 +228,13 @@ def create_poll(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
 
     # Send a poll
-    message = update.message.bot.send_poll(
-        chat_id=chat_id,  # Specify the chat ID where you want to send the poll
-        question=question,
-        options=options,
-        is_anonymous=False  # Set to False so the bot knows who voted
-    )
+    # message = update.message.bot.send_poll(
+    #     chat_id=chat_id,  # Specify the chat ID where you want to send the poll
+    #     question=question,
+    #     options=options,
+    #     is_anonymous=False  # Set to False so the bot knows who voted
+    # )
+    message = safe_send_poll(context.bot, chat_id, question, options)
 
     # Save the message and poll id so that we can handle the answers later
     context.bot_data['poll_message_id'] = message.message_id
@@ -737,7 +754,7 @@ def player_turn(update: Update, context: CallbackContext):
 def escape_markdown_v2(text):
     return re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', text)
 
-def safe_send_message(bot, chat_id, text, timeout=20, max_retries=3):
+def safe_send_message(bot, chat_id, text, timeout=20, max_retries=10):
     retries = 0
     while retries < max_retries:
         try:
@@ -746,13 +763,13 @@ def safe_send_message(bot, chat_id, text, timeout=20, max_retries=3):
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            time.sleep(3)  # Wait before retrying
+            time.sleep(3)  # Wait a bit before retrying
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
-            time.sleep(retry_after)
+            time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
             retries += 1
-    print(f"Failed to send the message after {max_retries} retries.")
+    print("Failed to send the message after retries.")
 
 def hit(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -1072,6 +1089,8 @@ def end_game(update: Update, context: CallbackContext):
     # Mark the game as ended
     game.ended = True
     game.started = False
+    game.betting = False
+    game.join_time = False
     game.save()
     RoundWinner.objects.filter(game=game, rounds_ended=False).update(rounds_ended=True)
     context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.")

@@ -157,45 +157,24 @@ def start_blackjack(update: Update, context: CallbackContext):
     print(f"Chat ID: {chat_id}")
 
     # Check if a game exists for the current chat ID
-    try:
-        game = Game.objects.filter(chat_id=chat_id).order_by('-id').first()
-        if game and not game.started and not game.join_time and not game.betting and game.ended:
-
-            print("No existing game found. Creating a new game...")
-            game, created = Game.objects.get_or_create(chat_id=chat_id, ended=False)
-            game.betting = True
-            game.started = False
-            game.save()
-
-            update.message.reply_text("🃏 Set the bet amount for the blackjack game to start.")
-            create_poll(update, context)  # Start the betting poll
-            # update.message.reply_text("🃏 Betting process has started!")
-            context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!", timeout=20)
-
-            return
-
-        print(f"Game found: {game}")
-
-    except Game.DoesNotExist:
-        # If no game exists, create a new one and start the betting process
-        print("No existing game found. Creating a new game...")
+    game = Game.objects.filter(chat_id=chat_id).order_by('-id').first()
+    
+    # If no game exists or the last game has ended, create a new game
+    if not game or game.ended:
+        print("No existing active game found or the last game has ended. Creating a new game...")
         game, created = Game.objects.get_or_create(chat_id=chat_id, ended=False)
         game.betting = True
         game.started = False
         game.save()
 
-        # update.message.reply_text("🃏 Set the bet amount for the blackjack game to start.")
         context.bot.send_message(chat_id=chat_id, text="🃏 Set the bet amount for the blackjack game to start.", timeout=20)
-        
         create_poll(update, context)  # Start the betting poll
-        # update.message.reply_text("🃏 Betting process has started!")
         context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!", timeout=20)
-
         return
+    
+    print(f"Game found: {game}")
 
     # Check if the game is in betting progress, started, or in join time
-    print(f"Game Status -> Betting: {game.betting}, Started: {game.started}, Join Time: {game.join_time}")
-    
     if game.betting:
         update.message.reply_text("A Blackjack game is in betting progress. Wait for the betting process to end and use /join to join the game.")
         return
@@ -207,7 +186,6 @@ def start_blackjack(update: Update, context: CallbackContext):
         return
     else:
         # If none of the above conditions are met, raise an error
-        print(f"Unexpected game state: Betting: {game.betting}, Started: {game.started}, Join Time: {game.join_time}")
         update.message.reply_text("An error occurred, please try again.")
         return
 

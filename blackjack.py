@@ -874,13 +874,17 @@ def safe_send_message_next_player_turn(bot, chat_id, text, timeout=20, max_retri
     print("Failed to send the message after retries.")
 
 def next_player_turn(update: Update, context: CallbackContext):
-    # time.sleep(2)
     chat_id = update.message.chat_id
 
     try:
         game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
         update.message.reply_text("No active game or the game has not started.")
+        return
+
+    if not game.turn_order:
+        # If no players are left in the turn order, proceed to the dealer's turn
+        dealer_turn(update, context)
         return
 
     # Remove the current player from the turn order
@@ -894,28 +898,14 @@ def next_player_turn(update: Update, context: CallbackContext):
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', next_player.name)
 
         mention = f"[{user_name_escaped}](tg://user?id={next_player_id})"
-        # context.bot.send_message(chat_id=chat_id, text=f"{next_player.name}, it's your turn! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand.")
         safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
-
     else:
         # All players have finished their turns, now it's the dealer's turn
         dealer_turn(update, context)
 
 
 
-# def safe_send_message_dealer(bot, chat_id, text, timeout=20, max_retries=3):  # Increased timeout
-#     retries = 0
-#     while retries < max_retries:
-#         try:
-#             bot.send_message(chat_id=chat_id, text=text, timeout=timeout)
-#             return  # Exit the loop if the message is sent successfully
-#         except RetryAfter as e:
-#             retry_after = int(e.retry_after)
-#             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
-#             time.sleep(retry_after)
-#             retries += 1
-#     print(f"Failed to send the message after {max_retries} retries.")
-def safe_send_message_dealer(bot, chat_id, text, timeout=20, max_retries=5):  # Increased timeout
+def safe_send_message_dealer(bot, chat_id, text, timeout=20, max_retries=5):
     retries = 0
     while retries < max_retries:
         try:
@@ -925,8 +915,13 @@ def safe_send_message_dealer(bot, chat_id, text, timeout=20, max_retries=5):  # 
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
             time.sleep(3)  # Wait a bit before retrying
-    print("Failed to send the message after retries.")
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Flood control triggered. Retrying in {retry_after} seconds...")
+            time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
+            retries += 1
 
+    print("Failed to send the message after retries.")
 
 def dealer_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id

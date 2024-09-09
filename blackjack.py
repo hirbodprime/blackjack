@@ -166,9 +166,11 @@ def start_blackjack(update: Update, context: CallbackContext):
         game.betting = True
         game.started = False
         game.save()
+        time.sleep(2)
 
         context.bot.send_message(chat_id=chat_id, text="🃏 Set the bet amount for the blackjack game to start.", timeout=20)
         create_poll(update, context)  # Start the betting poll
+        time.sleep(2)
         context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!", timeout=20)
         return
     
@@ -254,6 +256,7 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
 
         mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+        time.sleep(2)
 
         context.bot.send_message(chat_id=context.bot_data['poll_chat_id'],
                                  text=f"{mention} has set the bet amount to {chosen_option}\n use /join to join the game", 
@@ -380,7 +383,7 @@ def force_start(update: Update, context: CallbackContext):
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player.name)
 
         mention = f"[{user_name_escaped}](tg://user?id={player.id})"
-
+        time.sleep(2)
         context.bot.send_message(chat_id=chat_id, text=f"{mention} has bet {game.bet_amount} chips\\.\nRemaining chips: 💰{player.chips}", 
             parse_mode="MarkdownV2", timeout=20)
 
@@ -485,6 +488,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
 
     context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...",timeout=20)
+    time.sleep(3)
 
 
     player_blackjacks = []
@@ -607,14 +611,14 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
                 overall_winner = overall_winners[0]
                 
                 if overall_winner == 'dealer':
-                    context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game! 🏆", timeout=20)
+                    context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game\\! 🏆", timeout=20)
                 else:
-                    context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆", timeout=20)
+                    context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game\\! 🏆", timeout=20)
                     
             elif len(overall_winners) > 1:
                 # Multiple winners (tie)
                 winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
-                context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot! 🏆", parse_mode="MarkdownV2", timeout=20)
+                context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2", timeout=20)
         else:
             context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.", timeout=20)
 
@@ -813,7 +817,6 @@ def hit(update: Update, context: CallbackContext):
 
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     # Use safe_send_message to send messages safely
-    time.sleep(3)
 
     safe_send_message(context.bot, chat_id, f"{mention} drew: {new_card}")
 
@@ -872,7 +875,6 @@ def stand(update: Update, context: CallbackContext):
 
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     # Use safe_send_message to send messages safely
-    time.sleep(3)
     safe_send_message(context.bot, chat_id, f"{mention} has chosen to stand\\.")
 
     # Send the private message with the full hand and value
@@ -1091,12 +1093,12 @@ def end_game(update: Update, context: CallbackContext):
             dealer = Dealer.objects.get(id=1)
             dealer.chips += split_pot
             dealer.save()
-            context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} chips💰!", timeout=20)
+            context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} chips💰\\!", timeout=20)
 
         for winner in winners:
             winner.chips += split_pot
             winner.save()
-            context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰!", timeout=20)
+            context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰\\!", timeout=20)
 
     else:
         context.bot.send_message(chat_id=chat_id, text="No one won this game.", timeout=20)

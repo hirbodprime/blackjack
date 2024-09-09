@@ -1020,8 +1020,14 @@ def dealer_turn(update: Update, context: CallbackContext):
     else:
         for winner in round_winners:
             time.sleep(2)
-            # Tag winner instead of just showing their name
-            mention = f"[{winner.name}](tg://user?id={winner.id})"
+            try:
+                # Try to tag winner using their name
+                mention = f"[{winner.name}](tg://user?id={winner.id})"
+            except Exception as e:
+                # Fallback to just using the player's name if tagging fails
+                mention = winner.name
+                print(f"Error tagging player {winner.name}: {str(e)}")  # Log the error for debugging
+
             safe_send_message_dealer(context.bot, chat_id, f"{mention} wins🥇 this round with a hand of {highest_valid_score}\\!")
             RoundWinner.objects.create(game=game, round_number=game.current_round, winner=winner)
 
@@ -1032,8 +1038,15 @@ def dealer_turn(update: Update, context: CallbackContext):
     else:
         time.sleep(2)
         # Tag all round winners instead of just showing their names
-        winner_mentions = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" for winner in round_winners])
-        safe_send_message_dealer(context.bot, chat_id, f"{winner_mentions} won🥇 round {game.current_round}\\!")
+        try:
+            winner_mentions = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" for winner in round_winners])
+        except Exception as e:
+            # Fallback to using plain names if tagging fails
+            winner_mentions = ', '.join([winner.name for winner in round_winners])
+            print(f"Error tagging winners: {str(e)}")  # Log the error for debugging
+
+    safe_send_message_dealer(context.bot, chat_id, f"{winner_mentions} won🥇 round {game.current_round}\\!")
+
 
     # Proceed to the next round or end the game if all rounds are done
     game.current_round += 1

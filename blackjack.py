@@ -470,8 +470,10 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
         standings_message = "📊 Current standings:\n"
 
         # Add the dealer wins first, if any
-        # if dealer_wins > 0:
-        standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+        if dealer_wins > 0:
+            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+        else:
+            standings_message += f"🤖 Dealer: {dealer_wins} No wins yet\n"
 
         # Add players with wins
         for winner_name, wins, user_id in winners:
@@ -652,8 +654,10 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         standings_message = "📊 Current standings:\n"
 
         # Add the dealer wins first, if any
-        # if dealer_wins > 0:
-        standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+        if dealer_wins > 0:
+            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+        else:
+            standings_message += f"🤖 Dealer: {dealer_wins} No wins yet\n"
 
         # Add players with wins
         for winner_name, wins, user_id in winners:

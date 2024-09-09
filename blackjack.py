@@ -596,7 +596,8 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             if len(overall_winners) == 1:
                 # One clear winner
                 overall_winner = overall_winners[0]
-                context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆", timeout=20)
+                if overall_winner:
+                    context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆", timeout=20)
             elif len(overall_winners) > 1:
                 # Multiple winners (tie)
                 winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" for winner in overall_winners])

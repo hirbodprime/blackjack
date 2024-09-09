@@ -447,7 +447,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
             if wins > 0:
                 winners.append((player_name, wins, player_id))
             else:
-                no_wins.append(player_name, player_id)
+                no_wins.append((player_name, player_id))
 
         # Build the standings message
         standings_message = "📊 Current standings:\n"
@@ -628,7 +628,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             if wins > 0:
                 winners.append((player_name, wins, player_id))
             else:
-                no_wins.append(player_name, player_id)
+                no_wins.append((player_name, player_id))
 
         # Build the standings message
         standings_message = "📊 Current standings:\n"

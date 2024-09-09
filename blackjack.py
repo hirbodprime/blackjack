@@ -990,16 +990,16 @@ def dealer_turn(update: Update, context: CallbackContext):
     else:
         for winner in round_winners:
             time.sleep(2)
-            safe_send_message_dealer(context.bot, chat_id, f"{winner.name} wins🥇 this round with a hand of {highest_valid_score}!")
+            safe_send_message_dealer(context.bot, chat_id, f"{winner.name} wins🥇 this round with a hand of {highest_valid_score}\\!")
             RoundWinner.objects.create(game=game, round_number=game.current_round, winner=winner)
     # Announce the round winner before starting the next round
     if not round_winners:
         time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"Dealer won🥇 round {game.current_round}!")
+        safe_send_message_dealer(context.bot, chat_id, f"Dealer won🥇 round {game.current_round}\\!")
     else:
         time.sleep(2)
         winner_names = ', '.join([winner.name for winner in round_winners])
-        safe_send_message_dealer(context.bot, chat_id, f"{winner_names} won🥇 round {game.current_round}!")
+        safe_send_message_dealer(context.bot, chat_id, f"{winner_names} won🥇 round {game.current_round}\\!")
 
     # Proceed to the next round or end the game if all rounds are done
     game.current_round += 1

@@ -463,7 +463,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
         if dealer_wins > 0:
             standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
         else:
-            standings_message += f"🤖 Dealer: {dealer_wins} No wins yet\n"
+            standings_message += f"🤖 Dealer: No wins yet\n"
 
         # Add players with wins
         for winner_name, wins, user_id in winners:
@@ -1109,12 +1109,12 @@ def end_game(update: Update, context: CallbackContext):
             dealer = Dealer.objects.get(id=1)
             dealer.chips += split_pot
             dealer.save()
-            context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} chips💰\\!", timeout=20)
+            context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} chips💰!", timeout=20)
 
         for winner in winners:
             winner.chips += split_pot
             winner.save()
-            context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰\\!", timeout=20)
+            context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰!", timeout=20)
 
     else:
         context.bot.send_message(chat_id=chat_id, text="No one won this game.", timeout=20)

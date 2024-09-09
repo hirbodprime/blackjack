@@ -466,6 +466,9 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
             else:
                 no_wins.append((player_name, player_id))
 
+        # Sort winners by wins (descending)
+        winners = sorted(winners, key=lambda x: x[1], reverse=True)
+
         # Build the standings message
         standings_message = "📊 Current standings:\n"
 
@@ -488,14 +491,14 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
             standings_message += f"🎲 {mention}: No wins yet\n"
 
         # Send the message with the standings
-        message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
+        message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2", timeout=20)
 
 
         # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
             # Pin the message
-            safe_pin_chat_message(context.bot, chat_id,message.message_id)
-        # context.bot.send_message(chat_id=chat_id, text=standings_message)
+            safe_pin_chat_message(context.bot, chat_id, message.message_id)
+
 
     context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...")
 
@@ -583,6 +586,8 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
     # Continue to the first player's turn if no Blackjack
     player_turn(update, context)
+
+
 def check_for_next_round(update: Update, context: CallbackContext, game, joined_players):
     chat_id = update.message.chat_id
     time.sleep(3)
@@ -591,7 +596,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         # Determine the overall winner (e.g., the player with the most wins)
         round_winners = RoundWinner.objects.filter(game=game)
         
-        # Find the player who won the most roundsa
+        # Find the player who won the most rounds
         winner_count = {}
         for winner in round_winners:
             if winner.winner in winner_count:
@@ -599,28 +604,38 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             else:
                 winner_count[winner.winner] = 1
 
-        if winner_count:
-            # Ensure there's a valid winner by checking for a tie or empty values
-            overall_winner = max(winner_count, key=winner_count.get)
-            
-            if overall_winner:
-                # Mark losing stats for players who are not the overall winner
-                for join_entry in joined_players:
-                    stats = Stats.objects.get(player=join_entry.player)
-                    
-                    if join_entry.player != overall_winner:
-                        stats.loses += 1  # Increment the loss count for players who did not win the game
-                        stats.save()
+        # Sort winners by the number of rounds won (descending order)
+        sorted_winners = sorted(winner_count.items(), key=lambda x: x[1], reverse=True)
 
-                # Announce the overall winner
-                context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆")
+        if sorted_winners:
+            # Ensure there's a valid winner by checking for a tie or empty values
+            max_wins = sorted_winners[0][1]
+            overall_winners = [winner for winner, wins in sorted_winners if wins == max_wins]
+            
+            if len(overall_winners) > 1:
+                # If there's more than one overall winner (including ties)
+                winners_names = ', '.join([winner.name for winner in overall_winners])
+                context.bot.send_message(chat_id=chat_id, text=f"{winners_names} tied and shared the pot! 🏆", timeout=20)
             else:
-                # Handle cases where no overall winner is found
-                context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.")
+                overall_winner = overall_winners[0]
+
+                # Check if the dealer is the overall winner
+                if overall_winner == 'dealer':
+                    context.bot.send_message(chat_id=chat_id, text="The dealer is the overall winner! 🏆", timeout=20)
+                else:
+                    # Mark losing stats for players who are not the overall winner
+                    for join_entry in joined_players:
+                        stats = Stats.objects.get(player=join_entry.player)
+
+                        if join_entry.player != overall_winner:
+                            stats.loses += 1  # Increment the loss count for players who did not win the game
+                            stats.save()
+
+                    # Announce the overall winner
+                    context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆", timeout=20)
         else:
             # Handle cases where there are no round winners at all
-            context.bot.send_message(chat_id=chat_id, text="No rounds were won by any player.")
-
+            context.bot.send_message(chat_id=chat_id, text="No rounds were won by any player.", timeout=20)
 
 
         # Fetch player round winners and dealer wins
@@ -650,6 +665,9 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             else:
                 no_wins.append((player_name, player_id))
 
+        # Sort winners by wins (descending)
+        winners = sorted(winners, key=lambda x: x[1], reverse=True)
+
         # Build the standings message
         standings_message = "📊 Current standings:\n"
 
@@ -672,14 +690,13 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             standings_message += f"🎲 {mention}: No wins yet\n"
 
         # Send the message with the standings
-        message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
+        message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2", timeout=20)
 
 
         # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
             # Pin the message
-            safe_pin_chat_message(context.bot, chat_id,message.message_id)
-        # context.bot.send_message(chat_id=chat_id, text=standings_message)
+            safe_pin_chat_message(context.bot, chat_id, message.message_id)
 
         end_game(update, context)  # Call end_game if all rounds are done
     else:
@@ -742,7 +759,7 @@ def player_turn(update: Update, context: CallbackContext):
         #     parse_mode="MarkdownV2"
         # )
             # Send the private message with the full hand and value
-        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",parse_mode="MarkdownV2")
+        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",parse_mode="MarkdownV2", timeout=20)
     else:
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
 
@@ -751,29 +768,30 @@ def player_turn(update: Update, context: CallbackContext):
         #     f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", 
         #     parse_mode="MarkdownV2"
         # )
-        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", parse_mode="MarkdownV2")
+        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", parse_mode="MarkdownV2", timeout=20)
 
 
 # Escape special characters in the player's name
 def escape_markdown_v2(text):
     return re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', text)
 
-def safe_send_message(bot, chat_id, text, timeout=20, max_retries=10):
+def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", timeout=20, max_retries=5):
     retries = 0
     while retries < max_retries:
         try:
-            bot.send_message(chat_id=chat_id, text=text, timeout=timeout, parse_mode="MarkdownV2")
+            bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, timeout=timeout)
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            time.sleep(3)  # Wait a bit before retrying
+            time.sleep(2 ** retries)  # Exponential backoff: 2, 4, 8 seconds, etc.
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
             time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
             retries += 1
-    print("Failed to send the message after retries.")
+    print(f"Failed to send the message after {max_retries} retries.")
+
 
 def hit(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -1049,7 +1067,7 @@ def end_game(update: Update, context: CallbackContext):
     try:
         game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        context.bot.send_message(chat_id=chat_id, text="No active game to end.")
+        context.bot.send_message(chat_id=chat_id, text="No active game to end.", timeout=20)
         return
 
     # Get round winners and determine the final winner

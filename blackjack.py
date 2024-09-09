@@ -454,13 +454,13 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
         # Add the dealer wins first, if any
         if dealer_wins > 0:
-            standings_message += f"🤖 Dealer: {dealer_wins} round(s) won\n"
+            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
 
         # Add players with wins
         for winner_name, wins, user_id in winners:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
             mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-            standings_message += f"🏆 {mention}: {wins} round(s) won\n"
+            standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
         # Add players with no wins
         for player_name, player_id in no_wins:
@@ -636,13 +636,13 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         # Add the dealer wins first, if any
         if dealer_wins > 0:
-            standings_message += f"🤖 Dealer: {dealer_wins} round(s) won\n"
+            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
 
         # Add players with wins
         for winner_name, wins, user_id in winners:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
             mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-            standings_message += f"🏆 {mention}: {wins} round(s) won\n"
+            standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
         # Add players with no wins
         for player_name, player_id in no_wins:

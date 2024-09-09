@@ -571,7 +571,6 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
     # Continue to the first player's turn if no Blackjack
     player_turn(update, context)
 
-
 def check_for_next_round(update: Update, context: CallbackContext, game, joined_players):
     chat_id = update.message.chat_id
     time.sleep(3)
@@ -580,14 +579,25 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         # Determine the overall winner (e.g., the player with the most wins)
         round_winners = RoundWinner.objects.filter(game=game)
         
-        # Find the player who won the most rounds
+        # Find the player or dealer who won the most rounds
         winner_count = {}
         for winner in round_winners:
-            if winner.winner in winner_count:
-                winner_count[winner.winner] += 1
-            else:
-                winner_count[winner.winner] = 1
+            if winner.winner:  # If it's a player win
+                if winner.winner in winner_count:
+                    winner_count[winner.winner] += 1
+                else:
+                    winner_count[winner.winner] = 1
 
+        # Count dealer wins
+        dealer_wins = RoundWinner.objects.filter(game=game, is_dealer=True).count()
+        
+        # Include dealer wins in the winner_count dictionary
+        if dealer_wins > 0:
+            winner_count['dealer'] = dealer_wins
+
+        # Log the winner counts for debugging
+        print(f"Winner counts (including dealer): {winner_count}")
+        
         if winner_count:
             # Determine the overall winner (or check for a tie)
             max_wins = max(winner_count.values())
@@ -596,22 +606,21 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             if len(overall_winners) == 1:
                 # One clear winner
                 overall_winner = overall_winners[0]
-                if overall_winner:
+                
+                if overall_winner == 'dealer':
+                    context.bot.send_message(chat_id=chat_id, text="The dealer is the overall winner of the game! 🏆", timeout=20)
+                else:
                     context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆", timeout=20)
+                    
             elif len(overall_winners) > 1:
                 # Multiple winners (tie)
-                winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" for winner in overall_winners])
+                winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
                 context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot! 🏆", parse_mode="MarkdownV2", timeout=20)
         else:
-            # Check if the dealer won (since no player won any rounds)
-            dealer_wins = RoundWinner.objects.filter(game=game, is_dealer=True).count()
-            if dealer_wins > 0:
-                context.bot.send_message(chat_id=chat_id, text="The dealer is the overall winner of the game! 🏆", timeout=20)
-            else:
-                context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.", timeout=20)
+            context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.", timeout=20)
 
 
-        # Fetch player round winners and dealer wins
+        # Fetch player round winners and dealer wins for standings
         bot_member = context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
 
         round_winners = RoundWinner.objects.filter(game=game, is_dealer=False)
@@ -648,7 +657,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         if dealer_wins > 0:
             standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
         else:
-            standings_message += f"🤖 Dealer: {dealer_wins} No wins yet\n"
+            standings_message += f"🤖 Dealer: No wins yet\n"
 
         # Add players with wins
         for winner_name, wins, user_id in winners:
@@ -665,7 +674,6 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         # Send the message with the standings
         message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2", timeout=20)
 
-
         # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
             # Pin the message
@@ -679,8 +687,6 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         time.sleep(3)
         start_round(update, context, game, joined_players)
-
-
 
 
 

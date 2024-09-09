@@ -1011,26 +1011,24 @@ def dealer_turn(update: Update, context: CallbackContext):
             elif player_hand_value == highest_valid_score:
                 round_winners.append(join_entry.player)
 
-    # Dealer wins if no players beat the dealer or all players busted
     if not round_winners:
-if not round_winners:
-    time.sleep(2)
-
-    safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
-    RoundWinner.objects.create(game=game, round_number=game.current_round, is_dealer=True)
-else:
-    for winner in round_winners:
         time.sleep(2)
-        try:
-            # Try to tag winner using their name
-            mention = f"[{winner.name}](tg://user?id={winner.id})"
-        except Exception as e:
-            # Fallback to just using the player's name if tagging fails
-            mention = winner.name
-            print(f"Error tagging player {winner.name}: {str(e)}")  # Log the error for debugging
 
-        safe_send_message_dealer(context.bot, chat_id, f"{mention} wins🥇 this round with a hand of {highest_valid_score}\\!")
-        RoundWinner.objects.create(game=game, round_number=game.current_round, winner=winner)
+        safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
+        RoundWinner.objects.create(game=game, round_number=game.current_round, is_dealer=True)
+    else:
+        for winner in round_winners:
+            time.sleep(2)
+            try:
+                # Try to tag winner using their name
+                mention = f"[{winner.name}](tg://user?id={winner.id})"
+            except Exception as e:
+                # Fallback to just using the player's name if tagging fails
+                mention = winner.name
+                print(f"Error tagging player {winner.name}: {str(e)}")  # Log the error for debugging
+
+            safe_send_message_dealer(context.bot, chat_id, f"{mention} wins🥇 this round with a hand of {highest_valid_score}\\!")
+            RoundWinner.objects.create(game=game, round_number=game.current_round, winner=winner)
 
     # Announce the round winner before starting the next round
     if not round_winners:

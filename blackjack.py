@@ -570,7 +570,6 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
     # Continue to the first player's turn if no Blackjack
     player_turn(update, context)
-
 def check_for_next_round(update: Update, context: CallbackContext, game, joined_players):
     chat_id = update.message.chat_id
     time.sleep(3)
@@ -608,7 +607,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
                 overall_winner = overall_winners[0]
                 
                 if overall_winner == 'dealer':
-                    context.bot.send_message(chat_id=chat_id, text="The dealer is the overall winner of the game! 🏆", timeout=20)
+                    context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game! 🏆", timeout=20)
                 else:
                     context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆", timeout=20)
                     
@@ -619,6 +618,8 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         else:
             context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.", timeout=20)
 
+        # Call the end_game function to finalize the game
+        end_game(update, context)  # Ensure end_game is called after determining the winner
 
         # Fetch player round winners and dealer wins for standings
         bot_member = context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
@@ -679,7 +680,6 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             # Pin the message
             safe_pin_chat_message(context.bot, chat_id, message.message_id)
 
-        end_game(update, context)  # Call end_game if all rounds are done
     else:
         # Prepare for the next round
         game.hands_reset = False
@@ -687,7 +687,6 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         time.sleep(3)
         start_round(update, context, game, joined_players)
-
 
 
 # Function to start player's turn in a specific round

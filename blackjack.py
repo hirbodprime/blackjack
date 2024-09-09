@@ -457,19 +457,20 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
             standings_message += f"🤖 Dealer: {dealer_wins} round(s) won\n"
 
         # Add players with wins
-        for winner_name, wins,user_id in winners:
+        for winner_name, wins, user_id in winners:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
             mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-
             standings_message += f"🏆 {mention}: {wins} round(s) won\n"
 
         # Add players with no wins
-        for player_name,player_id in no_wins:
+        for player_name, player_id in no_wins:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
             mention = f"[{user_name_escaped}](tg://user?id={player_id})"
             standings_message += f"🎲 {mention}: No wins yet\n"
+
         # Send the message with the standings
-        message = context.bot.send_message(chat_id=chat_id, text=standings_message)
+        message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
+
 
         # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
@@ -638,20 +639,20 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             standings_message += f"🤖 Dealer: {dealer_wins} round(s) won\n"
 
         # Add players with wins
-        for winner_name, wins,user_id in winners:
+        for winner_name, wins, user_id in winners:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
             mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-
             standings_message += f"🏆 {mention}: {wins} round(s) won\n"
 
         # Add players with no wins
-        for player_name,player_id in no_wins:
+        for player_name, player_id in no_wins:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
             mention = f"[{user_name_escaped}](tg://user?id={player_id})"
             standings_message += f"🎲 {mention}: No wins yet\n"
 
         # Send the message with the standings
-        message = context.bot.send_message(chat_id=chat_id, text=standings_message)
+        message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
+
 
         # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:

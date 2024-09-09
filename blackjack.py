@@ -396,6 +396,24 @@ def force_start(update: Update, context: CallbackContext):
     # Proceed to the first round
     start_round(update, context, game, joined_players)
 # Function to start each round
+def safe_pin_chat_message(bot, chat_id, message_id, timeout=20, max_retries=3):
+    retries = 0
+    while retries < max_retries:
+        try:
+            bot.pin_chat_message(chat_id=chat_id, message_id=message_id, timeout=timeout)
+            return  # Exit the loop if successful
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while pinning message. Retrying {retries}/{max_retries}...")
+            time.sleep(2 ** retries)  # Exponential backoff
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Rate limit exceeded. Retrying in {retry_after} seconds...")
+            time.sleep(retry_after)  # Wait for the retry after time
+            retries += 1
+
+    print("Failed to pin message after multiple retries.")
+
 def start_round(update: Update, context: CallbackContext, game, joined_players):
     chat_id = update.message.chat_id
 
@@ -423,12 +441,13 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
         for player in joined_players:
             player_name = player.player.name
+            player_id = player.player.id
             wins = winner_count.get(player.player, 0)
 
             if wins > 0:
-                winners.append((player_name, wins))
+                winners.append((player_name, wins, player_id))
             else:
-                no_wins.append(player_name)
+                no_wins.append(player_name, player_id)
 
         # Build the standings message
         standings_message = "📊 Current standings:\n"
@@ -438,20 +457,24 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
             standings_message += f"🤖 Dealer: {dealer_wins} round(s) won\n"
 
         # Add players with wins
-        for winner_name, wins in winners:
-            standings_message += f"🏆 {winner_name}: {wins} round(s) won\n"
+        for winner_name, wins,user_id in winners:
+            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
+            mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+
+            standings_message += f"🏆 {mention}: {wins} round(s) won\n"
 
         # Add players with no wins
-        for player_name in no_wins:
-            standings_message += f"🎲 {player_name}: No wins yet\n"
-
+        for player_name,player_id in no_wins:
+            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
+            mention = f"[{user_name_escaped}](tg://user?id={player_id})"
+            standings_message += f"🎲 {mention}: No wins yet\n"
         # Send the message with the standings
         message = context.bot.send_message(chat_id=chat_id, text=standings_message)
 
         # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
             # Pin the message
-            context.bot.pin_chat_message(chat_id=chat_id, message_id=message.message_id)
+            safe_pin_chat_message(context.bot, chat_id,message.message_id)
         # context.bot.send_message(chat_id=chat_id, text=standings_message)
 
     context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...")
@@ -599,12 +622,13 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         for player in joined_players:
             player_name = player.player.name
+            player_id = player.player.id
             wins = winner_count.get(player.player, 0)
 
             if wins > 0:
-                winners.append((player_name, wins))
+                winners.append((player_name, wins, player_id))
             else:
-                no_wins.append(player_name)
+                no_wins.append(player_name, player_id)
 
         # Build the standings message
         standings_message = "📊 Current standings:\n"
@@ -614,12 +638,17 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             standings_message += f"🤖 Dealer: {dealer_wins} round(s) won\n"
 
         # Add players with wins
-        for winner_name, wins in winners:
-            standings_message += f"🏆 {winner_name}: {wins} round(s) won\n"
+        for winner_name, wins,user_id in winners:
+            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
+            mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+
+            standings_message += f"🏆 {mention}: {wins} round(s) won\n"
 
         # Add players with no wins
-        for player_name in no_wins:
-            standings_message += f"🎲 {player_name}: No wins yet\n"
+        for player_name,player_id in no_wins:
+            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
+            mention = f"[{user_name_escaped}](tg://user?id={player_id})"
+            standings_message += f"🎲 {mention}: No wins yet\n"
 
         # Send the message with the standings
         message = context.bot.send_message(chat_id=chat_id, text=standings_message)
@@ -627,7 +656,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
             # Pin the message
-            context.bot.pin_chat_message(chat_id=chat_id, message_id=message.message_id)
+            safe_pin_chat_message(context.bot, chat_id,message.message_id)
         # context.bot.send_message(chat_id=chat_id, text=standings_message)
 
         end_game(update, context)  # Call end_game if all rounds are done
@@ -774,13 +803,13 @@ def hit(update: Update, context: CallbackContext):
 
     # Check for bust or 21
     if hand_value == 21:
-        safe_send_message(context.bot, chat_id, f"{user_name} reached 21\\! They automatically stand\\.")
+        safe_send_message(context.bot, chat_id, f"{mention} reached 21\\! They automatically stand\\.")
         next_player_turn(update, context)
     elif hand_value > 21:
-        safe_send_message(context.bot, chat_id, f"{user_name} busted with a total of {hand_value}\\.")
+        safe_send_message(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\.")
         next_player_turn(update, context)
     else:
-        safe_send_message(context.bot, chat_id, "Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
+        safe_send_message(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
 
 
 def stand(update: Update, context: CallbackContext):
@@ -836,7 +865,7 @@ def safe_send_message_next_player_turn(bot, chat_id, text, timeout=20, max_retri
     retries = 0
     while retries < max_retries:
         try:
-            bot.send_message(chat_id=chat_id, text=text, timeout=timeout)
+            bot.send_message(chat_id=chat_id, text=text, timeout=timeout, parse_mode="MarkdownV2")
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
@@ -862,9 +891,11 @@ def next_player_turn(update: Update, context: CallbackContext):
     if game.turn_order:
         next_player_id = game.turn_order[0]
         next_player = Player.objects.get(id=next_player_id)
-        
+        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', next_player.name)
+
+        mention = f"[{user_name_escaped}](tg://user?id={next_player_id})"
         # context.bot.send_message(chat_id=chat_id, text=f"{next_player.name}, it's your turn! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand.")
-        safe_send_message_next_player_turn(context.bot, chat_id, f"{next_player.name}, it's your turn! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand.")
+        safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
 
     else:
         # All players have finished their turns, now it's the dealer's turn
@@ -888,7 +919,7 @@ def safe_send_message_dealer(bot, chat_id, text, timeout=20, max_retries=5):  # 
     retries = 0
     while retries < max_retries:
         try:
-            bot.send_message(chat_id=chat_id, text=text, timeout=timeout)
+            bot.send_message(chat_id=chat_id, text=text, timeout=timeout, parse_mode="MarkdownV2")
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
@@ -903,10 +934,10 @@ def dealer_turn(update: Update, context: CallbackContext):
     try:
         game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
+        safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started\\.")
         return
     time.sleep(2)
-    safe_send_message_dealer(context.bot, chat_id, "Dealer's turn...")
+    safe_send_message_dealer(context.bot, chat_id, "Dealer's turn\\.\\.\\.")
 
     dealer_hand = game.dealer_hand
     dealer_value = calculate_hand_value(dealer_hand)
@@ -917,16 +948,16 @@ def dealer_turn(update: Update, context: CallbackContext):
         dealer_hand.append(new_card)
         dealer_value = calculate_hand_value(dealer_hand)
         time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"Dealer draws a 🂾{new_card}. Dealer's hand: {dealer_hand}")
+        safe_send_message_dealer(context.bot, chat_id, f"Dealer draws a 🂾{new_card}\\. Dealer's hand: {dealer_hand}")
 
     # If dealer busts (> 21)
     if dealer_value > 21:
         time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"Dealer busts with a total of {dealer_value}!❌")
+        safe_send_message_dealer(context.bot, chat_id, f"Dealer busts with a total of {dealer_value}\\!❌")
         dealer_busted = True
     else:
         time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"Dealer stands with a total of {dealer_value}.")
+        safe_send_message_dealer(context.bot, chat_id, f"Dealer stands with a total of {dealer_value}\\.")
         dealer_busted = False
 
     # Save the updated dealer hand
@@ -959,14 +990,13 @@ def dealer_turn(update: Update, context: CallbackContext):
     if not round_winners:
         time.sleep(2)
 
-        safe_send_message_dealer(context.bot, chat_id, "Dealer wins🥇 this round!")
+        safe_send_message_dealer(context.bot, chat_id, "Dealer wins🥇 this round\\!")
         RoundWinner.objects.create(game=game, round_number=game.current_round, is_dealer=True)
     else:
         for winner in round_winners:
             time.sleep(2)
             safe_send_message_dealer(context.bot, chat_id, f"{winner.name} wins🥇 this round with a hand of {highest_valid_score}!")
             RoundWinner.objects.create(game=game, round_number=game.current_round, winner=winner)
-
     # Announce the round winner before starting the next round
     if not round_winners:
         time.sleep(2)

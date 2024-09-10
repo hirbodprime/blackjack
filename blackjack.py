@@ -931,14 +931,14 @@ def reset_timer(chat_id, callback, seconds):
     cancel_timer(chat_id)  # Cancel any existing timer
     start_timer(chat_id, callback, seconds)  # Start a new timer
 
-def send_reminder(chat_id, context, user_id, username):
+def send_reminder(update: Update, context: CallbackContext,chat_id, user_id, username):
     global timer_state
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', username)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!", parse_mode='MarkdownV2')
     time.sleep(10)
     timer_state[chat_id] = 'continue'
-    auto_stand(chat_id)
+    auto_stand(update,context ,chat_id)
 
 def player_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -963,7 +963,7 @@ def player_turn(update: Update, context: CallbackContext):
 
     # Set up and start the timers for the current player
     reset_timer(chat_id, auto_stand, 30.0)
-    reset_timer(chat_id, lambda chat_id: send_reminder(chat_id, context, current_player_id, current_player.name), 20.0)
+    reset_timer(chat_id, lambda chat_id: send_reminder(context,update,chat_id, current_player_id, current_player.name), 20.0)
 
     if update.message.from_user.id == current_player_id:
         user_name_escaped = escape_markdown_v2(current_player.name)
@@ -994,7 +994,7 @@ def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", timeout=20, m
             retries += 1
     print(f"Failed to send the message after {max_retries} retries.")
 
-def auto_stand(chat_id):
+def auto_stand(update: Update, context: CallbackContext,chat_id):
     global current_timer, timer_state
 
     # Check if timer is still active

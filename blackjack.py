@@ -379,7 +379,7 @@ def force_start(update: Update, context: CallbackContext):
     if dealer:
         dealer.chips -= game.bet_amount
         dealer.save()
-        context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer is in the game with {game.bet_amount} chips on the table\\.",
+        context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer is in the game with {game.bet_amount} 💰chips on the table\\.",
             parse_mode="MarkdownV2", timeout=20)
     # Deduct the bet amount from each player's chips
     for join_entry in joined_players:
@@ -761,6 +761,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             # Pin the message
             safe_pin_chat_message(context.bot, chat_id, message.message_id)
             
+        Game.objects.filter(chat_id=chat_id).delete()
         context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.", timeout=20)
 
     else:
@@ -1210,7 +1211,6 @@ def end_game(update: Update, context: CallbackContext):
     game.join_time = False
     game.save()
     # RoundWinner.objects.filter(game=game, rounds_ended=False).update(rounds_ended=True)
-    Game.objects.filter(chat_id=chat_id).delete()
 
         
 def reset_round_state(game):

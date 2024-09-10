@@ -894,10 +894,11 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
 
 timers = {}
-def send_reminder(chat_id, context, user_id):
-    mention = f"[user](tg://user?id={user_id})"
+def send_reminder(chat_id, context, user_id,username):
+    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', username)
+    mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!", parse_mode='MarkdownV2')
-
+    
 def player_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
 
@@ -923,7 +924,7 @@ def player_turn(update: Update, context: CallbackContext):
 
     # Set up and start the timer for the current player
     auto_stand_timer = threading.Timer(30.0, auto_stand, [chat_id, current_player_id, current_player.name, context, update.message.chat.type])
-    reminder_timer = threading.Timer(20.0, send_reminder, [chat_id, context, current_player_id])
+    reminder_timer = threading.Timer(20.0, send_reminder, [chat_id, context, current_player_id,current_player.name])
 
     auto_stand_timer.start()
     reminder_timer.start()
@@ -979,7 +980,17 @@ def auto_stand(chat_id, current_player_id, current_player_name, context, chat_ty
     # Create the Update object with the Message
     update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
 
+    # Cancel the timers if they exist
+    if chat_id in timers:
+        # Access and cancel individual timers
+        if 'auto_stand' in timers[chat_id]:
+            timers[chat_id]['auto_stand'].cancel()
+        if 'reminder' in timers[chat_id]:
+            timers[chat_id]['reminder'].cancel()
+        del timers[chat_id]
+
     stand(update, context)
+
 
 def hit(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id

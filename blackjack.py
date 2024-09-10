@@ -33,7 +33,7 @@ def check_join_time(update: Update, context: CallbackContext, game_id):
             elapsed_time = timezone.now() - game.join_start_time
             if elapsed_time.total_seconds() > 120:
                 # Automatically start the game if join time exceeds 120 seconds
-                force_start(update, context)
+                force_start(update, context,game.chat_id)
     except Game.DoesNotExist:
         print("Game not found for chat_id:", game_id)
 
@@ -43,7 +43,7 @@ def send_time_left_reminder(update: Update, context: CallbackContext, game_id):
         
         if game.join_start_time and not game.started:
             elapsed_time = timezone.now() - game.join_start_time
-            remaining_time = 120 - elapsed_time.total_seconds()
+            remaining_time = 12 - elapsed_time.total_seconds()
             
             if remaining_time > 0:
                 # Send message about remaining time
@@ -53,7 +53,7 @@ def send_time_left_reminder(update: Update, context: CallbackContext, game_id):
                     text=message,
                 )
                 # Schedule the next reminder
-                threading.Timer(30, send_time_left_reminder, args=(update, context,game_id)).start()
+                threading.Timer(30, send_time_left_reminder, args=(update, context, game_id)).start()
             else:
                 # Time has run out
                 context.bot.send_message(
@@ -382,7 +382,7 @@ def poll_answer_handler(update: Update, context: CallbackContext):
 
         # Start threads with proper arguments
         threading.Thread(target=check_join_time, args=(update, context, game.chat_id), daemon=True).start()
-        threading.Thread(target=send_time_left_reminder, args=(update, context,game.chat_id), daemon=True).start()
+        threading.Thread(target=send_time_left_reminder, args=(update, context, game.chat_id), daemon=True).start()
 
         context.bot.send_message(
             chat_id=chat_id,
@@ -465,9 +465,11 @@ def join_blackjack(update: Update, context: CallbackContext):
         parse_mode="MarkdownV2", timeout=20
     )
 
-def force_start(update: Update, context: CallbackContext):
-    chat_id = update.message.chat_id
-
+def force_start(update: Update, context: CallbackContext,game_chat_id=None):
+    try:
+        chat_id = update.message.chat_id
+    except:
+        chat_id = game_chat_id
     
     try:
         # First, try to find a game that is in the join time, not started, and not ended.

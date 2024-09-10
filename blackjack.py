@@ -894,6 +894,21 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
 
 timers = {}
+
+def start_timer(chat_id, callback, seconds):
+    # Cancel any existing timer for this chat_id
+    if chat_id in timers:
+        timers[chat_id].cancel()
+    
+    # Create and start a new timer
+    timers[chat_id] = Timer(seconds, callback)
+    timers[chat_id].start()
+
+def cancel_timer(chat_id):
+    # Cancel the timer if it exists
+    if chat_id in timers:
+        timers[chat_id].cancel()
+        del timers[chat_id]
 def send_reminder(chat_id, context, user_id,username):
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', username)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
@@ -1021,10 +1036,13 @@ def hit(update: Update, context: CallbackContext):
         update.message.reply_text("It's not your turn!")
         return
 
-    # Cancel the existing timer if the player makes a move
+    print(f"Timers dictionary: {timers}")
+
     if chat_id in timers:
-        timers[chat_id].cancel()
-        del timers[chat_id]
+        if isinstance(timers[chat_id], Timer):
+            timers[chat_id].cancel()
+        else:
+            print(f"Expected Timer, but found: {type(timers[chat_id])}")
 
     new_card = deal_card()
     join_game.hand.append(new_card)
@@ -1043,9 +1061,11 @@ def hit(update: Update, context: CallbackContext):
         stats = Stats.objects.get(player=join_game.player)
         stats.how_many_21 += 1
         stats.save()
+        time.sleep(2)
         safe_send_message(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
         next_player_turn(update, context)
     elif hand_value > 21:
+        time.sleep(2)
         safe_send_message(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\.")
         next_player_turn(update, context)
     else:
@@ -1096,6 +1116,7 @@ def stand(update: Update, context: CallbackContext):
 
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
+    time.sleep(3)
     safe_send_message(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
 
     next_player_turn(update, context)

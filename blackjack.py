@@ -932,9 +932,13 @@ def reset_timer(chat_id, callback, seconds):
     start_timer(chat_id, callback, seconds)  # Start a new timer
 
 def send_reminder(chat_id, context, user_id, username):
+    global timer_state
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', username)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!", parse_mode='MarkdownV2')
+    time.sleep(10)
+    timer_state[chat_id] = 'continue'
+    auto_stand(chat_id)
 
 def player_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id

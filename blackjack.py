@@ -1,4 +1,4 @@
-from telegram import Update, Bot,ParseMode,User,Message,Chat
+from telegram import Update, Bot,ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext,PollAnswerHandler
 from telegram.error import TimedOut,RetryAfter,Unauthorized
 
@@ -43,7 +43,6 @@ def send_time_left_reminder(update: Update, context: CallbackContext, game_id):
         game = Game.objects.get(chat_id=game_id)
         
         if game.join_start_time and not game.started:
-            time.sleep(3)
             elapsed_time = timezone.now() - game.join_start_time
             remaining_time = 120 - elapsed_time.total_seconds()
             
@@ -379,13 +378,12 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         
         context.bot.send_message(
             chat_id=chat_id,
-            text=f"{mention} has set the bet amount to {chosen_option}\n", 
+            text=f"{mention} has set the bet amount to {chosen_option}\nUse /join to join the game", 
             parse_mode="MarkdownV2", 
             timeout=20
         )
         game.join_start_time = timezone.now()
         game.save()
-        time.sleep(3)
         # Start threads with proper arguments
         threading.Thread(target=check_join_time, args=(update, context, game.chat_id), daemon=True).start()
         threading.Thread(target=send_time_left_reminder, args=(update, context, game.chat_id), daemon=True).start()
@@ -472,7 +470,6 @@ def join_blackjack(update: Update, context: CallbackContext):
     )
 
 def force_start(update: Update, context: CallbackContext,game_chat_id=None):
-    time.sleep(2)
     try:
         chat_id = update.message.chat_id
     except:
@@ -612,7 +609,6 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
         # Build the standings message
         standings_message = "📊 Current standings:\n"
-        time.sleep(2)
 
         # Add the dealer wins first, if any
         if dealer_wins > 0:
@@ -641,7 +637,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
             # Pin the message
             safe_pin_chat_message(context.bot, chat_id, message.message_id)
 
-    time.sleep(3)
+
     context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...",timeout=20)
     time.sleep(3)
 
@@ -672,7 +668,6 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
     game.save()
 
     # Show only one dealer card
-    time.sleep(2)
     context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible card: ♠️{dealer_hand[0]}",timeout=20)
 
     # Check for dealer
@@ -865,7 +860,6 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
         standings_message = "📊 Current standings:\n"
-        time.sleep(2)
 
         if dealer_wins > 0:
             standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
@@ -897,83 +891,53 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         time.sleep(3)
         start_round(update, context, game, joined_players)
-timer_state = {}
-current_timer = {}
 
-def start_timer(chat_id, callback, seconds):
-    global current_timer, timer_state
 
-    print(f"Starting timer for chat_id {chat_id}")
-    if chat_id in timer_state and timer_state[chat_id] == 'continue' and chat_id in current_timer:
-        print(f"Cancelling existing Timer for chat_id {chat_id}")
-        current_timer[chat_id].cancel()  # Cancel existing Timer
-    
-    # Create and start a new Timer
-    timer_state[chat_id] = 'reset'
-    current_timer[chat_id] = threading.Timer(seconds, callback, [chat_id])
-    current_timer[chat_id].start()
-    timer_state[chat_id] = 'continue'
-    print(f"Timer started for chat_id {chat_id}: {current_timer[chat_id]}")
 
-def cancel_timer(chat_id):
-    global timer_state, current_timer
-
-    if chat_id in timer_state and timer_state[chat_id] == 'continue' and chat_id in current_timer:
-        print(f"Cancelling Timer for chat_id {chat_id}")
-        current_timer[chat_id].cancel()  # Cancel Timer
-        timer_state[chat_id] = 'stop'
-        del current_timer[chat_id]  # Remove from dictionary to avoid confusion
-        print(f"Timer cancelled for chat_id {chat_id}")
-    else:
-        print(f"No active timer to cancel for chat_id {chat_id}")
-
-def reset_timer(chat_id, callback, seconds):
-    cancel_timer(chat_id)  # Cancel any existing timer
-    start_timer(chat_id, callback, seconds)  # Start a new timer
-
-def send_reminder(update: Update, context: CallbackContext,chat_id, user_id, username):
-    global timer_state
-    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', username)
-    mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-    context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!", parse_mode='MarkdownV2')
-    time.sleep(10)
-    timer_state[chat_id] = 'continue'
-    auto_stand(update,context ,chat_id,user_id,username)
-
+# Function to start player's turn in a specific round
 def player_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
 
     try:
+        # Fetch the active game in the chat
         game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
         update.message.reply_text("No active game or the game has not started.")
         return
 
+    # Get the players in turn order for the current game
     players_in_game = JoinGame.objects.filter(game=game, is_active=True).order_by('id')
     
+    # Check if turn order exists, initialize if not
     if not game.turn_order or game.current_round > 1:
         game.turn_order = list(players_in_game.values_list('player__id', flat=True))
         game.save()
 
+
+    # Get the current player from the turn order
     current_player_id = game.turn_order[0]
     current_player = Player.objects.get(id=current_player_id)
 
-    # Cancel previous timers if they exist
-    cancel_timer(chat_id)
-
-    # Set up and start the timers for the current player
-    reset_timer(chat_id, auto_stand, 30.0)
-    reset_timer(chat_id, lambda chat_id: send_reminder(update,context,chat_id, current_player_id, current_player.name), 20.0)
-
+    # Notify the current player it is their turn
     if update.message.from_user.id == current_player_id:
-        user_name_escaped = escape_markdown_v2(current_player.name)
-        mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.\n\nyou have 30 seconds to make a decision or\n\n you will automatically stand\\!", parse_mode="MarkdownV2")
-    else:
-        user_name_escaped = escape_markdown_v2(current_player.name)
-        mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.\n\nyou have 30 seconds to make a decision or it will automatically stand\\!", parse_mode="MarkdownV2")
 
+        # Escape special characters in the user's name
+        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
+
+        mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
+
+        time.sleep(2)
+        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",parse_mode="MarkdownV2", timeout=20)
+    else:
+        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
+
+        mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
+
+        time.sleep(2)
+        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", parse_mode="MarkdownV2", timeout=20)
+
+
+# Escape special characters in the player's name
 def escape_markdown_v2(text):
     return re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', text)
 
@@ -994,34 +958,6 @@ def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", timeout=20, m
             retries += 1
     print(f"Failed to send the message after {max_retries} retries.")
 
-def auto_stand(update: Update, context: CallbackContext,chat_id,user_id,username):
-    global current_timer, timer_state
-
-    # Check if timer is still active
-    if chat_id in timer_state and timer_state[chat_id] == 'continue':
-        print(f"Auto-standing for chat_id {chat_id}")
-        context.bot.send_message(chat_id=chat_id, text="Time's up! Your turn is now considered a stand.")
-        
-        # Create a Chat object with dynamic type
-        chat = Chat(id=chat_id, type='group')  # Adjust type as needed
-
-        # Create a Message object
-        message = Message(
-            message_id=0,  # Dummy values; adjust as needed
-            from_user=User(id=0, first_name="", is_bot=False),
-            chat=chat,
-            date=datetime.datetime.now(),  # Replace with actual date if necessary
-            text=""  # Empty text, as it's not used here
-        )
-        
-        # Create the Update object with the Message
-        update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
-
-        # Call stand function
-        stand(update, context,user_id,username)
-    else:
-        print(f"No active timer or timer state is not 'continue' for chat_id {chat_id}")
-
 
 def hit(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -1040,95 +976,102 @@ def hit(update: Update, context: CallbackContext):
         update.message.reply_text(f"{user_name}, please start the bot in private first.")
         return
 
+    # Get the current player's game record
     try:
         join_game = JoinGame.objects.get(player=player, game=game, is_active=True)
     except JoinGame.DoesNotExist:
         update.message.reply_text("You are not part of the game.")
         return
 
+    # Check if it's the player's turn
     if user_id != game.turn_order[0]:
         update.message.reply_text("It's not your turn!")
         return
 
-    print(f"Timers dictionary: {current_timer}")
-
-    cancel_timer(chat_id)
-
+    # Add a card to the player's hand
     new_card = deal_card()
     join_game.hand.append(new_card)
     join_game.save()
 
+    # Escape special characters in the user's name
+    import re
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
+
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+    # Use safe_send_message to send messages safely
+
     safe_send_message(context.bot, chat_id, f"{mention} drew: {new_card}")
 
+    # Calculate the hand value and send it privately to the player
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
 
     safe_send_message(context.bot, user_id, f"Your full hand: {player_hand}\\. Total value: {hand_value}")
 
+    # Check for bust or 21
     if hand_value == 21:
-        stats = Stats.objects.get(player=join_game.player)
+        time.sleep(3)
+        stats =  Stats.objects.get(player=join_game.player)
         stats.how_many_21 += 1
         stats.save()
-        time.sleep(2)
         safe_send_message(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
         next_player_turn(update, context)
     elif hand_value > 21:
-        time.sleep(2)
+        time.sleep(3)
         safe_send_message(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\.")
         next_player_turn(update, context)
     else:
-        player_turn(update, context)
+        time.sleep(3)
+        safe_send_message(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
 
-def stand(update: Update, context: CallbackContext,user_id=None,user_name=None):
+
+def stand(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
-    if not user_id:
-        user_id = update.message.from_user.id
-    if not user_name:
-        user_name = update.message.from_user.first_name
-    
-    
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+
     try:
         game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        context.bot.send_message(chat_id=chat_id, text="No active game or the game has not started.")
+        update.message.reply_text("No active game or the game has not started.")
         return
 
     try:
         player = Player.objects.get(id=user_id)
     except Player.DoesNotExist:
-        context.bot.send_message(chat_id=chat_id, text=f"{user_name}, please start the bot in private first.")
-        # update.message.reply_text(f"{user_name}, please start the bot in private first.")
+        update.message.reply_text(f"{user_name}, please start the bot in private first.")
         return
 
+    # Get current player's game record
     try:
         join_game = JoinGame.objects.get(player=player, game=game, is_active=True)
     except JoinGame.DoesNotExist:
-        # update.message.reply_text("You are not part of the game.")
-        context.bot.send_message(chat_id=chat_id, text="You are not part of the game.")
-
+        update.message.reply_text("You are not part of the game.")
         return
 
+    # Check if it's the player's turn
     if user_id != game.turn_order[0]:
-        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
-        mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-        context.bot.send_message(chat_id=chat_id, text=f"{mention} It's not your turn\\!")
+        update.message.reply_text("It's not your turn!")
         return
 
-    # Cancel the existing timers if they exist
-    cancel_timer(chat_id)
-
+    # Escape special characters in the user's name
+    import re
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
+
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+    # Use safe_send_message to send messages safely
     safe_send_message(context.bot, chat_id, f"{mention} has chosen to stand\\.")
 
+    # Send the private message with the full hand and value
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
-    time.sleep(3)
-    safe_send_message(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand} with a total value of {hand_value}\\.")
+    time.sleep(2)
 
+    safe_send_message(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
+
+    # Move to the next player's turn
     next_player_turn(update, context)
+
 
 # Function to move to the next player's turn
 # Move to the next player's turn by removing the current player from the turn order

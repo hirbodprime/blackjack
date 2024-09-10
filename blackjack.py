@@ -1,4 +1,4 @@
-from telegram import Update, Bot,ParseMode
+from telegram import Update, Bot,ParseMode,User
 from telegram.ext import Updater, CommandHandler, CallbackContext,PollAnswerHandler
 from telegram.error import TimedOut,RetryAfter,Unauthorized
 
@@ -920,15 +920,15 @@ def player_turn(update: Update, context: CallbackContext):
     timer = threading.Timer(20.0, auto_stand, [chat_id, current_player_id, context])
     timer.start()
     timers[chat_id] = timer
-
+    
     if update.message.from_user.id == current_player_id:
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.", parse_mode="MarkdownV2")
+        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.\n\nyou have 20 second to make a decision or it will automaticly stand\\!", parse_mode="MarkdownV2")
     else:
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", parse_mode="MarkdownV2")
+        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.\n\nyou have 20 second to make a decision or it will automaticly stand\\!", parse_mode="MarkdownV2")
 
 def auto_stand(chat_id, current_player_id, context):
     # Automatically call the stand function if the timer expires

@@ -1,4 +1,4 @@
-from telegram import Update, Bot,ParseMode,User
+from telegram import Update, Bot,ParseMode,User,Message
 from telegram.ext import Updater, CommandHandler, CallbackContext,PollAnswerHandler
 from telegram.error import TimedOut,RetryAfter,Unauthorized
 
@@ -930,15 +930,23 @@ def player_turn(update: Update, context: CallbackContext):
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
         context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.\n\nyou have 20 second to make a decision or it will automaticly stand\\!", parse_mode="MarkdownV2")
 
-def auto_stand(chat_id, current_player_id,current_player_name,context):
+def auto_stand(chat_id, current_player_id, current_player_name, context):
     # Automatically call the stand function if the timer expires
     context.bot.send_message(chat_id=chat_id, text="Time's up! Your turn is now considered a stand.")
-    # Simulate the player choosing to stand
-    current_user = User(id=current_player_id,first_name=current_player_name,is_bot=False)
-    update = Update(message=Update.message(chat_id=chat_id, from_user=current_user))
+    
+    # Create a dummy Message object
+    message = Message(
+        message_id=0,  # Dummy values; adjust as needed
+        from_user=User(id=current_player_id, first_name=current_player_name, is_bot=False),
+        chat_id=chat_id,
+        date=datetime.datetime.now(),  # Replace with actual date if necessary
+        text=""  # Empty text, as it's not used here
+    )
+    
+    # Create the Update object with the Message
+    update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
 
     stand(update, context)
-
 # Escape special characters in the player's name
 def escape_markdown_v2(text):
     return re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', text)

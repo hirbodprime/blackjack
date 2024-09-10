@@ -897,19 +897,31 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 timers = {}
 
 def start_timer(chat_id, callback, seconds):
-    # Cancel any existing timer for this chat_id
     if chat_id in timers:
-        timers[chat_id].cancel()
+        current_timer = timers[chat_id]
+        if isinstance(current_timer, Timer):
+            print(f"Cancelling existing Timer for chat_id {chat_id}")
+            current_timer.cancel()
+        else:
+            print(f"Error: Expected Timer but found {type(current_timer)}")
     
-    # Create and start a new timer
-    timers[chat_id] = Timer(seconds, callback)
-    timers[chat_id].start()
+    new_timer = Timer(seconds, callback)
+    timers[chat_id] = new_timer
+    print(f"Starting new Timer for chat_id {chat_id}")
+    new_timer.start()
 
 def cancel_timer(chat_id):
-    # Cancel the timer if it exists
     if chat_id in timers:
-        timers[chat_id].cancel()
-        del timers[chat_id]
+        timer = timers[chat_id]
+        if isinstance(timer, Timer):
+            print(f"Cancelling Timer for chat_id {chat_id}")
+            timer.cancel()
+            del timers[chat_id]
+        else:
+            print(f"Error: Expected Timer but found {type(timer)}")
+    else:
+        print(f"No timer found for chat_id {chat_id}")
+
 def send_reminder(chat_id, context, user_id,username):
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', username)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
@@ -1038,7 +1050,7 @@ def hit(update: Update, context: CallbackContext):
         return
 
     print(f"Timers dictionary: {timers}")
-    
+
     cancel_timer(chat_id)
 
 

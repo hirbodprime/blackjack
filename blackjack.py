@@ -586,9 +586,10 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
 
 
-
-
 def update_statistics(winners, dealer_wins, joined_players):
+    # Initialize a list for non-winners
+    non_winners = []
+
     # Update stats for each winner
     for winner in winners:
         if winner == 'dealer':
@@ -600,34 +601,25 @@ def update_statistics(winners, dealer_wins, joined_players):
             stats, created = Stats.objects.get_or_create(player=player)
             stats.wins += 1
             stats.save()
-
-    # Update losses for each non-winner
+    
+    # Determine non-winners
+    winners_ids = {winner.id for winner in winners if winner != 'dealer'}
     for player in joined_players:
-        if player.player not in winners:
-            stats, created = Stats.objects.get_or_create(player=player.player)
-            stats.loses += 1
-            stats.save()
+        if player.player.id not in winners_ids and player.player != 'dealer':
+            non_winners.append(player.player)
+    
+    # Update losses for each non-winner
+    for player in non_winners:
+        stats, created = Stats.objects.get_or_create(player=player)
+        stats.loses += 1
+        stats.save()
 
-    # Handle the case where only the dealer wins
+    # Handle dealer wins and losses
     if dealer_wins:
         dealer = Dealer.objects.first()  # Assuming only one dealer
         dealer.wins += 1
         dealer.save()
-
-    # Handle the case where multiple winners exist
-    if len(winners) > 1:
-        for winner in winners:
-            if winner != 'dealer':
-                player = Player.objects.get(id=winner.id)
-                stats, created = Stats.objects.get_or_create(player=player)
-                stats.wins += 1
-                stats.save()
-
-    # Handle dealer wins and losses in the same round
-    if dealer_wins:
-        dealer = Dealer.objects.first()  # Assuming only one dealer
-        dealer.wins += 1
-        dealer.save()
+        # Update losses for players who lost to the dealer
         for player in joined_players:
             if player.player not in winners:
                 stats, created = Stats.objects.get_or_create(player=player.player)

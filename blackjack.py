@@ -1079,8 +1079,15 @@ def stand(update: Update, context: CallbackContext):
         update.message.reply_text("It's not your turn!")
         return
 
+    # Cancel the existing timers if they exist
     if chat_id in timers:
-        timers[chat_id].cancel()
+        timer_dict = timers[chat_id]
+        # Ensure that we have timers to cancel
+        if 'auto_stand' in timer_dict and timer_dict['auto_stand']:
+            timer_dict['auto_stand'].cancel()
+        if 'reminder' in timer_dict and timer_dict['reminder']:
+            timer_dict['reminder'].cancel()
+        # Remove the timers dictionary entry
         del timers[chat_id]
 
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)

@@ -1,5 +1,5 @@
 import random
-from telegram import Update, BotوParseMode
+from telegram import Update, Bot,ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext,PollAnswerHandler
 import os
 import django

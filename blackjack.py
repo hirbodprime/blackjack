@@ -219,7 +219,7 @@ def create_poll(update: Update, context: CallbackContext):
         group.save()
 
     # Check the number of games and update options
-    if group.games > 100:
+    if group.games >= 100:
         options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
     else:
         options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰"]

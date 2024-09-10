@@ -4,6 +4,7 @@ from telegram.error import TimedOut,RetryAfter,Unauthorized
 
 import django
 import os
+from threading import Timer
 
 # Set the environment variable to point to your Django settings module
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')

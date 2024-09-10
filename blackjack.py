@@ -26,7 +26,7 @@ from django.utils import timezone
 Testing_mode = True
 
 
-def check_join_time(update: Update, context: CallbackContext):
+def check_join_time(update: Update, context: CallbackContext,game_id):
     try:
         game = Game.objects.get(chat_id=game_id)
         if game.join_time and not game.started:

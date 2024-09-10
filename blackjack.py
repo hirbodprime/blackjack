@@ -896,7 +896,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 timers = {}
 def send_reminder(chat_id, context, user_id):
     mention = f"[user](tg://user?id={user_id})"
-    context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!")
+    context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!", parse_mode='MarkdownV2')
 
 def player_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id

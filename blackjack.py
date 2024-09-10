@@ -922,6 +922,7 @@ def cancel_timer(chat_id):
         print(f"Cancelling Timer for chat_id {chat_id}")
         current_timer[chat_id].cancel()  # Cancel Timer
         timer_state[chat_id] = 'stop'
+        del current_timer[chat_id]  # Remove from dictionary to avoid confusion
         print(f"Timer cancelled for chat_id {chat_id}")
     else:
         print(f"No active timer to cancel for chat_id {chat_id}")
@@ -934,30 +935,6 @@ def send_reminder(chat_id, context, user_id, username):
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', username)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!", parse_mode='MarkdownV2')
-
-def auto_stand(chat_id):
-    global current_timer, timer_state
-
-    print(f"Auto stand triggered for chat_id {chat_id}")
-    context.bot.send_message(chat_id=chat_id, text="Time's up! Your turn is now considered a stand.")
-    
-    # Create a Chat object with dynamic type
-    chat = Chat(id=chat_id, type='group')  # Adjust type as needed
-
-    # Create a Message object
-    message = Message(
-        message_id=0,  # Dummy values; adjust as needed
-        from_user=User(id=0, first_name="", is_bot=False),
-        chat=chat,
-        date=datetime.datetime.now(),  # Replace with actual date if necessary
-        text=""  # Empty text, as it's not used here
-    )
-    
-    # Create the Update object with the Message
-    update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
-
-    # Call stand function
-    stand(update, context)
 
 def player_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -980,7 +957,7 @@ def player_turn(update: Update, context: CallbackContext):
     # Cancel previous timers if they exist
     cancel_timer(chat_id)
 
-    # Set up and start the timer for the current player
+    # Set up and start the timers for the current player
     reset_timer(chat_id, auto_stand, 30.0)
     reset_timer(chat_id, lambda chat_id: send_reminder(chat_id, context, current_player_id, current_player.name), 20.0)
 
@@ -1012,29 +989,35 @@ def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", timeout=20, m
             time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
             retries += 1
     print(f"Failed to send the message after {max_retries} retries.")
+
 def auto_stand(chat_id):
     global current_timer, timer_state
 
-    # Automatically call the stand function if the timer expires
-    context.bot.send_message(chat_id=chat_id, text="Time's up! Your turn is now considered a stand.")
-    
-    # Create a Chat object with dynamic type
-    chat = Chat(id=chat_id, type='group')  # Adjust type as needed
+    # Check if timer is still active
+    if chat_id in timer_state and timer_state[chat_id] == 'continue':
+        print(f"Auto-standing for chat_id {chat_id}")
+        context.bot.send_message(chat_id=chat_id, text="Time's up! Your turn is now considered a stand.")
+        
+        # Create a Chat object with dynamic type
+        chat = Chat(id=chat_id, type='group')  # Adjust type as needed
 
-    # Create a Message object
-    message = Message(
-        message_id=0,  # Dummy values; adjust as needed
-        from_user=User(id=0, first_name="", is_bot=False),
-        chat=chat,
-        date=datetime.datetime.now(),  # Replace with actual date if necessary
-        text=""  # Empty text, as it's not used here
-    )
-    
-    # Create the Update object with the Message
-    update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
+        # Create a Message object
+        message = Message(
+            message_id=0,  # Dummy values; adjust as needed
+            from_user=User(id=0, first_name="", is_bot=False),
+            chat=chat,
+            date=datetime.datetime.now(),  # Replace with actual date if necessary
+            text=""  # Empty text, as it's not used here
+        )
+        
+        # Create the Update object with the Message
+        update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
 
-    # Call stand function
-    stand(update, context)
+        # Call stand function
+        stand(update, context)
+    else:
+        print(f"No active timer or timer state is not 'continue' for chat_id {chat_id}")
+
 
 def hit(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id

@@ -26,32 +26,50 @@ from django.utils import timezone
 Testing_mode = True
 
 
-def check_join_time(game_id):
+def check_join_time(update: Update, context: CallbackContext):
     try:
         game = Game.objects.get(chat_id=game_id)
         if game.join_time and not game.started:
             elapsed_time = timezone.now() - game.join_start_time
             if elapsed_time.total_seconds() > 120:
                 # Automatically start the game if join time exceeds 120 seconds
-                force_start()
+                force_start(update,context)
     except Game.DoesNotExist:
         pass
-def send_time_left_reminder(game_id):
+def send_time_left_reminder(update: Update, context: CallbackContext,game_id=None):
     try:
         game = Game.objects.get(chat_id=game_id)
-        if game.join_time and not game.started:
-            remaining_time = 120 - (timezone.now() - game.join_start_time).total_seconds()
+        
+        # Ensure join_start_time is set and valid
+        if game.join_start_time and not game.started:
+            elapsed_time = timezone.now() - game.join_start_time
+            remaining_time = 120 - elapsed_time.total_seconds()
+            
             if remaining_time > 0:
                 # Send message about remaining time
                 message = f"Time left to join: {int(remaining_time)} seconds."
-
                 context.bot.send_message(
                     chat_id=game.chat_id,
                     text=message,
                 )
                 # Schedule the next reminder
-                threading.Timer(30, send_time_left_reminder, args=(game_id,)).start()
+                threading.Timer(30, send_time_left_reminder, args=(game_id, context)).start()
+            else:
+                # Optionally, handle the case where time has run out
+                context.bot.send_message(
+                    chat_id=game.chat_id,
+                    text="The time to join has expired.",
+                )
+                # Consider stopping further reminders if needed
+        else:
+            # Optionally, handle the case where join_start_time is not set
+            context.bot.send_message(
+                chat_id=game.chat_id,
+                text="Join start time is not properly set.",
+            )
+            
     except Game.DoesNotExist:
+        # Optionally, handle the case where the game does not exist
         pass
 
 def tag_users(update: Update, context: CallbackContext):
@@ -364,8 +382,8 @@ def poll_answer_handler(update: Update, context: CallbackContext):
             parse_mode="MarkdownV2", 
             timeout=20
         )
-        threading.Thread(target=check_join_time, args=(game.chat_id,), daemon=True).start()
-        threading.Thread(target=send_time_left_reminder, args=(game.chat_id,), daemon=True).start()
+        threading.Thread(target=check_join_time, args=(update, context,game.chat_id,), daemon=True).start()
+        threading.Thread(target=send_time_left_reminder, args=(update, context,game.chat_id,), daemon=True).start()
         context.bot.send_message(
             chat_id=chat_id,
             text=f"The game is in join time, you have 120 sec to join", 

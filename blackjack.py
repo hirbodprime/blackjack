@@ -37,7 +37,7 @@ def check_join_time(update: Update, context: CallbackContext, game_id):
     except Game.DoesNotExist:
         print("Game not found for chat_id:", game_id)
 
-def send_time_left_reminder(game_id, context):
+def send_time_left_reminder(update: Update, context: CallbackContext, game_id):
     try:
         game = Game.objects.get(chat_id=game_id)
         
@@ -53,7 +53,7 @@ def send_time_left_reminder(game_id, context):
                     text=message,
                 )
                 # Schedule the next reminder
-                threading.Timer(30, send_time_left_reminder, args=(game_id, context)).start()
+                threading.Timer(30, send_time_left_reminder, args=(update, context,game_id)).start()
             else:
                 # Time has run out
                 context.bot.send_message(
@@ -382,7 +382,7 @@ def poll_answer_handler(update: Update, context: CallbackContext):
 
         # Start threads with proper arguments
         threading.Thread(target=check_join_time, args=(update, context, game.chat_id), daemon=True).start()
-        threading.Thread(target=send_time_left_reminder, args=(game.chat_id, context), daemon=True).start()
+        threading.Thread(target=send_time_left_reminder, args=(update, context,game.chat_id), daemon=True).start()
 
         context.bot.send_message(
             chat_id=chat_id,

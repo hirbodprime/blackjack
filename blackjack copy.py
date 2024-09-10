@@ -1,5 +1,5 @@
 import random
-from telegram import Update, Bot
+from telegram import Update, Bot,ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext,PollAnswerHandler
 import os
 import django
@@ -18,8 +18,64 @@ from telegram.error import Unauthorized
 import random
 from telegram.error import TimedOut,RetryAfter
 
+def tag_users(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
 
-# Function to check if a user has a Player model or not
+    # Default number of tags
+    repeat_count = 1
+    
+    # Parse the command arguments
+    if context.args:
+        try:
+            repeat_count = int(context.args[0])
+            if repeat_count < 1:
+                repeat_count = 1
+        except ValueError:
+            context.bot.send_message(
+                chat_id=chat_id,
+                text="Invalid number. Please enter a valid integer.",
+                timeout=20
+            )
+            return
+
+    # Get the list of chat members
+    members = context.bot.get_chat_administrators(chat_id)
+    mentions = [f"[{member.user.full_name}](tg://user?id={member.user.id})" for member in members]
+
+    # Helper function to send a message with retry logic
+    def send_message_with_retry(mention):
+        retries = 3
+        while retries > 0:
+            try:
+                context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"{mention} Lets play and win some money\\!\nuse the /join command to join a game of 💥BlackJack",
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+                break  # Exit loop if message sent successfully
+            except TimedOut:
+                # Handle timeout error, retry after a short delay
+                time.sleep(1)
+                retries -= 1
+            except RetryAfter as e:
+                # Handle flood control exceeded, retry after the specified time
+                time.sleep(e.retry_after)
+                retries -= 1
+            except Exception as e:
+                # Handle other exceptions
+                context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"An error occurred: {e}",
+                    timeout=20
+                )
+                break
+
+    # Send each mention as a separate message
+    for _ in range(repeat_count):
+        for mention in mentions:
+            send_message_with_retry(mention)
+            time.sleep(1)  # Wait for 1 second before sending the next tag
+
 def check_player(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
@@ -611,7 +667,6 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
 
 
-
 def update_statistics(winners, dealer_wins, joined_players):
     print("Starting update_statistics function")
     
@@ -635,14 +690,8 @@ def update_statistics(winners, dealer_wins, joined_players):
 
     # Determine non-winners
     winners_ids = {winner.id for winner in winners if winner != 'dealer'}
-    non_winners = [player.player for player in joined_players if player.player.id not in winners_ids]
+    non_winners = [player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer']
     print(f"Non-winners determined: {[player.id for player in non_winners]}")
-
-    # Handle losses for non-winners
-    if dealer_wins:
-        # Include all players who did not win
-        non_winners.extend(player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer')
-        print(f"Non-winners extended due to dealer win: {[player.id for player in non_winners]}")
 
     # Remove duplicates in non_winners list
     non_winners = list(set(non_winners))
@@ -658,64 +707,11 @@ def update_statistics(winners, dealer_wins, joined_players):
     # Update dealer's losses if dealer did not win
     if not dealer_wins:
         dealer = Dealer.objects.first()  # Assuming only one dealer
-        dealer.loses += 1  # Make sure you have a `loses` field in your Dealer model
+        dealer.loses += 1  # Ensure you have a `loses` field in your Dealer model
         dealer.save()
         print(f"Dealer losses updated: {dealer.loses}")
 
     print("Finished update_statistics function")
-
-# def update_statistics(winners, dealer_wins, joined_players):
-#     print("Starting update_statistics function")
-    
-#     # Initialize a list for non-winners
-#     non_winners = []
-#     print("Initialized non_winners list")
-
-#     # Update stats for each winner
-#     for winner in winners:
-#         if winner == 'dealer':
-#             dealer = Dealer.objects.first()  # Assuming only one dealer
-#             dealer.wins += 1
-#             dealer.save()
-#             print(f"Dealer wins updated: {dealer.wins}")
-#         else:
-#             player = Player.objects.get(id=winner.id)
-#             stats, created = Stats.objects.get_or_create(player=player)
-#             stats.wins += 1
-#             stats.save()
-#             print(f"Player {player.id} wins updated: {stats.wins}")
-
-#     # Determine non-winners
-#     winners_ids = {winner.id for winner in winners if winner != 'dealer'}
-#     non_winners = [player.player for player in joined_players if player.player.id not in winners_ids]
-#     print(f"Non-winners determined: {[player.id for player in non_winners]}")
-
-#     # Handle losses for non-winners
-#     if dealer_wins:
-#         # Include all players who did not win
-#         non_winners.extend(player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer')
-#         print(f"Non-winners extended due to dealer win: {[player.id for player in non_winners]}")
-
-#     # Remove duplicates in non_winners list
-#     non_winners = list(set(non_winners))
-#     print(f"Non-winners list after removing duplicates: {[player.id for player in non_winners]}")
-
-#     # Update losses for each non-winner
-#     for player in non_winners:
-#         stats, created = Stats.objects.get_or_create(player=player)
-#         stats.loses += 1
-#         stats.save()
-#         print(f"Player {player.id} losses updated: {stats.loses}")
-
-#     # Ensure the dealer's losses are not updated
-#     if dealer_wins:
-#         dealer = Dealer.objects.first()  # Assuming only one dealer
-#         dealer.wins += 1
-#         dealer.save()
-#         print(f"Dealer wins updated again: {dealer.wins}")
-
-
-
 
 
 
@@ -726,30 +722,26 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
     time.sleep(3)
     
     if game.current_round > game.total_rounds:
-        # Determine the overall winner (e.g., the player with the most wins)
+        # Determine the overall winner
         round_winners = RoundWinner.objects.filter(game=game)
         
-        # Find the player or dealer who won the most rounds
+        # Count wins for each player and the dealer
         winner_count = {}
         for winner in round_winners:
-            if winner.winner:  # If it's a player win
+            if winner.winner:
                 if winner.winner in winner_count:
                     winner_count[winner.winner] += 1
                 else:
                     winner_count[winner.winner] = 1
 
-        # Count dealer wins
         dealer_wins = RoundWinner.objects.filter(game=game, is_dealer=True).count()
-        
-        # Include dealer wins in the winner_count dictionary
         if dealer_wins > 0:
             winner_count['dealer'] = dealer_wins
 
-        # Log the winner counts for debugging
         print(f"Winner counts (including dealer): {winner_count}")
         
         if winner_count:
-            # Determine the overall winner (or check for a tie)
+            # Determine the overall winner(s)
             max_wins = max(winner_count.values())
             overall_winners = [winner for winner, wins in winner_count.items() if wins == max_wins]
             
@@ -776,9 +768,8 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         # Call the end_game function to finalize the game
         end_game(update, context)  # Ensure end_game is called after determining the winner
 
-        # Fetch player round winners and dealer wins for standings
+        # Prepare standings message
         bot_member = context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
-
         round_winners = RoundWinner.objects.filter(game=game, is_dealer=False)
         dealer_wins = RoundWinner.objects.filter(game=game, is_dealer=True).count()
         winner_count = {}
@@ -789,7 +780,6 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             else:
                 winner_count[winner.winner] = 1
 
-        # Separate players with wins and without wins
         winners = []
         no_wins = []
 
@@ -803,36 +793,27 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             else:
                 no_wins.append((player_name, player_id))
 
-        # Sort winners by wins (descending)
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
-
-        # Build the standings message
         standings_message = "📊 Current standings:\n"
 
-        # Add the dealer wins first, if any
         if dealer_wins > 0:
             standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
         else:
             standings_message += f"🤖 Dealer: No wins yet\n"
 
-        # Add players with wins
         for winner_name, wins, user_id in winners:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
             mention = f"[{user_name_escaped}](tg://user?id={user_id})"
             standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
-        # Add players with no wins
         for player_name, player_id in no_wins:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
             mention = f"[{user_name_escaped}](tg://user?id={player_id})"
             standings_message += f"🎲 {mention}: No wins yet\n"
 
-        # Send the message with the standings
         message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2", timeout=20)
 
-        # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
-            # Pin the message
             safe_pin_chat_message(context.bot, chat_id, message.message_id)
             
         Game.objects.filter(chat_id=chat_id).delete()
@@ -845,6 +826,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         time.sleep(3)
         start_round(update, context, game, joined_players)
+
 
 
 # Function to start player's turn in a specific round
@@ -986,7 +968,7 @@ def hit(update: Update, context: CallbackContext):
         stats =  Stats.objects.get(player=join_game.player)
         stats.how_many_21 += 1
         stats.save()
-        safe_send_message(context.bot, chat_id, f"{mention} \\! Reached BlackJack💥\\! They automatically stand\\.")
+        safe_send_message(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
         next_player_turn(update, context)
     elif hand_value > 21:
         time.sleep(3)
@@ -1390,6 +1372,7 @@ def main():
     dp.add_handler(CommandHandler('stats', stats))
     dp.add_handler(CommandHandler('my_tokens', get_player_chips))
     dp.add_handler(PollAnswerHandler(poll_answer_handler))
+    dp.add_handler(CommandHandler("Tag", tag_users))
 
 
     # Start the bot

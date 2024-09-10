@@ -1,8 +1,9 @@
-import random
 from telegram import Update, Bot,ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext,PollAnswerHandler
-import os
+from telegram.error import TimedOut,RetryAfter,Unauthorized
+
 import django
+import os
 
 # Set the environment variable to point to your Django settings module
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
@@ -10,13 +11,45 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
 # Initialize Django
 django.setup()
 blackjack_games = {}
+
 import time
 import re
+import random
+import datetime
+import threading
+from datetime import timedelta
+
 from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group
 from django.core.exceptions import ObjectDoesNotExist
-from telegram.error import Unauthorized
-import random
-from telegram.error import TimedOut,RetryAfter
+from django.utils import timezone
+
+Testing_mode = True
+
+
+def check_join_time(game_id):
+    try:
+        game = Game.objects.get(chat_id=game_id)
+        if game.join_time and not game.started:
+            elapsed_time = timezone.now() - game.join_start_time
+            if elapsed_time.total_seconds() > 120:
+                # Automatically start the game if join time exceeds 120 seconds
+                force_start()
+    except Game.DoesNotExist:
+        pass
+def send_time_left_reminder(game_id):
+    try:
+        game = Game.objects.get(chat_id=game_id)
+        if game.join_time and not game.started:
+            remaining_time = 120 - (timezone.now() - game.join_start_time).total_seconds()
+            if remaining_time > 0:
+                # Send message about remaining time
+                message = f"Time left to join: {int(remaining_time)} seconds."
+                send_message(game.chat_id, message)
+                
+                # Schedule the next reminder
+                threading.Timer(30, send_time_left_reminder, args=(game_id,)).start()
+    except Game.DoesNotExist:
+        pass
 
 def tag_users(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -318,15 +351,7 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         game.join_time = True
         game.save()
         
-        # Update the Group's game count
-        # try:
-        #     group = Group.objects.get(group_chat_id=chat_id)
-        #     group.games += 1
-        #     group.save()
-        # except Group.DoesNotExist:
-        #     print("Group not found?")
-        
-        # Notify the chat about the bet amount and joining
+
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
         mention = f"[{user_name_escaped}](tg://user?id={user_id})"
         
@@ -334,6 +359,13 @@ def poll_answer_handler(update: Update, context: CallbackContext):
             chat_id=chat_id,
             text=f"{mention} has set the bet amount to {chosen_option}\nUse /join to join the game", 
             parse_mode="MarkdownV2", 
+            timeout=20
+        )
+        threading.Thread(target=check_join_time, args=(game.chat_id,), daemon=True).start()
+        threading.Thread(target=send_time_left_reminder, args=(game.chat_id,), daemon=True).start()
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=f"The game is in join time, you have 120 sec to join", 
             timeout=20
         )
 def safe_send_message_join(bot, chat_id, text, timeout=20, max_retries=3):  # Increased timeout
@@ -446,7 +478,8 @@ def force_start(update: Update, context: CallbackContext):
 
     # Check if there are enough players
     if joined_players.count() < 1:
-        update.message.reply_text('At least 1 players are required to start the game.')
+        update.message.reply_text('Not enough players, ending the game!')
+        Game.objects.filter(chat_id=chat_id).delete()
         return
     dealer = Dealer.objects.first()  # Assuming there's only one dealer
     group_game,created = Group.objects.get_or_create(group_chat_id=chat_id)
@@ -712,57 +745,6 @@ def update_statistics(winners, dealer_wins, joined_players):
         print(f"Dealer losses updated: {dealer.loses}")
 
     print("Finished update_statistics function")
-
-
-# def update_statistics(winners, dealer_wins, joined_players):
-#     print("Starting update_statistics function")
-    
-#     # Initialize a list for non-winners
-#     non_winners = []
-#     print("Initialized non_winners list")
-
-#     # Update stats for each winner
-#     for winner in winners:
-#         if winner == 'dealer':
-#             dealer = Dealer.objects.first()  # Assuming only one dealer
-#             dealer.wins += 1
-#             dealer.save()
-#             print(f"Dealer wins updated: {dealer.wins}")
-#         else:
-#             player = Player.objects.get(id=winner.id)
-#             stats, created = Stats.objects.get_or_create(player=player)
-#             stats.wins += 1
-#             stats.save()
-#             print(f"Player {player.id} wins updated: {stats.wins}")
-
-#     # Determine non-winners
-#     winners_ids = {winner.id for winner in winners if winner != 'dealer'}
-#     non_winners = [player.player for player in joined_players if player.player.id not in winners_ids]
-#     print(f"Non-winners determined: {[player.id for player in non_winners]}")
-
-#     # Handle losses for non-winners
-#     if dealer_wins:
-#         # Include all players who did not win
-#         non_winners.extend(player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer')
-#         print(f"Non-winners extended due to dealer win: {[player.id for player in non_winners]}")
-
-#     # Remove duplicates in non_winners list
-#     non_winners = list(set(non_winners))
-#     print(f"Non-winners list after removing duplicates: {[player.id for player in non_winners]}")
-
-#     # Update losses for each non-winner
-#     for player in non_winners:
-#         stats, created = Stats.objects.get_or_create(player=player)
-#         stats.loses += 1
-#         stats.save()
-#         print(f"Player {player.id} losses updated: {stats.loses}")
-
-#     # Ensure the dealer's losses are not updated
-#     if dealer_wins:
-#         dealer = Dealer.objects.first()  # Assuming only one dealer
-#         dealer.wins += 1
-#         dealer.save()
-#         print(f"Dealer wins updated again: {dealer.wins}")
 
 
 
@@ -1407,7 +1389,9 @@ def get_dealer_blackjack_stats(update: Update, context: CallbackContext):
 
 # Main function
 def main():
-   
+    # if Testing_mode:
+    #     bot_token = '7094966045:AAEKHTVCZbRS7LPNF2QZlPrPhJQ9GohlE2A'
+    # else:
     bot_token = '7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118'
     updater = Updater(bot_token, use_context=True)
     dp = updater.dispatcher
@@ -1423,7 +1407,7 @@ def main():
     dp.add_handler(CommandHandler('stats', stats))
     dp.add_handler(CommandHandler('my_tokens', get_player_chips))
     dp.add_handler(PollAnswerHandler(poll_answer_handler))
-    dp.add_handler(CommandHandler("Tag", tag_users))
+    dp.add_handler(CommandHandler("tag", tag_users))
 
 
     # Start the bot

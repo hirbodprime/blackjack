@@ -898,7 +898,6 @@ def send_reminder(chat_id, context, user_id,username):
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', username)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!", parse_mode='MarkdownV2')
-    
 def player_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
 
@@ -919,12 +918,15 @@ def player_turn(update: Update, context: CallbackContext):
 
     # Cancel previous timers if they exist
     if chat_id in timers:
-        timers[chat_id]['auto_stand'].cancel()
-        timers[chat_id]['reminder'].cancel()
+        if 'auto_stand' in timers[chat_id]:
+            timers[chat_id]['auto_stand'].cancel()
+        if 'reminder' in timers[chat_id]:
+            timers[chat_id]['reminder'].cancel()
+        del timers[chat_id]
 
     # Set up and start the timer for the current player
     auto_stand_timer = threading.Timer(30.0, auto_stand, [chat_id, current_player_id, current_player.name, context, update.message.chat.type])
-    reminder_timer = threading.Timer(20.0, send_reminder, [chat_id, context, current_player_id,current_player.name])
+    reminder_timer = threading.Timer(20.0, send_reminder, [chat_id, context, current_player_id, current_player.name])
 
     auto_stand_timer.start()
     reminder_timer.start()
@@ -933,11 +935,11 @@ def player_turn(update: Update, context: CallbackContext):
     timers[chat_id] = {'auto_stand': auto_stand_timer, 'reminder': reminder_timer}
 
     if update.message.from_user.id == current_player_id:
-        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
+        user_name_escaped = escape_markdown_v2(current_player.name)
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.\n\nyou have 30 seconds to make a decision or it will automatically stand\\!", parse_mode="MarkdownV2")
+        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.\n\nyou have 30 seconds to make a decision or\n\n you will automatically stand\\!", parse_mode="MarkdownV2")
     else:
-        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
+        user_name_escaped = escape_markdown_v2(current_player.name)
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
         context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.\n\nyou have 30 seconds to make a decision or it will automatically stand\\!", parse_mode="MarkdownV2")
 

@@ -1101,7 +1101,7 @@ def stand(update: Update, context: CallbackContext):
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
     time.sleep(3)
-    safe_send_message(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand} with a total value of {hand_value}.")
+    safe_send_message(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand} with a total value of {hand_value}\\.")
 
     next_player_turn(update, context)
 

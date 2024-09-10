@@ -1,5 +1,5 @@
 import random
-from telegram import Update, Bot
+from telegram import Update, BotوParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext,PollAnswerHandler
 import os
 import django
@@ -18,7 +18,39 @@ from telegram.error import Unauthorized
 import random
 from telegram.error import TimedOut,RetryAfter
 
+def tag_users(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
 
+    # Default number of tags
+    repeat_count = 1
+    
+    # Parse the command arguments
+    if context.args:
+        try:
+            repeat_count = int(context.args[0])
+            if repeat_count < 1:
+                repeat_count = 1
+        except ValueError:
+            context.bot.send_message(
+                chat_id=chat_id,
+                text="Invalid number. Please enter a valid integer.",
+                timeout=20
+            )
+            return
+
+    # Generate a list of mentions
+    members = context.bot.get_chat_administrators(chat_id)
+    mentions = [f"[{member.user.full_name}](tg://user?id={member.user.id})" for member in members]
+    
+    # Create the message with repeated mentions
+    message = " ".join(mentions) * repeat_count
+
+    # Send the message tagging all users
+    context.bot.send_message(
+        chat_id=chat_id,
+        text=message,
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
 # Function to check if a user has a Player model or not
 def check_player(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
@@ -792,14 +824,14 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         standings_message = "📊 Current standings:\n"
 
         if dealer_wins > 0:
-            standings_message += f"🤖 Dealer: {dealer_wins} round(s) won\n"
+            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
         else:
             standings_message += f"🤖 Dealer: No wins yet\n"
 
         for winner_name, wins, user_id in winners:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
             mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-            standings_message += f"🏆 {mention}: {wins} round(s) won\n"
+            standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
         for player_name, player_id in no_wins:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
@@ -1367,6 +1399,7 @@ def main():
     dp.add_handler(CommandHandler('stats', stats))
     dp.add_handler(CommandHandler('my_tokens', get_player_chips))
     dp.add_handler(PollAnswerHandler(poll_answer_handler))
+    dp.add_handler(CommandHandler("tag", tag_users))
 
 
     # Start the bot

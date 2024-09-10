@@ -369,6 +369,7 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         game.bet_amount = bet_amount
         game.betting = False
         game.join_time = True
+        game.join_start_time = timezone.now
         game.save()
         
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)

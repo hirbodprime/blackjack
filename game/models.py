@@ -1,5 +1,4 @@
 from django.db import models
-from django.utils import timezone
 
 
 
@@ -17,7 +16,7 @@ class Game(models.Model):
     current_round = models.IntegerField(default=1)  # Current round number
     total_rounds = models.IntegerField(default=5)  # Total number of rounds in the game
     pot = models.IntegerField(default=0)  # Total pot amount
-    join_start_time = models.DateTimeField(default=timezone.now)  # Time when join period starts
+    join_start_time = models.DateTimeField(null=True, blank=True)  # Time when join period starts
 
 class Group(models.Model):
     group_chat_id = models.CharField(max_length=100)

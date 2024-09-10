@@ -938,7 +938,7 @@ def send_reminder(update: Update, context: CallbackContext,chat_id, user_id, use
     context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!", parse_mode='MarkdownV2')
     time.sleep(10)
     timer_state[chat_id] = 'continue'
-    auto_stand(update,context ,chat_id,user_id)
+    auto_stand(update,context ,chat_id,user_id,username)
 
 def player_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -994,7 +994,7 @@ def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", timeout=20, m
             retries += 1
     print(f"Failed to send the message after {max_retries} retries.")
 
-def auto_stand(update: Update, context: CallbackContext,chat_id,user_id):
+def auto_stand(update: Update, context: CallbackContext,chat_id,user_id,username):
     global current_timer, timer_state
 
     # Check if timer is still active
@@ -1018,7 +1018,7 @@ def auto_stand(update: Update, context: CallbackContext,chat_id,user_id):
         update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
 
         # Call stand function
-        stand(update, context,user_id)
+        stand(update, context,user_id,username)
     else:
         print(f"No active timer or timer state is not 'continue' for chat_id {chat_id}")
 
@@ -1081,12 +1081,12 @@ def hit(update: Update, context: CallbackContext):
     else:
         player_turn(update, context)
 
-def stand(update: Update, context: CallbackContext,user_id=None):
+def stand(update: Update, context: CallbackContext,user_id=None,user_name=None):
     chat_id = update.message.chat_id
     if not user_id:
         user_id = update.message.from_user.id
-    
-    user_name = update.message.from_user.first_name
+    if not user_name:
+        user_name = update.message.from_user.first_name
     
     
     try:

@@ -960,6 +960,26 @@ def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", timeout=20, m
             retries += 1
     print(f"Failed to send the message after {max_retries} retries.")
 
+def auto_stand(chat_id, current_player_id, current_player_name, context, chat_type='private'):
+    # Automatically call the stand function if the timer expires
+    context.bot.send_message(chat_id=chat_id, text="Time's up! Your turn is now considered a stand.")
+    
+    # Create a Chat object with dynamic type
+    chat = Chat(id=chat_id, type=chat_type)  # chat_type could be 'private', 'group', 'supergroup'
+
+    # Create a Message object
+    message = Message(
+        message_id=0,  # Dummy values; adjust as needed
+        from_user=User(id=current_player_id, first_name=current_player_name, is_bot=False),
+        chat=chat,
+        date=datetime.datetime.now(),  # Replace with actual date if necessary
+        text=""  # Empty text, as it's not used here
+    )
+    
+    # Create the Update object with the Message
+    update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
+
+    stand(update, context)
 
 def hit(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id

@@ -33,6 +33,7 @@ def check_join_time(update: Update, context: CallbackContext, game_id):
             elapsed_time = timezone.now() - game.join_start_time
             if elapsed_time.total_seconds() > 120:
                 # Automatically start the game if join time exceeds 120 seconds
+                print("Asdafsdfashhhhhhhhhhhhhh")
                 force_start(update, context,game.chat_id)
     except Game.DoesNotExist:
         print("Game not found for chat_id:", game_id)
@@ -43,7 +44,7 @@ def send_time_left_reminder(update: Update, context: CallbackContext, game_id):
         
         if game.join_start_time and not game.started:
             elapsed_time = timezone.now() - game.join_start_time
-            remaining_time = 12 - elapsed_time.total_seconds()
+            remaining_time = 120 - elapsed_time.total_seconds()
             
             if remaining_time > 0:
                 # Send message about remaining time

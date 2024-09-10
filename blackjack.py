@@ -49,7 +49,7 @@ def tag_users(update: Update, context: CallbackContext):
             try:
                 context.bot.send_message(
                     chat_id=chat_id,
-                    text=mention,
+                    text=f"{mention} Lets play and win some money\\!\nuse the /join command to join a game of 💥BlackJack",
                     parse_mode=ParseMode.MARKDOWN_V2
                 )
                 break  # Exit loop if message sent successfully

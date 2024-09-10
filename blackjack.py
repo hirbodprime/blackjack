@@ -916,19 +916,21 @@ def player_turn(update: Update, context: CallbackContext):
     current_player_id = game.turn_order[0]
     current_player = Player.objects.get(id=current_player_id)
 
-    # Set up and start the timer for the current player
+    # Cancel previous timers if they exist
     if chat_id in timers:
-        timers[chat_id].cancel()  # Cancel the previous timer if it exists
+        timers[chat_id]['auto_stand'].cancel()
+        timers[chat_id]['reminder'].cancel()
 
-    # Timer to auto-stand
+    # Set up and start the timer for the current player
     auto_stand_timer = threading.Timer(30.0, auto_stand, [chat_id, current_player_id, current_player.name, context, update.message.chat.type])
-    auto_stand_timer.start()
-    timers[chat_id] = auto_stand_timer
-    
-    # Timer for 10 seconds reminder
     reminder_timer = threading.Timer(20.0, send_reminder, [chat_id, context, current_player_id])
+
+    auto_stand_timer.start()
     reminder_timer.start()
-    
+
+    # Store the timers in a dictionary for easy access
+    timers[chat_id] = {'auto_stand': auto_stand_timer, 'reminder': reminder_timer}
+
     if update.message.from_user.id == current_player_id:
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
@@ -938,26 +940,6 @@ def player_turn(update: Update, context: CallbackContext):
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
         context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.\n\nyou have 30 seconds to make a decision or it will automatically stand\\!", parse_mode="MarkdownV2")
 
-def auto_stand(chat_id, current_player_id, current_player_name, context, chat_type='private'):
-    # Automatically call the stand function if the timer expires
-    context.bot.send_message(chat_id=chat_id, text="Time's up! Your turn is now considered a stand.")
-    
-    # Create a Chat object with dynamic type
-    chat = Chat(id=chat_id, type=chat_type)  # chat_type could be 'private', 'group', 'supergroup'
-
-    # Create a Message object
-    message = Message(
-        message_id=0,  # Dummy values; adjust as needed
-        from_user=User(id=current_player_id, first_name=current_player_name, is_bot=False),
-        chat=chat,
-        date=datetime.datetime.now(),  # Replace with actual date if necessary
-        text=""  # Empty text, as it's not used here
-    )
-    
-    # Create the Update object with the Message
-    update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
-
-    stand(update, context)
 def escape_markdown_v2(text):
     return re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', text)
 
@@ -1034,7 +1016,8 @@ def hit(update: Update, context: CallbackContext):
         safe_send_message(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\.")
         next_player_turn(update, context)
     else:
-        safe_send_message(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
+        player_turn(update, context)
+        # safe_send_message(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
 
 def stand(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id

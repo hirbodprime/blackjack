@@ -894,6 +894,9 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
 
 timers = {}
+def send_reminder(chat_id, context, user_id):
+    mention = f"[user](tg://user?id={user_id})"
+    context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!")
 
 def player_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -917,18 +920,23 @@ def player_turn(update: Update, context: CallbackContext):
     if chat_id in timers:
         timers[chat_id].cancel()  # Cancel the previous timer if it exists
 
-    timer = threading.Timer(20.0, auto_stand, [chat_id, current_player_id,current_player.name, context])
-    timer.start()
-    timers[chat_id] = timer
+    # Timer to auto-stand
+    auto_stand_timer = threading.Timer(20.0, auto_stand, [chat_id, current_player_id, current_player.name, context, update.message.chat.type])
+    auto_stand_timer.start()
+    timers[chat_id] = auto_stand_timer
+    
+    # Timer for 10 seconds reminder
+    reminder_timer = threading.Timer(10.0, send_reminder, [chat_id, context, current_player_id])
+    reminder_timer.start()
     
     if update.message.from_user.id == current_player_id:
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.\n\nyou have 20 second to make a decision or it will automaticly stand\\!", parse_mode="MarkdownV2")
+        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.\n\nyou have 20 seconds to make a decision or it will automatically stand\\!", parse_mode="MarkdownV2")
     else:
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.\n\nyou have 20 second to make a decision or it will automaticly stand\\!", parse_mode="MarkdownV2")
+        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.\n\nyou have 20 seconds to make a decision or it will automatically stand\\!", parse_mode="MarkdownV2")
 
 def auto_stand(chat_id, current_player_id, current_player_name, context, chat_type='private'):
     # Automatically call the stand function if the timer expires

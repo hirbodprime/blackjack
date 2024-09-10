@@ -44,8 +44,11 @@ def send_time_left_reminder(game_id):
             if remaining_time > 0:
                 # Send message about remaining time
                 message = f"Time left to join: {int(remaining_time)} seconds."
-                send_message(game.chat_id, message)
-                
+
+                context.bot.send_message(
+                    chat_id=game.chat_id,
+                    text=message,
+                )
                 # Schedule the next reminder
                 threading.Timer(30, send_time_left_reminder, args=(game_id,)).start()
     except Game.DoesNotExist:

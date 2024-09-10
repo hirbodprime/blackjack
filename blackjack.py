@@ -29,7 +29,7 @@ Testing_mode = True
 def check_join_time(update: Update, context: CallbackContext, game_id):
     try:
         game = Game.objects.get(chat_id=game_id)
-        if game.join_start_time and not game.started:
+        if game.join_start_time and not game.started and game.join_time:
             elapsed_time = timezone.now() - game.join_start_time
             if elapsed_time.total_seconds() > 120:
                 # Automatically start the game if join time exceeds 120 seconds

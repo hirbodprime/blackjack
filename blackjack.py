@@ -263,12 +263,12 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         game.save()
         
         # Update the Group's game count
-        try:
-            group = Group.objects.get(group_chat_id=chat_id)
-            group.games += 1
-            group.save()
-        except Group.DoesNotExist:
-            print("Group not found?")
+        # try:
+        #     group = Group.objects.get(group_chat_id=chat_id)
+        #     group.games += 1
+        #     group.save()
+        # except Group.DoesNotExist:
+        #     print("Group not found?")
         
         # Notify the chat about the bet amount and joining
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)

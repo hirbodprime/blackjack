@@ -12,7 +12,7 @@ django.setup()
 blackjack_games = {}
 import time
 import re
-from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner
+from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group
 from django.core.exceptions import ObjectDoesNotExist
 from telegram.error import Unauthorized
 import random
@@ -23,6 +23,8 @@ from telegram.error import TimedOut,RetryAfter
 def check_player(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
+    chat_id = update.message.chat_id
+    group_name = context.bot.get_chat(chat_id).title  # Get the group name
 
     try:
         # Try to get the Player instance from the database
@@ -30,7 +32,12 @@ def check_player(update: Update, context: CallbackContext):
         
         # If the player exists, check if the bot can message them
         try:
-            context.bot.send_message(chat_id=user_id, text="Checking if I can message you privately...")
+            # Send a personalized message with the group name
+            context.bot.send_message(
+                chat_id=user_id, 
+                text=f"You've joined a game that has started in the group '{group_name}'!", 
+                timeout=20
+            )
         except Unauthorized:
             # Bot cannot message the user, prompt them to start the bot in private chat
             update.message.reply_text(
@@ -39,7 +46,6 @@ def check_player(update: Update, context: CallbackContext):
             )
             return False
         return True
-    
     except ObjectDoesNotExist:
         # If no player exists, prompt the user to start the bot in private chat
         update.message.reply_text(
@@ -64,7 +70,7 @@ def start(update: Update, context: CallbackContext):
         # If the player does not exist, create the Player and Stats instance
         player = Player.objects.create(id=user_id, name=user_name, chips=200)
         stats = Stats.objects.create(wins=0, loses=0, how_many_21=0,player=player)
-        update.message.reply_text(f"Welcome to Blackjack, {user_name}! You have been given 200 chips to start.")
+        update.message.reply_text(f"Welcome to Blackjack, {user_name}! You have been given 200 💰chips to start.")
 
 def stats(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
@@ -74,14 +80,14 @@ def stats(update: Update, context: CallbackContext):
         # Check if the player already exists
         player = Player.objects.get(id=user_id)
         stats = Stats.objects.get(player=player)
-        update.message.reply_text(f"here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n21: {stats.how_many_21}")
+        update.message.reply_text(f"here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n💥Blackjacks: {stats.how_many_21}")
 
     except ObjectDoesNotExist:
         # If the player does not exist, create the Player and Stats instance
         player = Player.objects.create(id=user_id, name=user_name, chips=20)
         stats = Stats.objects.create(wins=0, loses=0, how_many_21=0,player=player)
 
-        update.message.reply_text(f"Welcome to Blackjack, {user_name}! You have been given 20 chips to start.\here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n21: {stats.how_many_21}")
+        update.message.reply_text(f"Welcome to Blackjack, {user_name}! You have been given 20 💰chips to start.\here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n21: {stats.how_many_21}")
 
 
 # Deck of cards
@@ -151,45 +157,26 @@ def start_blackjack(update: Update, context: CallbackContext):
     print(f"Chat ID: {chat_id}")
 
     # Check if a game exists for the current chat ID
-    try:
-        game = Game.objects.filter(chat_id=chat_id).order_by('-id').first()
-        if game and not game.started and not game.join_time and not game.betting and game.ended:
+    game = Game.objects.filter(chat_id=chat_id).order_by('-id').first()
 
-            print("No existing game found. Creating a new game...")
-            game, created = Game.objects.get_or_create(chat_id=chat_id, ended=False)
-            game.betting = True
-            game.started = False
-            game.save()
-
-            update.message.reply_text("🃏 Set the bet amount for the blackjack game to start.")
-            create_poll(update, context)  # Start the betting poll
-            # update.message.reply_text("🃏 Betting process has started!")
-            context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!")
-
-            return
-
-        print(f"Game found: {game}")
-
-    except Game.DoesNotExist:
-        # If no game exists, create a new one and start the betting process
-        print("No existing game found. Creating a new game...")
+    # If no game exists or the last game has ended, create a new game
+    if not game or game.ended:
+        print("No existing active game found or the last game has ended. Creating a new game...")
         game, created = Game.objects.get_or_create(chat_id=chat_id, ended=False)
         game.betting = True
         game.started = False
         game.save()
+        time.sleep(2)
 
-        # update.message.reply_text("🃏 Set the bet amount for the blackjack game to start.")
-        context.bot.send_message(chat_id=chat_id, text="🃏 Set the bet amount for the blackjack game to start.")
-        
+        context.bot.send_message(chat_id=chat_id, text="🃏 Set the bet amount for the blackjack game to start.", timeout=20)
         create_poll(update, context)  # Start the betting poll
-        # update.message.reply_text("🃏 Betting process has started!")
-        context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!")
-
+        time.sleep(2)
+        context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!", timeout=20)
         return
+    
+    print(f"Game found: {game}")
 
     # Check if the game is in betting progress, started, or in join time
-    print(f"Game Status -> Betting: {game.betting}, Started: {game.started}, Join Time: {game.join_time}")
-    
     if game.betting:
         update.message.reply_text("A Blackjack game is in betting progress. Wait for the betting process to end and use /join to join the game.")
         return
@@ -201,30 +188,53 @@ def start_blackjack(update: Update, context: CallbackContext):
         return
     else:
         # If none of the above conditions are met, raise an error
-        print(f"Unexpected game state: Betting: {game.betting}, Started: {game.started}, Join Time: {game.join_time}")
         update.message.reply_text("An error occurred, please try again.")
         return
 
+def safe_send_poll(bot, chat_id, question, options, timeout=20, max_retries=5):
+    retries = 0
+    while retries < max_retries:
+        try:
+            message = bot.send_poll(chat_id=chat_id, question=question, options=options, is_anonymous=False)
+            return message  # Exit if successful
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while sending poll. Retrying {retries}/{max_retries}...")
+            time.sleep(3)  # Wait before retrying
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Flood control triggered. Retrying in {retry_after} seconds...")
+            time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
+            retries += 1
+    print("Failed to send the poll after retries.")
 
 def create_poll(update: Update, context: CallbackContext):
-    question = "How much do you want to bet?"
-    options = ["10 chips", "50 chips", "100 chips", "200 chips", "500 chips", "1000 chips"]
     chat_id = update.message.chat_id
 
+    # Retrieve or create Group instance
+    try:
+        group = Group.objects.get(group_chat_id=chat_id)
+    except Group.DoesNotExist:
+        group = Group(group_chat_id=chat_id)
+        group.save()
+
+    # Check the number of games and update options
+    if group.games >= 100:
+        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
+    else:
+        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰"]
+
+    question = "How much do you want to bet?"
+
     # Send a poll
-    message = update.message.bot.send_poll(
-        chat_id=chat_id,  # Specify the chat ID where you want to send the poll
-        question=question,
-        options=options,
-        is_anonymous=False  # Set to False so the bot knows who voted
-    )
+    message = safe_send_poll(context.bot, chat_id, question, options)
 
     # Save the message and poll id so that we can handle the answers later
     context.bot_data['poll_message_id'] = message.message_id
     context.bot_data['poll_chat_id'] = update.message.chat_id
     context.bot_data['poll_id'] = message.poll.id
+
 def poll_answer_handler(update: Update, context: CallbackContext):
-    global chat_id
     poll_answer = update.poll_answer
     user_id = poll_answer.user.id
     user_name = update.poll_answer.user.first_name
@@ -232,31 +242,44 @@ def poll_answer_handler(update: Update, context: CallbackContext):
 
     # Retrieve the poll data from context
     poll_id = context.bot_data.get('poll_id')
+    chat_id = context.bot_data.get('poll_chat_id')
 
     # Verify the poll_id matches
     if poll_answer.poll_id == poll_id:
         # Process the answer based on the selected option
-        options = ["10 chips", "50 chips", "100 chips", "200 chips", "500 chips", "1000 chips"]
+        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
         chosen_option = options[selected_option]
         bet_amount = int(chosen_option.split()[0])
+        
         try:
-            game = Game.objects.get(chat_id=chat_id,betting=True,started=False,ended=False)
-        except:
+            game = Game.objects.get(chat_id=chat_id, betting=True, started=False, ended=False)
+        except Game.DoesNotExist:
             print("game not found?")
             return
+        
         game.bet_amount = bet_amount
         game.betting = False
-        # game.started = True
         game.join_time = True
         game.save()
-        # You can now process the chosen option and, for example, deduct the chips
+        
+        # Update the Group's game count
+        # try:
+        #     group = Group.objects.get(group_chat_id=chat_id)
+        #     group.games += 1
+        #     group.save()
+        # except Group.DoesNotExist:
+        #     print("Group not found?")
+        
+        # Notify the chat about the bet amount and joining
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
-
         mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-
-        context.bot.send_message(chat_id=context.bot_data['poll_chat_id'],
-                                 text=f"{mention} has set the bet amount to {chosen_option}\n use /join to join the game", 
-            parse_mode="MarkdownV2")
+        
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=f"{mention} has set the bet amount to {chosen_option}\nUse /join to join the game", 
+            parse_mode="MarkdownV2", 
+            timeout=20
+        )
 def safe_send_message_join(bot, chat_id, text, timeout=20, max_retries=3):  # Increased timeout
     retries = 0
     while retries < max_retries:
@@ -329,7 +352,7 @@ def join_blackjack(update: Update, context: CallbackContext):
     context.bot.send_message(
         chat_id=chat_id, 
         text=f"[{escaped_user_name}](tg://user?id={user_id}) has joined the game\\!", 
-        parse_mode="MarkdownV2"
+        parse_mode="MarkdownV2", timeout=20
     )
 
 def force_start(update: Update, context: CallbackContext):
@@ -369,19 +392,30 @@ def force_start(update: Update, context: CallbackContext):
     if joined_players.count() < 1:
         update.message.reply_text('At least 1 players are required to start the game.')
         return
-
+    dealer = Dealer.objects.first()  # Assuming there's only one dealer
+    group_game,created = Group.objects.get_or_create(group_chat_id=chat_id)
+    group_game.games += 1
+    group_game.save()
+    # Handle the dealer's chips deduction
+    if dealer:
+        dealer.chips -= game.bet_amount
+        dealer.games += 1
+        dealer.save()
+        context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer is in the game with {game.bet_amount} 💰chips on the table\\.",
+            parse_mode="MarkdownV2", timeout=20)
     # Deduct the bet amount from each player's chips
     for join_entry in joined_players:
         player = join_entry.player
         player.chips -= game.bet_amount
+        player.games += 1
         player.save()  # Save the updated chips amount to the Player model
         # update.message.reply_text(f"{player.name} has bet {game.bet_amount} chips. Remaining chips: {player.chips}")
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player.name)
 
         mention = f"[{user_name_escaped}](tg://user?id={player.id})"
-
+        time.sleep(2)
         context.bot.send_message(chat_id=chat_id, text=f"{mention} has bet {game.bet_amount} chips\\.\nRemaining chips: 💰{player.chips}", 
-            parse_mode="MarkdownV2")
+            parse_mode="MarkdownV2", timeout=20)
 
     # Initialize turn order with the list of player IDs
     game.turn_order = list(joined_players.values_list('player__id', flat=True))
@@ -396,6 +430,24 @@ def force_start(update: Update, context: CallbackContext):
     # Proceed to the first round
     start_round(update, context, game, joined_players)
 # Function to start each round
+def safe_pin_chat_message(bot, chat_id, message_id, timeout=20, max_retries=3):
+    retries = 0
+    while retries < max_retries:
+        try:
+            bot.pin_chat_message(chat_id=chat_id, message_id=message_id, timeout=timeout)
+            return  # Exit the loop if successful
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while pinning message. Retrying {retries}/{max_retries}...")
+            time.sleep(2 ** retries)  # Exponential backoff
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Rate limit exceeded. Retrying in {retry_after} seconds...")
+            time.sleep(retry_after)  # Wait for the retry after time
+            retries += 1
+
+    print("Failed to pin message after multiple retries.")
+
 def start_round(update: Update, context: CallbackContext, game, joined_players):
     chat_id = update.message.chat_id
 
@@ -423,38 +475,50 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
         for player in joined_players:
             player_name = player.player.name
+            player_id = player.player.id
             wins = winner_count.get(player.player, 0)
 
             if wins > 0:
-                winners.append((player_name, wins))
+                winners.append((player_name, wins, player_id))
             else:
-                no_wins.append(player_name)
+                no_wins.append((player_name, player_id))
+
+        # Sort winners by wins (descending)
+        winners = sorted(winners, key=lambda x: x[1], reverse=True)
 
         # Build the standings message
         standings_message = "📊 Current standings:\n"
 
         # Add the dealer wins first, if any
         if dealer_wins > 0:
-            standings_message += f"🤖 Dealer: {dealer_wins} round(s) won\n"
+            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+        else:
+            standings_message += f"🤖 Dealer: No wins yet\n"
 
         # Add players with wins
-        for winner_name, wins in winners:
-            standings_message += f"🏆 {winner_name}: {wins} round(s) won\n"
+        for winner_name, wins, user_id in winners:
+            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
+            mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+            standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
         # Add players with no wins
-        for player_name in no_wins:
-            standings_message += f"🎲 {player_name}: No wins yet\n"
+        for player_name, player_id in no_wins:
+            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
+            mention = f"[{user_name_escaped}](tg://user?id={player_id})"
+            standings_message += f"🎲 {mention}: No wins yet\n"
 
         # Send the message with the standings
-        message = context.bot.send_message(chat_id=chat_id, text=standings_message)
+        message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2", timeout=20)
+
 
         # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
             # Pin the message
-            context.bot.pin_chat_message(chat_id=chat_id, message_id=message.message_id)
-        # context.bot.send_message(chat_id=chat_id, text=standings_message)
+            safe_pin_chat_message(context.bot, chat_id, message.message_id)
 
-    context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...")
+
+    context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...",timeout=20)
+    time.sleep(3)
 
 
     player_blackjacks = []
@@ -475,7 +539,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
         if player_hand_value == 21:
             player_blackjacks.append(join_entry)
         else:
-            context.bot.send_message(chat_id=join_entry.player.id, text=f"🃏Your hand: {player_hand}.\n♠️Total value: {player_hand_value}")
+            context.bot.send_message(chat_id=join_entry.player.id, text=f"🃏Your hand: {player_hand}.\n♠️Total value: {player_hand_value}",timeout=20)
 
     # Deal cards to the dealer and save to the Game model
     dealer_hand = [deal_card(), deal_card()]
@@ -483,29 +547,29 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
     game.save()
 
     # Show only one dealer card
-    context.bot.send_message(chat_id=chat_id, text=f"Dealer's visible card: ♠️{dealer_hand[0]}")
+    context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible card: ♠️{dealer_hand[0]}",timeout=20)
 
     # Check for dealer
     dealer_value = calculate_hand_value(dealer_hand)
     dealer_has_blackjack = dealer_value == 21
 
     if dealer_has_blackjack:
-        context.bot.send_message(chat_id=chat_id, text="Dealer has a Blackjack! 💥")
+        context.bot.send_message(chat_id=chat_id, text="🤖 Dealer has a Blackjack! 💥",timeout=20)
         dealer = Dealer.objects.get(id=1)
         dealer.blackjack_count += 1
-        dealer.wins += 1
+        # dealer.wins += 1
         dealer.save()
 
         # Mark losing stats for players who didn't get Blackjack
-        for join_entry in joined_players:
-            if join_entry not in player_blackjacks:
-                stats = Stats.objects.get(player=join_entry.player)
-                stats.loses += 1  # Increment losing stats
-                stats.save()
+        # for join_entry in joined_players:
+        #     if join_entry not in player_blackjacks:
+        #         stats = Stats.objects.get(player=join_entry.player)
+        #         stats.loses += 1  # Increment losing stats
+        #         stats.save()
 
         # Check for player Blackjack ties (push)
         for join_entry in player_blackjacks:
-            context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} had Blackjack💥 too. It's a push.")
+            context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} had Blackjack💥 too. It's a push.",timeout=20)
 
         # Mark dealer as the round winner
         RoundWinner.objects.create(game=game, round_number=game.current_round, is_dealer=True)
@@ -516,11 +580,11 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
     # If dealer doesn't have a Blackjack but players do
     if player_blackjacks:
         for join_entry in player_blackjacks:
-            context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.")
+            context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.",timeout=20)
             
             # Update stats (no payout, just marking the win)
             stats = Stats.objects.get(player=join_entry.player)
-            stats.wins += 1
+            # stats.wins += 1
             stats.how_many_21 += 1
             stats.save()
 
@@ -535,11 +599,128 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
     for join_entry in joined_players:
         if join_entry not in player_blackjacks:
             stats = Stats.objects.get(player=join_entry.player)
-            stats.loses += 1  # Increment losing stats
+            # stats.loses += 1  # Increment losing stats
             stats.save()
 
     # Continue to the first player's turn if no Blackjack
     player_turn(update, context)
+
+
+
+
+
+
+
+
+def update_statistics(winners, dealer_wins, joined_players):
+    print("Starting update_statistics function")
+    
+    # Initialize a list for non-winners
+    non_winners = []
+    print("Initialized non_winners list")
+
+    # Update stats for each winner
+    for winner in winners:
+        if winner == 'dealer':
+            dealer = Dealer.objects.first()  # Assuming only one dealer
+            dealer.wins += 1
+            dealer.save()
+            print(f"Dealer wins updated: {dealer.wins}")
+        else:
+            player = Player.objects.get(id=winner.id)
+            stats, created = Stats.objects.get_or_create(player=player)
+            stats.wins += 1
+            stats.save()
+            print(f"Player {player.id} wins updated: {stats.wins}")
+
+    # Determine non-winners
+    winners_ids = {winner.id for winner in winners if winner != 'dealer'}
+    non_winners = [player.player for player in joined_players if player.player.id not in winners_ids]
+    print(f"Non-winners determined: {[player.id for player in non_winners]}")
+
+    # Handle losses for non-winners
+    if dealer_wins:
+        # Include all players who did not win
+        non_winners.extend(player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer')
+        print(f"Non-winners extended due to dealer win: {[player.id for player in non_winners]}")
+
+    # Remove duplicates in non_winners list
+    non_winners = list(set(non_winners))
+    print(f"Non-winners list after removing duplicates: {[player.id for player in non_winners]}")
+
+    # Update losses for each non-winner
+    for player in non_winners:
+        stats, created = Stats.objects.get_or_create(player=player)
+        stats.loses += 1
+        stats.save()
+        print(f"Player {player.id} losses updated: {stats.loses}")
+
+    # Update dealer's losses if dealer did not win
+    if not dealer_wins:
+        dealer = Dealer.objects.first()  # Assuming only one dealer
+        dealer.loses += 1  # Make sure you have a `loses` field in your Dealer model
+        dealer.save()
+        print(f"Dealer losses updated: {dealer.loses}")
+
+    print("Finished update_statistics function")
+
+# def update_statistics(winners, dealer_wins, joined_players):
+#     print("Starting update_statistics function")
+    
+#     # Initialize a list for non-winners
+#     non_winners = []
+#     print("Initialized non_winners list")
+
+#     # Update stats for each winner
+#     for winner in winners:
+#         if winner == 'dealer':
+#             dealer = Dealer.objects.first()  # Assuming only one dealer
+#             dealer.wins += 1
+#             dealer.save()
+#             print(f"Dealer wins updated: {dealer.wins}")
+#         else:
+#             player = Player.objects.get(id=winner.id)
+#             stats, created = Stats.objects.get_or_create(player=player)
+#             stats.wins += 1
+#             stats.save()
+#             print(f"Player {player.id} wins updated: {stats.wins}")
+
+#     # Determine non-winners
+#     winners_ids = {winner.id for winner in winners if winner != 'dealer'}
+#     non_winners = [player.player for player in joined_players if player.player.id not in winners_ids]
+#     print(f"Non-winners determined: {[player.id for player in non_winners]}")
+
+#     # Handle losses for non-winners
+#     if dealer_wins:
+#         # Include all players who did not win
+#         non_winners.extend(player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer')
+#         print(f"Non-winners extended due to dealer win: {[player.id for player in non_winners]}")
+
+#     # Remove duplicates in non_winners list
+#     non_winners = list(set(non_winners))
+#     print(f"Non-winners list after removing duplicates: {[player.id for player in non_winners]}")
+
+#     # Update losses for each non-winner
+#     for player in non_winners:
+#         stats, created = Stats.objects.get_or_create(player=player)
+#         stats.loses += 1
+#         stats.save()
+#         print(f"Player {player.id} losses updated: {stats.loses}")
+
+#     # Ensure the dealer's losses are not updated
+#     if dealer_wins:
+#         dealer = Dealer.objects.first()  # Assuming only one dealer
+#         dealer.wins += 1
+#         dealer.save()
+#         print(f"Dealer wins updated again: {dealer.wins}")
+
+
+
+
+
+
+
+
 def check_for_next_round(update: Update, context: CallbackContext, game, joined_players):
     chat_id = update.message.chat_id
     time.sleep(3)
@@ -548,39 +729,54 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         # Determine the overall winner (e.g., the player with the most wins)
         round_winners = RoundWinner.objects.filter(game=game)
         
-        # Find the player who won the most roundsa
+        # Find the player or dealer who won the most rounds
         winner_count = {}
         for winner in round_winners:
-            if winner.winner in winner_count:
-                winner_count[winner.winner] += 1
-            else:
-                winner_count[winner.winner] = 1
+            if winner.winner:  # If it's a player win
+                if winner.winner in winner_count:
+                    winner_count[winner.winner] += 1
+                else:
+                    winner_count[winner.winner] = 1
 
+        # Count dealer wins
+        dealer_wins = RoundWinner.objects.filter(game=game, is_dealer=True).count()
+        
+        # Include dealer wins in the winner_count dictionary
+        if dealer_wins > 0:
+            winner_count['dealer'] = dealer_wins
+
+        # Log the winner counts for debugging
+        print(f"Winner counts (including dealer): {winner_count}")
+        
         if winner_count:
-            # Ensure there's a valid winner by checking for a tie or empty values
-            overall_winner = max(winner_count, key=winner_count.get)
+            # Determine the overall winner (or check for a tie)
+            max_wins = max(winner_count.values())
+            overall_winners = [winner for winner, wins in winner_count.items() if wins == max_wins]
             
-            if overall_winner:
-                # Mark losing stats for players who are not the overall winner
-                for join_entry in joined_players:
-                    stats = Stats.objects.get(player=join_entry.player)
+            if len(overall_winners) == 1:
+                # One clear winner
+                overall_winner = overall_winners[0]
+                
+                if overall_winner == 'dealer':
+                    context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game! 🏆", timeout=20)
+                else:
+                    context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆", timeout=20)
                     
-                    if join_entry.player != overall_winner:
-                        stats.loses += 1  # Increment the loss count for players who did not win the game
-                        stats.save()
+            elif len(overall_winners) > 1:
+                # Multiple winners (tie)
+                winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
+                context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2", timeout=20)
 
-                # Announce the overall winner
-                context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆")
-            else:
-                # Handle cases where no overall winner is found
-                context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.")
+            # Update statistics for winners and losers
+            update_statistics(overall_winners, dealer_wins, joined_players)
+            
         else:
-            # Handle cases where there are no round winners at all
-            context.bot.send_message(chat_id=chat_id, text="No rounds were won by any player.")
+            context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.", timeout=20)
 
+        # Call the end_game function to finalize the game
+        end_game(update, context)  # Ensure end_game is called after determining the winner
 
-
-        # Fetch player round winners and dealer wins
+        # Fetch player round winners and dealer wins for standings
         bot_member = context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
 
         round_winners = RoundWinner.objects.filter(game=game, is_dealer=False)
@@ -599,38 +795,49 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         for player in joined_players:
             player_name = player.player.name
+            player_id = player.player.id
             wins = winner_count.get(player.player, 0)
 
             if wins > 0:
-                winners.append((player_name, wins))
+                winners.append((player_name, wins, player_id))
             else:
-                no_wins.append(player_name)
+                no_wins.append((player_name, player_id))
+
+        # Sort winners by wins (descending)
+        winners = sorted(winners, key=lambda x: x[1], reverse=True)
 
         # Build the standings message
         standings_message = "📊 Current standings:\n"
 
         # Add the dealer wins first, if any
         if dealer_wins > 0:
-            standings_message += f"🤖 Dealer: {dealer_wins} round(s) won\n"
+            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+        else:
+            standings_message += f"🤖 Dealer: No wins yet\n"
 
         # Add players with wins
-        for winner_name, wins in winners:
-            standings_message += f"🏆 {winner_name}: {wins} round(s) won\n"
+        for winner_name, wins, user_id in winners:
+            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
+            mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+            standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
         # Add players with no wins
-        for player_name in no_wins:
-            standings_message += f"🎲 {player_name}: No wins yet\n"
+        for player_name, player_id in no_wins:
+            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
+            mention = f"[{user_name_escaped}](tg://user?id={player_id})"
+            standings_message += f"🎲 {mention}: No wins yet\n"
 
         # Send the message with the standings
-        message = context.bot.send_message(chat_id=chat_id, text=standings_message)
+        message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2", timeout=20)
 
         # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
             # Pin the message
-            context.bot.pin_chat_message(chat_id=chat_id, message_id=message.message_id)
-        # context.bot.send_message(chat_id=chat_id, text=standings_message)
+            safe_pin_chat_message(context.bot, chat_id, message.message_id)
+            
+        Game.objects.filter(chat_id=chat_id).delete()
+        context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.", timeout=20)
 
-        end_game(update, context)  # Call end_game if all rounds are done
     else:
         # Prepare for the next round
         game.hands_reset = False
@@ -638,9 +845,6 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         time.sleep(3)
         start_round(update, context, game, joined_players)
-
-
-
 
 
 # Function to start player's turn in a specific round
@@ -691,7 +895,8 @@ def player_turn(update: Update, context: CallbackContext):
         #     parse_mode="MarkdownV2"
         # )
             # Send the private message with the full hand and value
-        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",parse_mode="MarkdownV2")
+        time.sleep(2)
+        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",parse_mode="MarkdownV2", timeout=20)
     else:
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
 
@@ -700,29 +905,31 @@ def player_turn(update: Update, context: CallbackContext):
         #     f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", 
         #     parse_mode="MarkdownV2"
         # )
-        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", parse_mode="MarkdownV2")
+        time.sleep(2)
+        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", parse_mode="MarkdownV2", timeout=20)
 
 
 # Escape special characters in the player's name
 def escape_markdown_v2(text):
     return re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', text)
 
-def safe_send_message(bot, chat_id, text, timeout=20, max_retries=3):
+def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", timeout=20, max_retries=5):
     retries = 0
     while retries < max_retries:
         try:
-            bot.send_message(chat_id=chat_id, text=text, timeout=timeout, parse_mode="MarkdownV2")
+            bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, timeout=timeout)
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            time.sleep(3)  # Wait before retrying
+            time.sleep(2 ** retries)  # Exponential backoff: 2, 4, 8 seconds, etc.
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
-            time.sleep(retry_after)
+            time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
             retries += 1
     print(f"Failed to send the message after {max_retries} retries.")
+
 
 def hit(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -764,6 +971,7 @@ def hit(update: Update, context: CallbackContext):
 
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     # Use safe_send_message to send messages safely
+
     safe_send_message(context.bot, chat_id, f"{mention} drew: {new_card}")
 
     # Calculate the hand value and send it privately to the player
@@ -774,13 +982,19 @@ def hit(update: Update, context: CallbackContext):
 
     # Check for bust or 21
     if hand_value == 21:
-        safe_send_message(context.bot, chat_id, f"{user_name} reached 21\\! They automatically stand\\.")
+        time.sleep(3)
+        stats =  Stats.objects.get(player=join_game.player)
+        stats.how_many_21 += 1
+        stats.save()
+        safe_send_message(context.bot, chat_id, f"{mention} \\! Reached BlackJack💥\\! They automatically stand\\.")
         next_player_turn(update, context)
     elif hand_value > 21:
-        safe_send_message(context.bot, chat_id, f"{user_name} busted with a total of {hand_value}\\.")
+        time.sleep(3)
+        safe_send_message(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\.")
         next_player_turn(update, context)
     else:
-        safe_send_message(context.bot, chat_id, "Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
+        time.sleep(3)
+        safe_send_message(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
 
 
 def stand(update: Update, context: CallbackContext):
@@ -823,6 +1037,7 @@ def stand(update: Update, context: CallbackContext):
     # Send the private message with the full hand and value
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
+    time.sleep(2)
 
     safe_send_message(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
 
@@ -836,7 +1051,7 @@ def safe_send_message_next_player_turn(bot, chat_id, text, timeout=20, max_retri
     retries = 0
     while retries < max_retries:
         try:
-            bot.send_message(chat_id=chat_id, text=text, timeout=timeout)
+            bot.send_message(chat_id=chat_id, text=text, timeout=timeout, parse_mode="MarkdownV2")
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
@@ -845,13 +1060,17 @@ def safe_send_message_next_player_turn(bot, chat_id, text, timeout=20, max_retri
     print("Failed to send the message after retries.")
 
 def next_player_turn(update: Update, context: CallbackContext):
-    # time.sleep(2)
     chat_id = update.message.chat_id
 
     try:
         game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
         update.message.reply_text("No active game or the game has not started.")
+        return
+
+    if not game.turn_order:
+        # If no players are left in the turn order, proceed to the dealer's turn
+        dealer_turn(update, context)
         return
 
     # Remove the current player from the turn order
@@ -862,40 +1081,34 @@ def next_player_turn(update: Update, context: CallbackContext):
     if game.turn_order:
         next_player_id = game.turn_order[0]
         next_player = Player.objects.get(id=next_player_id)
-        
-        # context.bot.send_message(chat_id=chat_id, text=f"{next_player.name}, it's your turn! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand.")
-        safe_send_message_next_player_turn(context.bot, chat_id, f"{next_player.name}, it's your turn! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand.")
+        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', next_player.name)
 
+        mention = f"[{user_name_escaped}](tg://user?id={next_player_id})"
+        time.sleep(3)
+        safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
     else:
         # All players have finished their turns, now it's the dealer's turn
         dealer_turn(update, context)
 
 
 
-# def safe_send_message_dealer(bot, chat_id, text, timeout=20, max_retries=3):  # Increased timeout
-#     retries = 0
-#     while retries < max_retries:
-#         try:
-#             bot.send_message(chat_id=chat_id, text=text, timeout=timeout)
-#             return  # Exit the loop if the message is sent successfully
-#         except RetryAfter as e:
-#             retry_after = int(e.retry_after)
-#             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
-#             time.sleep(retry_after)
-#             retries += 1
-#     print(f"Failed to send the message after {max_retries} retries.")
-def safe_send_message_dealer(bot, chat_id, text, timeout=20, max_retries=5):  # Increased timeout
+def safe_send_message_dealer(bot, chat_id, text, timeout=20, max_retries=5):
     retries = 0
     while retries < max_retries:
         try:
-            bot.send_message(chat_id=chat_id, text=text, timeout=timeout)
+            bot.send_message(chat_id=chat_id, text=text, timeout=timeout, parse_mode="MarkdownV2")
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
             time.sleep(3)  # Wait a bit before retrying
-    print("Failed to send the message after retries.")
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Flood control triggered. Retrying in {retry_after} seconds...")
+            time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
+            retries += 1
 
+    print("Failed to send the message after retries.")
 
 def dealer_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -903,10 +1116,10 @@ def dealer_turn(update: Update, context: CallbackContext):
     try:
         game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
+        safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started\\.")
         return
     time.sleep(2)
-    safe_send_message_dealer(context.bot, chat_id, "Dealer's turn...")
+    safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
 
     dealer_hand = game.dealer_hand
     dealer_value = calculate_hand_value(dealer_hand)
@@ -917,16 +1130,16 @@ def dealer_turn(update: Update, context: CallbackContext):
         dealer_hand.append(new_card)
         dealer_value = calculate_hand_value(dealer_hand)
         time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"Dealer draws a 🂾{new_card}. Dealer's hand: {dealer_hand}")
+        safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
 
     # If dealer busts (> 21)
     if dealer_value > 21:
         time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"Dealer busts with a total of {dealer_value}!❌")
+        safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
         dealer_busted = True
     else:
         time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"Dealer stands with a total of {dealer_value}.")
+        safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
         dealer_busted = False
 
     # Save the updated dealer hand
@@ -955,30 +1168,50 @@ def dealer_turn(update: Update, context: CallbackContext):
             elif player_hand_value == highest_valid_score:
                 round_winners.append(join_entry.player)
 
-    # Dealer wins if no players beat the dealer or all players busted
     if not round_winners:
         time.sleep(2)
 
-        safe_send_message_dealer(context.bot, chat_id, "Dealer wins🥇 this round!")
+        safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
         RoundWinner.objects.create(game=game, round_number=game.current_round, is_dealer=True)
     else:
         for winner in round_winners:
             time.sleep(2)
-            safe_send_message_dealer(context.bot, chat_id, f"{winner.name} wins🥇 this round with a hand of {highest_valid_score}!")
+            try:
+                # Try to tag winner using their name
+                mention = f"[{winner.name}](tg://user?id={winner.id})"
+            except Exception as e:
+                # Fallback to just using the player's name if tagging fails
+                mention = winner.name
+                print(f"Error tagging player {winner.name}: {str(e)}")  # Log the error for debugging
+
+            safe_send_message_dealer(context.bot, chat_id, f"{mention} wins🥇 this round with a hand of {highest_valid_score}\\!")
             RoundWinner.objects.create(game=game, round_number=game.current_round, winner=winner)
 
     # Announce the round winner before starting the next round
     if not round_winners:
         time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"Dealer won🥇 round {game.current_round}!")
+        safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer won🥇 round {game.current_round}\\!")
     else:
         time.sleep(2)
-        winner_names = ', '.join([winner.name for winner in round_winners])
-        safe_send_message_dealer(context.bot, chat_id, f"{winner_names} won🥇 round {game.current_round}!")
+        # Initialize winner_mentions to avoid UnboundLocalError
+        winner_mentions = ""
+
+        try:
+            winner_mentions = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" for winner in round_winners])
+        except Exception as e:
+            # Fallback to using plain names if tagging fails
+            winner_mentions = ', '.join([winner.name for winner in round_winners])
+            print(f"Error tagging winners: {str(e)}")  # Log the error for debugging
+
+        # Send the message with the round winners
+        safe_send_message_dealer(context.bot, chat_id, f"{winner_mentions} won🥇 round {game.current_round}\\!")
+
+
 
     # Proceed to the next round or end the game if all rounds are done
     game.current_round += 1
     check_for_next_round(update, context, game, joined_players)
+
 def reset_game(chat_id):
     try:
         # Get the active game with the given chat_id
@@ -1002,7 +1235,7 @@ def end_game(update: Update, context: CallbackContext):
     try:
         game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        context.bot.send_message(chat_id=chat_id, text="No active game to end.")
+        context.bot.send_message(chat_id=chat_id, text="No active game to end.", timeout=20)
         return
 
     # Get round winners and determine the final winner
@@ -1032,23 +1265,29 @@ def end_game(update: Update, context: CallbackContext):
             winners.remove('dealer')
             dealer = Dealer.objects.get(id=1)
             dealer.chips += split_pot
+            # dealer.wins += 1
             dealer.save()
-            context.bot.send_message(chat_id=chat_id, text=f"Dealer wins {split_pot} chips💰!")
+            context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} chips💰!", timeout=20)
 
         for winner in winners:
+
             winner.chips += split_pot
+            # stats = Stats.objects.get(player=winner)
+            # stats.wins +=1
+            # stats.save()
             winner.save()
-            context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰!")
+            context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰!", timeout=20)
 
     else:
-        context.bot.send_message(chat_id=chat_id, text="No one won this game.")
+        context.bot.send_message(chat_id=chat_id, text="No one won this game.", timeout=20)
 
     # Mark the game as ended
     game.ended = True
     game.started = False
+    game.betting = False
+    game.join_time = False
     game.save()
-    RoundWinner.objects.filter(game=game, rounds_ended=False).update(rounds_ended=True)
-    context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.")
+    # RoundWinner.objects.filter(game=game, rounds_ended=False).update(rounds_ended=True)
 
         
 def reset_round_state(game):
@@ -1073,7 +1312,7 @@ def start_next_round(update: Update, context: CallbackContext):
         # Inform the player about their new hand
         player = join_entry.player
         hand_value = calculate_hand_value(player_hand)
-        context.bot.send_message(chat_id=chat_id, text=f"Your new 🃏hand: {player_hand}. Total value: {hand_value}")
+        context.bot.send_message(chat_id=chat_id, text=f"Your new 🃏hand: {player_hand}. Total value: {hand_value}", timeout=20)
 
     # Deal cards to the dealer for the next round
     dealer_hand = [deal_card(), deal_card()]
@@ -1081,7 +1320,7 @@ def start_next_round(update: Update, context: CallbackContext):
     game.save()
 
     # update.message.reply_text(f"Dealer's visible card: {dealer_hand[0]}")
-    context.bot.send_message(chat_id=player.id, text=f"Dealer's visible 🃏card: {dealer_hand[0]}")
+    context.bot.send_message(chat_id=player.id, text=f"🤖 Dealer's visible 🃏card: {dealer_hand[0]}", timeout=20)
 
     # Continue to the first player's turn for the next round
     player_turn(update, context)
@@ -1105,10 +1344,10 @@ def get_player_chips(update: Update, context: CallbackContext):
     
     if player:
         # If the player exists, return their chips or use them in logic
-        context.bot.send_message(chat_id=update.message.chat_id, text=f"{player.name} has {player.chips} chips.")
+        context.bot.send_message(chat_id=update.message.chat_id, text=f"{player.name} has {player.chips} 💰chips.", timeout=20)
     else:
         # Handle the case where the player does not exist
-        context.bot.send_message(chat_id=update.message.chat_id, text="You don't have a player profile yet. Start the bot in private to create one.")
+        context.bot.send_message(chat_id=update.message.chat_id, text="You don't have a player profile yet. Start the bot in private to create one.", timeout=20)
 def get_dealer_blackjack_stats(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
 
@@ -1120,15 +1359,15 @@ def get_dealer_blackjack_stats(update: Update, context: CallbackContext):
 
         # Format the dealer stats into a readable format
         stats_message = (
-            f"Dealer's Blackjack Stats:\n"
-            f"Chips: {dealer.chips}\n"
+            f"🤖 Dealer's Blackjack Stats:\n"
+            f"💰 Chips: {dealer.chips}\n"
             f"Wins: {dealer.wins}\n"
             f"Losses: {dealer.loses}\n"
-            f"Blackjacks: {dealer.blackjack_count}"
+            f"💥 Blackjacks: {dealer.blackjack_count}"
         )
         
         # Send the stats message to the chat
-        context.bot.send_message(chat_id=chat_id, text=stats_message)
+        context.bot.send_message(chat_id=chat_id, text=stats_message, timeout=20)
 
     except Exception as e:
         update.message.reply_text(f"Error retrieving dealer stats: {str(e)}")

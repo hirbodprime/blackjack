@@ -611,7 +611,6 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
 
 
-
 def update_statistics(winners, dealer_wins, joined_players):
     print("Starting update_statistics function")
     
@@ -635,14 +634,8 @@ def update_statistics(winners, dealer_wins, joined_players):
 
     # Determine non-winners
     winners_ids = {winner.id for winner in winners if winner != 'dealer'}
-    non_winners = [player.player for player in joined_players if player.player.id not in winners_ids]
+    non_winners = [player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer']
     print(f"Non-winners determined: {[player.id for player in non_winners]}")
-
-    # Handle losses for non-winners
-    if dealer_wins:
-        # Include all players who did not win
-        non_winners.extend(player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer')
-        print(f"Non-winners extended due to dealer win: {[player.id for player in non_winners]}")
 
     # Remove duplicates in non_winners list
     non_winners = list(set(non_winners))
@@ -658,11 +651,12 @@ def update_statistics(winners, dealer_wins, joined_players):
     # Update dealer's losses if dealer did not win
     if not dealer_wins:
         dealer = Dealer.objects.first()  # Assuming only one dealer
-        dealer.loses += 1  # Make sure you have a `loses` field in your Dealer model
+        dealer.loses += 1  # Ensure you have a `loses` field in your Dealer model
         dealer.save()
         print(f"Dealer losses updated: {dealer.loses}")
 
     print("Finished update_statistics function")
+
 
 # def update_statistics(winners, dealer_wins, joined_players):
 #     print("Starting update_statistics function")
@@ -718,38 +712,31 @@ def update_statistics(winners, dealer_wins, joined_players):
 
 
 
-
-
-
 def check_for_next_round(update: Update, context: CallbackContext, game, joined_players):
     chat_id = update.message.chat_id
     time.sleep(3)
     
     if game.current_round > game.total_rounds:
-        # Determine the overall winner (e.g., the player with the most wins)
+        # Determine the overall winner
         round_winners = RoundWinner.objects.filter(game=game)
         
-        # Find the player or dealer who won the most rounds
+        # Count wins for each player and the dealer
         winner_count = {}
         for winner in round_winners:
-            if winner.winner:  # If it's a player win
+            if winner.winner:
                 if winner.winner in winner_count:
                     winner_count[winner.winner] += 1
                 else:
                     winner_count[winner.winner] = 1
 
-        # Count dealer wins
         dealer_wins = RoundWinner.objects.filter(game=game, is_dealer=True).count()
-        
-        # Include dealer wins in the winner_count dictionary
         if dealer_wins > 0:
             winner_count['dealer'] = dealer_wins
 
-        # Log the winner counts for debugging
         print(f"Winner counts (including dealer): {winner_count}")
         
         if winner_count:
-            # Determine the overall winner (or check for a tie)
+            # Determine the overall winner(s)
             max_wins = max(winner_count.values())
             overall_winners = [winner for winner, wins in winner_count.items() if wins == max_wins]
             
@@ -765,7 +752,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             elif len(overall_winners) > 1:
                 # Multiple winners (tie)
                 winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
-                context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2", timeout=20)
+                context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot! 🏆", parse_mode="MarkdownV2", timeout=20)
 
             # Update statistics for winners and losers
             update_statistics(overall_winners, dealer_wins, joined_players)
@@ -776,9 +763,8 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         # Call the end_game function to finalize the game
         end_game(update, context)  # Ensure end_game is called after determining the winner
 
-        # Fetch player round winners and dealer wins for standings
+        # Prepare standings message
         bot_member = context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
-
         round_winners = RoundWinner.objects.filter(game=game, is_dealer=False)
         dealer_wins = RoundWinner.objects.filter(game=game, is_dealer=True).count()
         winner_count = {}
@@ -789,7 +775,6 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             else:
                 winner_count[winner.winner] = 1
 
-        # Separate players with wins and without wins
         winners = []
         no_wins = []
 
@@ -803,36 +788,27 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             else:
                 no_wins.append((player_name, player_id))
 
-        # Sort winners by wins (descending)
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
-
-        # Build the standings message
         standings_message = "📊 Current standings:\n"
 
-        # Add the dealer wins first, if any
         if dealer_wins > 0:
-            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+            standings_message += f"🤖 Dealer: {dealer_wins} round(s) won\n"
         else:
             standings_message += f"🤖 Dealer: No wins yet\n"
 
-        # Add players with wins
         for winner_name, wins, user_id in winners:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
             mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-            standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
+            standings_message += f"🏆 {mention}: {wins} round(s) won\n"
 
-        # Add players with no wins
         for player_name, player_id in no_wins:
             user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
             mention = f"[{user_name_escaped}](tg://user?id={player_id})"
             standings_message += f"🎲 {mention}: No wins yet\n"
 
-        # Send the message with the standings
         message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2", timeout=20)
 
-        # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
-            # Pin the message
             safe_pin_chat_message(context.bot, chat_id, message.message_id)
             
         Game.objects.filter(chat_id=chat_id).delete()
@@ -845,6 +821,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         time.sleep(3)
         start_round(update, context, game, joined_players)
+
 
 
 # Function to start player's turn in a specific round

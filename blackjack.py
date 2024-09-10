@@ -42,14 +42,38 @@ def tag_users(update: Update, context: CallbackContext):
     members = context.bot.get_chat_administrators(chat_id)
     mentions = [f"[{member.user.full_name}](tg://user?id={member.user.id})" for member in members]
 
+    # Helper function to send a message with retry logic
+    def send_message_with_retry(mention):
+        retries = 3
+        while retries > 0:
+            try:
+                context.bot.send_message(
+                    chat_id=chat_id,
+                    text=mention,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+                break  # Exit loop if message sent successfully
+            except TimedOut:
+                # Handle timeout error, retry after a short delay
+                time.sleep(1)
+                retries -= 1
+            except RetryAfter as e:
+                # Handle flood control exceeded, retry after the specified time
+                time.sleep(e.retry_after)
+                retries -= 1
+            except Exception as e:
+                # Handle other exceptions
+                context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"An error occurred: {e}",
+                    timeout=20
+                )
+                break
+
     # Send each mention as a separate message
     for _ in range(repeat_count):
         for mention in mentions:
-            context.bot.send_message(
-                chat_id=chat_id,
-                text=mention,
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
+            send_message_with_retry(mention)
             time.sleep(1)  # Wait for 1 second before sending the next tag
 
 def check_player(update: Update, context: CallbackContext):
@@ -1399,7 +1423,7 @@ def main():
     dp.add_handler(CommandHandler('stats', stats))
     dp.add_handler(CommandHandler('my_tokens', get_player_chips))
     dp.add_handler(PollAnswerHandler(poll_answer_handler))
-    dp.add_handler(CommandHandler("tag", tag_users))
+    dp.add_handler(CommandHandler("Tag", tag_users))
 
 
     # Start the bot

@@ -543,6 +543,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
 
         # Build the standings message
+        time.sleep(2)
         standings_message = "📊 Current standings:\n"
 
         # Add the dealer wins first, if any
@@ -572,6 +573,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
             # Pin the message
             safe_pin_chat_message(context.bot, chat_id, message.message_id)
 
+    time.sleep(2)
 
     context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...",timeout=20)
     time.sleep(3)
@@ -794,6 +796,8 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
                 no_wins.append((player_name, player_id))
 
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
+        time.sleep(2)
+
         standings_message = "📊 Current standings:\n"
 
         if dealer_wins > 0:

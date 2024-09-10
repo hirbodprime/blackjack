@@ -1,0 +1,56 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Django migrations
+migrations/
+
+# Virtual environment
+venv/
+.env
+
+# Log files
+*.log
+
+# IDE/editor configuration files
+.vscode/
+.idea/
+*.swp
+
+# Static files
+staticfiles/
+
+# Database
+db.sqlite3
+
+# Django secret key file
+secret_key.txt
+
+# MacOS Finder files
+.DS_Store
+
+# Windows system files
+Thumbs.db
+Desktop.ini
+
+# Coverage reports
+.coverage
+*.cover
+
+# Python Egg Info
+*.egg-info/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/

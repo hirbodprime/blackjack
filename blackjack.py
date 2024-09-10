@@ -35,7 +35,7 @@ def check_join_time(update: Update, context: CallbackContext, game_id):
                 # Automatically start the game if join time exceeds 120 seconds
                 force_start(update, context)
     except Game.DoesNotExist:
-        pass
+        print("Game not found for chat_id:", game_id)
 
 def send_time_left_reminder(game_id, context):
     try:
@@ -60,6 +60,8 @@ def send_time_left_reminder(game_id, context):
                     chat_id=game.chat_id,
                     text="The time to join has expired.",
                 )
+                # Automatically start the game if join time exceeds 120 seconds
+                threading.Thread(target=check_join_time, args=(update, context, game_id), daemon=True).start()
         else:
             # Join start time is not set
             context.bot.send_message(
@@ -67,7 +69,7 @@ def send_time_left_reminder(game_id, context):
                 text="Join start time is not properly set.",
             )
     except Game.DoesNotExist:
-        pass
+        print("Game not found for chat_id:", game_id)
 def tag_users(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
 

@@ -986,7 +986,7 @@ def hit(update: Update, context: CallbackContext):
         stats =  Stats.objects.get(player=join_game.player)
         stats.how_many_21 += 1
         stats.save()
-        safe_send_message(context.bot, chat_id, f"{mention} \\! 💥\\! They automatically stand\\.")
+        safe_send_message(context.bot, chat_id, f"{mention} \\! Reached BlackJack💥\\! They automatically stand\\.")
         next_player_turn(update, context)
     elif hand_value > 21:
         time.sleep(3)

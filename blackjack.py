@@ -917,7 +917,7 @@ def player_turn(update: Update, context: CallbackContext):
     if chat_id in timers:
         timers[chat_id].cancel()  # Cancel the previous timer if it exists
 
-    timer = threading.Timer(20.0, auto_stand, [chat_id, current_player_id, context])
+    timer = threading.Timer(20.0, auto_stand, [chat_id, current_player_id,current_player.name, context])
     timer.start()
     timers[chat_id] = timer
     
@@ -930,11 +930,13 @@ def player_turn(update: Update, context: CallbackContext):
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
         context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.\n\nyou have 20 second to make a decision or it will automaticly stand\\!", parse_mode="MarkdownV2")
 
-def auto_stand(chat_id, current_player_id, context):
+def auto_stand(chat_id, current_player_id,current_player_name,context):
     # Automatically call the stand function if the timer expires
     context.bot.send_message(chat_id=chat_id, text="Time's up! Your turn is now considered a stand.")
     # Simulate the player choosing to stand
-    update = Update(message=Update.message(chat_id=chat_id, from_user=User(id=current_player_id)))
+    current_user = User(id=current_player_id,first_name=current_player_name,is_bot=False)
+    update = Update(message=Update.message(chat_id=chat_id, from_user=current_user))
+
     stand(update, context)
 
 # Escape special characters in the player's name

@@ -909,7 +909,10 @@ def hit(update: Update, context: CallbackContext):
     # Check for bust or 21
     if hand_value == 21:
         time.sleep(3)
-        safe_send_message(context.bot, chat_id, f"{mention} reached 21\\! They automatically stand\\.")
+        stats =  Stats.objects.get(player=join_game.player)
+        stats.how_many_21 += 1
+        stats.save()
+        safe_send_message(context.bot, chat_id, f"{mention} got a Blackjack! 💥\\! They automatically stand\\.")
         next_player_turn(update, context)
     elif hand_value > 21:
         time.sleep(3)

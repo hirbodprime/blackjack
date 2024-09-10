@@ -503,7 +503,11 @@ def force_start(update: Update, context: CallbackContext,game_chat_id=None):
 
     # Check if there are enough players
     if joined_players.count() < 1:
-        update.message.reply_text('Not enough players, ending the game!')
+        message_text = 'Not enough players, ending the game!'
+        if update.message:
+            update.message.reply_text(message_text)
+        else:
+            context.bot.send_message(chat_id=chat_id, text=message_text)
         Game.objects.filter(chat_id=chat_id).delete()
         return
     dealer = Dealer.objects.first()  # Assuming there's only one dealer

@@ -1,5 +1,14 @@
 from django.contrib import admin
-from .models import Player, Stats, Game, JoinGame,Dealer,RoundWinner
+from .models import Player, Stats, Game, JoinGame,Dealer,RoundWinner,Group
+
+class GroupAdmin(admin.ModelAdmin):
+    list_display = ('group_chat_id', 'games')  # Fields to display in the list view
+    search_fields = ('group_chat_id',)  # Fields to search by in the admin interface
+    list_filter = ('games',)  # Add filters for better management
+
+# Register the admin class with the Group model
+admin.site.register(Group, GroupAdmin)
+
 class RoundWinnerAdmin(admin.ModelAdmin):
     list_display = ('game', 'round_number', 'get_winner', 'is_dealer')
     list_filter = ('game', 'is_dealer', 'round_number')

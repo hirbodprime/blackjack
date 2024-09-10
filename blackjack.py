@@ -379,7 +379,7 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         
         context.bot.send_message(
             chat_id=chat_id,
-            text=f"{mention} has set the bet amount to {chosen_option}\nUse /join to join the game", 
+            text=f"{mention} has set the bet amount to {chosen_option}\n", 
             parse_mode="MarkdownV2", 
             timeout=20
         )

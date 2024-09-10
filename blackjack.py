@@ -1085,27 +1085,33 @@ def stand(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
-
+    
+    
     try:
         game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        update.message.reply_text("No active game or the game has not started.")
+        context.bot.send_message(chat_id=chat_id, text="No active game or the game has not started.")
         return
 
     try:
         player = Player.objects.get(id=user_id)
     except Player.DoesNotExist:
-        update.message.reply_text(f"{user_name}, please start the bot in private first.")
+        context.bot.send_message(chat_id=chat_id, text=f"{user_name}, please start the bot in private first.")
+        # update.message.reply_text(f"{user_name}, please start the bot in private first.")
         return
 
     try:
         join_game = JoinGame.objects.get(player=player, game=game, is_active=True)
     except JoinGame.DoesNotExist:
-        update.message.reply_text("You are not part of the game.")
+        # update.message.reply_text("You are not part of the game.")
+        context.bot.send_message(chat_id=chat_id, text="You are not part of the game.")
+
         return
 
     if user_id != game.turn_order[0]:
-        update.message.reply_text("It's not your turn!")
+        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
+        mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+        context.bot.send_message(chat_id=chat_id, text=f"{mention} It's not your turn\\!")
         return
 
     # Cancel the existing timers if they exist

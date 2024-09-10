@@ -18,16 +18,23 @@ class Game(models.Model):
     pot = models.IntegerField(default=0)  # Total pot amount
 
 
+class Group(models.Model):
+    group_chat_id = models.CharField(max_length=100)
+    games = models.IntegerField(default=0)
+    
+
 class Dealer(models.Model):
     chips = models.IntegerField(default=0)  # The dealer's chips
     wins = models.IntegerField(default=0)   # Number of games the dealer has won
     loses = models.IntegerField(default=0)
     blackjack_count = models.IntegerField(default=0)
+    games = models.IntegerField(default=0)
 
 
 class Player(models.Model):
     name = models.CharField(max_length=50)
     chips = models.IntegerField(default=0)
+    games = models.IntegerField(default=0)
 
 
 class Stats(models.Model):

@@ -12,7 +12,7 @@ django.setup()
 blackjack_games = {}
 import time
 import re
-from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner
+from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group
 from django.core.exceptions import ObjectDoesNotExist
 from telegram.error import Unauthorized
 import random
@@ -158,7 +158,7 @@ def start_blackjack(update: Update, context: CallbackContext):
 
     # Check if a game exists for the current chat ID
     game = Game.objects.filter(chat_id=chat_id).order_by('-id').first()
-    
+
     # If no game exists or the last game has ended, create a new game
     if not game or game.ended:
         print("No existing active game found or the last game has ended. Creating a new game...")
@@ -209,25 +209,32 @@ def safe_send_poll(bot, chat_id, question, options, timeout=20, max_retries=5):
     print("Failed to send the poll after retries.")
 
 def create_poll(update: Update, context: CallbackContext):
-    question = "How much do you want to bet?"
-    options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰"]
     chat_id = update.message.chat_id
 
+    # Retrieve or create Group instance
+    try:
+        group = Group.objects.get(group_chat_id=chat_id)
+    except Group.DoesNotExist:
+        group = Group(group_chat_id=chat_id)
+        group.save()
+
+    # Check the number of games and update options
+    if group.games > 100:
+        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
+    else:
+        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰"]
+
+    question = "How much do you want to bet?"
+
     # Send a poll
-    # message = update.message.bot.send_poll(
-    #     chat_id=chat_id,  # Specify the chat ID where you want to send the poll
-    #     question=question,
-    #     options=options,
-    #     is_anonymous=False  # Set to False so the bot knows who voted
-    # )
     message = safe_send_poll(context.bot, chat_id, question, options)
 
     # Save the message and poll id so that we can handle the answers later
     context.bot_data['poll_message_id'] = message.message_id
     context.bot_data['poll_chat_id'] = update.message.chat_id
     context.bot_data['poll_id'] = message.poll.id
+
 def poll_answer_handler(update: Update, context: CallbackContext):
-    global chat_id
     poll_answer = update.poll_answer
     user_id = poll_answer.user.id
     user_name = update.poll_answer.user.first_name
@@ -235,32 +242,44 @@ def poll_answer_handler(update: Update, context: CallbackContext):
 
     # Retrieve the poll data from context
     poll_id = context.bot_data.get('poll_id')
+    chat_id = context.bot_data.get('poll_chat_id')
 
     # Verify the poll_id matches
     if poll_answer.poll_id == poll_id:
         # Process the answer based on the selected option
-        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰"]
+        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
         chosen_option = options[selected_option]
         bet_amount = int(chosen_option.split()[0])
+        
         try:
-            game = Game.objects.get(chat_id=chat_id,betting=True,started=False,ended=False)
-        except:
+            game = Game.objects.get(chat_id=chat_id, betting=True, started=False, ended=False)
+        except Game.DoesNotExist:
             print("game not found?")
             return
+        
         game.bet_amount = bet_amount
         game.betting = False
-        # game.started = True
         game.join_time = True
         game.save()
-        # You can now process the chosen option and, for example, deduct the chips
+        
+        # Update the Group's game count
+        try:
+            group = Group.objects.get(group_chat_id=chat_id)
+            group.games += 1
+            group.save()
+        except Group.DoesNotExist:
+            print("Group not found?")
+        
+        # Notify the chat about the bet amount and joining
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
-
         mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-        time.sleep(2)
-
-        context.bot.send_message(chat_id=context.bot_data['poll_chat_id'],
-                                 text=f"{mention} has set the bet amount to {chosen_option}\n use /join to join the game", 
-            parse_mode="MarkdownV2", timeout=20)
+        
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=f"{mention} has set the bet amount to {chosen_option}\nUse /join to join the game", 
+            parse_mode="MarkdownV2", 
+            timeout=20
+        )
 def safe_send_message_join(bot, chat_id, text, timeout=20, max_retries=3):  # Increased timeout
     retries = 0
     while retries < max_retries:
@@ -374,10 +393,13 @@ def force_start(update: Update, context: CallbackContext):
         update.message.reply_text('At least 1 players are required to start the game.')
         return
     dealer = Dealer.objects.first()  # Assuming there's only one dealer
-    
+    group_game,created = Group.objects.get_or_create(group_chat_id=chat_id)
+    group_game.games += 1
+    group_game.save()
     # Handle the dealer's chips deduction
     if dealer:
         dealer.chips -= game.bet_amount
+        dealer.games += 1
         dealer.save()
         context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer is in the game with {game.bet_amount} 💰chips on the table\\.",
             parse_mode="MarkdownV2", timeout=20)
@@ -385,6 +407,7 @@ def force_start(update: Update, context: CallbackContext):
     for join_entry in joined_players:
         player = join_entry.player
         player.chips -= game.bet_amount
+        player.games += 1
         player.save()  # Save the updated chips amount to the Player model
         # update.message.reply_text(f"{player.name} has bet {game.bet_amount} chips. Remaining chips: {player.chips}")
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player.name)

@@ -1083,7 +1083,9 @@ def hit(update: Update, context: CallbackContext):
 
 def stand(update: Update, context: CallbackContext,user_id=None):
     chat_id = update.message.chat_id
-    user_id = update.message.from_user.id
+    if not user_id:
+        user_id = update.message.from_user.id
+    
     user_name = update.message.from_user.first_name
     
     

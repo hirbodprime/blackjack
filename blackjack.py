@@ -1,9 +1,8 @@
+import random
 from telegram import Update, Bot,ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext,PollAnswerHandler
-from telegram.error import TimedOut,RetryAfter,Unauthorized
-
-import django
 import os
+import django
 
 # Set the environment variable to point to your Django settings module
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
@@ -11,67 +10,14 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
 # Initialize Django
 django.setup()
 blackjack_games = {}
-
 import time
 import re
-import random
-import datetime
-import threading
-from datetime import timedelta
-
 from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group
 from django.core.exceptions import ObjectDoesNotExist
-from django.utils import timezone
+from telegram.error import Unauthorized
+import random
+from telegram.error import TimedOut,RetryAfter
 
-Testing_mode = True
-
-
-def check_join_time(update: Update, context: CallbackContext, game_id):
-    try:
-        game = Game.objects.get(chat_id=game_id)
-        if game.join_start_time and not game.started and game.join_time:
-            elapsed_time = timezone.now() - game.join_start_time
-            if elapsed_time.total_seconds() > 120:
-                # Automatically start the game if join time exceeds 120 seconds
-                print("Asdafsdfashhhhhhhhhhhhhh")
-                force_start(update, context,game.chat_id)
-    except Game.DoesNotExist:
-        print("Game not found for chat_id:", game_id)
-
-def send_time_left_reminder(update: Update, context: CallbackContext, game_id):
-    try:
-        game = Game.objects.get(chat_id=game_id)
-        
-        if game.join_start_time and not game.started:
-            elapsed_time = timezone.now() - game.join_start_time
-            remaining_time = 120 - elapsed_time.total_seconds()
-            
-            if remaining_time > 0:
-                # Send message about remaining time
-                message = f"Time left to join: {int(remaining_time)} seconds.\n use /join to join the game"
-                context.bot.send_message(
-                    chat_id=game.chat_id,
-                    text=message,
-                )
-                # Schedule the next reminder
-                threading.Timer(30, send_time_left_reminder, args=(update, context, game_id)).start()
-            else:
-                # Time has run out
-                context.bot.send_message(
-                    chat_id=game.chat_id,
-                    text="The time to join has expired.",
-                )
-                # Automatically start the game if join time exceeds 120 seconds
-                threading.Thread(target=check_join_time, args=(update, context, game_id), daemon=True).start()
-        else:
-            pass
-            # Join start time is not set
-            # context.bot.send_message(
-            #     chat_id=game.chat_id,
-            #     text="Join start time is not properly set.",
-            # )
-    except Game.DoesNotExist:
-        print("Game not found for chat_id:", game_id)
 def tag_users(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
 
@@ -344,17 +290,17 @@ def create_poll(update: Update, context: CallbackContext):
     context.bot_data['poll_chat_id'] = update.message.chat_id
     context.bot_data['poll_id'] = message.poll.id
 
-
 def poll_answer_handler(update: Update, context: CallbackContext):
     poll_answer = update.poll_answer
     user_id = poll_answer.user.id
-    user_name = poll_answer.user.first_name
+    user_name = update.poll_answer.user.first_name
     selected_option = poll_answer.option_ids[0]  # Get the index of the selected option
 
     # Retrieve the poll data from context
     poll_id = context.bot_data.get('poll_id')
     chat_id = context.bot_data.get('poll_chat_id')
 
+    # Verify the poll_id matches
     if poll_answer.poll_id == poll_id:
         # Process the answer based on the selected option
         options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
@@ -370,9 +316,17 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         game.bet_amount = bet_amount
         game.betting = False
         game.join_time = True
-        time.sleep(2)
+        game.save()
         
+        # Update the Group's game count
+        # try:
+        #     group = Group.objects.get(group_chat_id=chat_id)
+        #     group.games += 1
+        #     group.save()
+        # except Group.DoesNotExist:
+        #     print("Group not found?")
         
+        # Notify the chat about the bet amount and joining
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
         mention = f"[{user_name_escaped}](tg://user?id={user_id})"
         
@@ -382,18 +336,6 @@ def poll_answer_handler(update: Update, context: CallbackContext):
             parse_mode="MarkdownV2", 
             timeout=20
         )
-        game.join_start_time = timezone.now()
-        game.save()
-        # Start threads with proper arguments
-        threading.Thread(target=check_join_time, args=(update, context, game.chat_id), daemon=True).start()
-        threading.Thread(target=send_time_left_reminder, args=(update, context, game.chat_id), daemon=True).start()
-
-        context.bot.send_message(
-            chat_id=chat_id,
-            text=f"The game is in join time, you have 120 sec to join", 
-            timeout=20
-        )
-
 def safe_send_message_join(bot, chat_id, text, timeout=20, max_retries=3):  # Increased timeout
     retries = 0
     while retries < max_retries:
@@ -469,11 +411,9 @@ def join_blackjack(update: Update, context: CallbackContext):
         parse_mode="MarkdownV2", timeout=20
     )
 
-def force_start(update: Update, context: CallbackContext,game_chat_id=None):
-    try:
-        chat_id = update.message.chat_id
-    except:
-        chat_id = game_chat_id
+def force_start(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
+
     
     try:
         # First, try to find a game that is in the join time, not started, and not ended.
@@ -506,12 +446,7 @@ def force_start(update: Update, context: CallbackContext,game_chat_id=None):
 
     # Check if there are enough players
     if joined_players.count() < 1:
-        message_text = 'Not enough players, ending the game!'
-        if update.message:
-            update.message.reply_text(message_text)
-        else:
-            context.bot.send_message(chat_id=chat_id, text=message_text)
-        Game.objects.filter(chat_id=chat_id).delete()
+        update.message.reply_text('At least 1 players are required to start the game.')
         return
     dealer = Dealer.objects.first()  # Assuming there's only one dealer
     group_game,created = Group.objects.get_or_create(group_chat_id=chat_id)
@@ -913,11 +848,23 @@ def player_turn(update: Update, context: CallbackContext):
         game.turn_order = list(players_in_game.values_list('player__id', flat=True))
         game.save()
 
+    # # If it's the start of the new round, reset hands for all players
+    # if game.current_round > 1 and not game.hands_reset:
+    #     for join_entry in players_in_game:
+    #         player_hand = [deal_card(), deal_card()]
+    #         join_entry.hand = player_hand
+    #         join_entry.save()
+    #         # Send the player their new hand privately
+    #         player = join_entry.player
+    #         hand_value = calculate_hand_value(player_hand)
+    #         context.bot.send_message(chat_id=player.id, text=f"🃏Your hand for round {game.current_round}: {player_hand}. \n♠️Total value: {hand_value}")
 
     # Get the current player from the turn order
     current_player_id = game.turn_order[0]
     current_player = Player.objects.get(id=current_player_id)
+    # from telegram.utils.helpers import escape_markdown
 
+    # escaped_user_name = escape_markdown(user_name, version=2)
     # Notify the current player it is their turn
     if update.message.from_user.id == current_player_id:
 
@@ -925,14 +872,21 @@ def player_turn(update: Update, context: CallbackContext):
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
 
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-
+        # update.message.reply_text(
+        #     f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.", 
+        #     parse_mode="MarkdownV2"
+        # )
+            # Send the private message with the full hand and value
         time.sleep(2)
         context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",parse_mode="MarkdownV2", timeout=20)
     else:
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
 
         mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-
+        # update.message.reply_text(
+        #     f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", 
+        #     parse_mode="MarkdownV2"
+        # )
         time.sleep(2)
         context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", parse_mode="MarkdownV2", timeout=20)
 
@@ -1402,9 +1356,7 @@ def get_dealer_blackjack_stats(update: Update, context: CallbackContext):
 
 # Main function
 def main():
-    # if Testing_mode:
-    #     bot_token = '7094966045:AAEKHTVCZbRS7LPNF2QZlPrPhJQ9GohlE2A'
-    # else:
+   
     bot_token = '7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118'
     updater = Updater(bot_token, use_context=True)
     dp = updater.dispatcher
@@ -1420,7 +1372,7 @@ def main():
     dp.add_handler(CommandHandler('stats', stats))
     dp.add_handler(CommandHandler('my_tokens', get_player_chips))
     dp.add_handler(PollAnswerHandler(poll_answer_handler))
-    dp.add_handler(CommandHandler("tag", tag_users))
+    dp.add_handler(CommandHandler("Tag", tag_users))
 
 
     # Start the bot

@@ -43,6 +43,7 @@ def send_time_left_reminder(update: Update, context: CallbackContext, game_id):
         game = Game.objects.get(chat_id=game_id)
         
         if game.join_start_time and not game.started:
+            time.sleep(3)
             elapsed_time = timezone.now() - game.join_start_time
             remaining_time = 120 - elapsed_time.total_seconds()
             
@@ -388,7 +389,7 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         # Start threads with proper arguments
         threading.Thread(target=check_join_time, args=(update, context, game.chat_id), daemon=True).start()
         threading.Thread(target=send_time_left_reminder, args=(update, context, game.chat_id), daemon=True).start()
-        
+
         context.bot.send_message(
             chat_id=chat_id,
             text=f"The game is in join time, you have 120 sec to join", 
@@ -471,6 +472,7 @@ def join_blackjack(update: Update, context: CallbackContext):
     )
 
 def force_start(update: Update, context: CallbackContext,game_chat_id=None):
+    time.sleep(2)
     try:
         chat_id = update.message.chat_id
     except:
@@ -610,6 +612,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
         # Build the standings message
         standings_message = "📊 Current standings:\n"
+        time.sleep(2)
 
         # Add the dealer wins first, if any
         if dealer_wins > 0:
@@ -669,6 +672,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
     game.save()
 
     # Show only one dealer card
+    time.sleep(2)
     context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible card: ♠️{dealer_hand[0]}",timeout=20)
 
     # Check for dealer
@@ -861,6 +865,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
         standings_message = "📊 Current standings:\n"
+        time.sleep(2)
 
         if dealer_wins > 0:
             standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
@@ -925,11 +930,35 @@ def reset_timer(chat_id, callback, seconds):
     cancel_timer(chat_id)  # Cancel any existing timer
     start_timer(chat_id, callback, seconds)  # Start a new timer
 
-
-def send_reminder(chat_id, context, user_id,username):
+def send_reminder(chat_id, context, user_id, username):
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', username)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     context.bot.send_message(chat_id=chat_id, text=f"{mention}, 10 seconds left to make your decision\\!", parse_mode='MarkdownV2')
+
+def auto_stand(chat_id):
+    global current_timer, timer_state
+
+    print(f"Auto stand triggered for chat_id {chat_id}")
+    context.bot.send_message(chat_id=chat_id, text="Time's up! Your turn is now considered a stand.")
+    
+    # Create a Chat object with dynamic type
+    chat = Chat(id=chat_id, type='group')  # Adjust type as needed
+
+    # Create a Message object
+    message = Message(
+        message_id=0,  # Dummy values; adjust as needed
+        from_user=User(id=0, first_name="", is_bot=False),
+        chat=chat,
+        date=datetime.datetime.now(),  # Replace with actual date if necessary
+        text=""  # Empty text, as it's not used here
+    )
+    
+    # Create the Update object with the Message
+    update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
+
+    # Call stand function
+    stand(update, context)
+
 def player_turn(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
 

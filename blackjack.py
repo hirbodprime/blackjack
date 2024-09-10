@@ -373,7 +373,14 @@ def force_start(update: Update, context: CallbackContext):
     if joined_players.count() < 1:
         update.message.reply_text('At least 1 players are required to start the game.')
         return
-
+    dealer = Dealer.objects.first()  # Assuming there's only one dealer
+    
+    # Handle the dealer's chips deduction
+    if dealer:
+        dealer.chips -= game.bet_amount
+        dealer.save()
+        context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer is in the game with {game.bet_amount} chips on the table\\.",
+            parse_mode="MarkdownV2", timeout=20)
     # Deduct the bet amount from each player's chips
     for join_entry in joined_players:
         player = join_entry.player
@@ -583,12 +590,12 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
 
 
-
-
-
 def update_statistics(winners, dealer_wins, joined_players):
+    print("Starting update_statistics function")
+    
     # Initialize a list for non-winners
     non_winners = []
+    print("Initialized non_winners list")
 
     # Update stats for each winner
     for winner in winners:
@@ -596,35 +603,43 @@ def update_statistics(winners, dealer_wins, joined_players):
             dealer = Dealer.objects.first()  # Assuming only one dealer
             dealer.wins += 1
             dealer.save()
+            print(f"Dealer wins updated: {dealer.wins}")
         else:
             player = Player.objects.get(id=winner.id)
             stats, created = Stats.objects.get_or_create(player=player)
             stats.wins += 1
             stats.save()
-    
+            print(f"Player {player.id} wins updated: {stats.wins}")
+
     # Determine non-winners
     winners_ids = {winner.id for winner in winners if winner != 'dealer'}
-    for player in joined_players:
-        if player.player.id not in winners_ids and player.player != 'dealer':
-            non_winners.append(player.player)
-    
+    non_winners = [player.player for player in joined_players if player.player.id not in winners_ids]
+    print(f"Non-winners determined: {[player.id for player in non_winners]}")
+
+    # Handle losses for non-winners
+    if dealer_wins:
+        # Include all players who did not win
+        non_winners.extend(player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer')
+        print(f"Non-winners extended due to dealer win: {[player.id for player in non_winners]}")
+
+    # Remove duplicates in non_winners list
+    non_winners = list(set(non_winners))
+    print(f"Non-winners list after removing duplicates: {[player.id for player in non_winners]}")
+
     # Update losses for each non-winner
     for player in non_winners:
         stats, created = Stats.objects.get_or_create(player=player)
         stats.loses += 1
         stats.save()
+        print(f"Player {player.id} losses updated: {stats.loses}")
 
-    # Handle dealer wins and losses
+    # Ensure the dealer's losses are not updated
     if dealer_wins:
         dealer = Dealer.objects.first()  # Assuming only one dealer
         dealer.wins += 1
         dealer.save()
-        # Update losses for players who lost to the dealer
-        for player in joined_players:
-            if player.player not in winners:
-                stats, created = Stats.objects.get_or_create(player=player.player)
-                stats.loses += 1
-                stats.save()
+        print(f"Dealer wins updated again: {dealer.wins}")
+
 
 
 

@@ -369,8 +369,8 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         game.bet_amount = bet_amount
         game.betting = False
         game.join_time = True
-        game.join_start_time = timezone.now()
-        game.save()
+        time.sleep(2)
+        
         
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
         mention = f"[{user_name_escaped}](tg://user?id={user_id})"
@@ -381,7 +381,8 @@ def poll_answer_handler(update: Update, context: CallbackContext):
             parse_mode="MarkdownV2", 
             timeout=20
         )
-
+        game.join_start_time = timezone.now()
+        game.save()
         # Start threads with proper arguments
         threading.Thread(target=check_join_time, args=(update, context, game.chat_id), daemon=True).start()
         threading.Thread(target=send_time_left_reminder, args=(update, context, game.chat_id), daemon=True).start()

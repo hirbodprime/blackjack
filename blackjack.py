@@ -527,15 +527,15 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
         context.bot.send_message(chat_id=chat_id, text="🤖 Dealer has a Blackjack! 💥",timeout=20)
         dealer = Dealer.objects.get(id=1)
         dealer.blackjack_count += 1
-        dealer.wins += 1
+        # dealer.wins += 1
         dealer.save()
 
         # Mark losing stats for players who didn't get Blackjack
-        for join_entry in joined_players:
-            if join_entry not in player_blackjacks:
-                stats = Stats.objects.get(player=join_entry.player)
-                stats.loses += 1  # Increment losing stats
-                stats.save()
+        # for join_entry in joined_players:
+        #     if join_entry not in player_blackjacks:
+        #         stats = Stats.objects.get(player=join_entry.player)
+        #         stats.loses += 1  # Increment losing stats
+        #         stats.save()
 
         # Check for player Blackjack ties (push)
         for join_entry in player_blackjacks:
@@ -554,7 +554,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
             
             # Update stats (no payout, just marking the win)
             stats = Stats.objects.get(player=join_entry.player)
-            stats.wins += 1
+            # stats.wins += 1
             stats.how_many_21 += 1
             stats.save()
 
@@ -569,11 +569,77 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
     for join_entry in joined_players:
         if join_entry not in player_blackjacks:
             stats = Stats.objects.get(player=join_entry.player)
-            stats.loses += 1  # Increment losing stats
+            # stats.loses += 1  # Increment losing stats
             stats.save()
 
     # Continue to the first player's turn if no Blackjack
     player_turn(update, context)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def update_statistics(winners, dealer_wins, joined_players):
+    # Update stats for each winner
+    for winner in winners:
+        if winner == 'dealer':
+            dealer = Dealer.objects.first()  # Assuming only one dealer
+            dealer.wins += 1
+            dealer.save()
+        else:
+            player = Player.objects.get(id=winner.id)
+            stats, created = Stats.objects.get_or_create(player=player)
+            stats.wins += 1
+            stats.save()
+
+    # Update losses for each non-winner
+    for player in joined_players:
+        if player.player not in winners:
+            stats, created = Stats.objects.get_or_create(player=player.player)
+            stats.loses += 1
+            stats.save()
+
+    # Handle the case where only the dealer wins
+    if dealer_wins:
+        dealer = Dealer.objects.first()  # Assuming only one dealer
+        dealer.wins += 1
+        dealer.save()
+
+    # Handle the case where multiple winners exist
+    if len(winners) > 1:
+        for winner in winners:
+            if winner != 'dealer':
+                player = Player.objects.get(id=winner.id)
+                stats, created = Stats.objects.get_or_create(player=player)
+                stats.wins += 1
+                stats.save()
+
+    # Handle dealer wins and losses in the same round
+    if dealer_wins:
+        dealer = Dealer.objects.first()  # Assuming only one dealer
+        dealer.wins += 1
+        dealer.save()
+        for player in joined_players:
+            if player.player not in winners:
+                stats, created = Stats.objects.get_or_create(player=player.player)
+                stats.loses += 1
+                stats.save()
+
+
+
+
+
+
+
 def check_for_next_round(update: Update, context: CallbackContext, game, joined_players):
     chat_id = update.message.chat_id
     time.sleep(3)
@@ -611,14 +677,18 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
                 overall_winner = overall_winners[0]
                 
                 if overall_winner == 'dealer':
-                    context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game\\! 🏆", timeout=20)
+                    context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game! 🏆", timeout=20)
                 else:
-                    context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game\\! 🏆", timeout=20)
+                    context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆", timeout=20)
                     
             elif len(overall_winners) > 1:
                 # Multiple winners (tie)
                 winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
                 context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2", timeout=20)
+
+            # Update statistics for winners and losers
+            update_statistics(overall_winners, dealer_wins, joined_players)
+            
         else:
             context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.", timeout=20)
 
@@ -683,6 +753,8 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
         if bot_member.status in ['administrator', 'creator']:
             # Pin the message
             safe_pin_chat_message(context.bot, chat_id, message.message_id)
+            
+        context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.", timeout=20)
 
     else:
         # Prepare for the next round
@@ -1108,11 +1180,16 @@ def end_game(update: Update, context: CallbackContext):
             winners.remove('dealer')
             dealer = Dealer.objects.get(id=1)
             dealer.chips += split_pot
+            # dealer.wins += 1
             dealer.save()
             context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} chips💰!", timeout=20)
 
         for winner in winners:
+
             winner.chips += split_pot
+            # stats = Stats.objects.get(player=winner)
+            # stats.wins +=1
+            # stats.save()
             winner.save()
             context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰!", timeout=20)
 
@@ -1125,8 +1202,8 @@ def end_game(update: Update, context: CallbackContext):
     game.betting = False
     game.join_time = False
     game.save()
-    RoundWinner.objects.filter(game=game, rounds_ended=False).update(rounds_ended=True)
-    context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.", timeout=20)
+    # RoundWinner.objects.filter(game=game, rounds_ended=False).update(rounds_ended=True)
+    Game.objects.filter(chat_id=chat_id).delete()
 
         
 def reset_round_state(game):

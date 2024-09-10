@@ -38,20 +38,18 @@ def tag_users(update: Update, context: CallbackContext):
             )
             return
 
-    # Generate a list of mentions
+    # Get the list of chat members
     members = context.bot.get_chat_administrators(chat_id)
     mentions = [f"[{member.user.full_name}](tg://user?id={member.user.id})" for member in members]
-    
-    # Create the message with repeated mentions
-    message = " ".join(mentions) * repeat_count
 
-    # Send the message tagging all users
-    context.bot.send_message(
-        chat_id=chat_id,
-        text=message,
-        parse_mode=ParseMode.MARKDOWN_V2
-    )
-# Function to check if a user has a Player model or not
+    # Send each mention as a separate message
+    for _ in range(repeat_count):
+        for mention in mentions:
+            context.bot.send_message(
+                chat_id=chat_id,
+                text=mention,
+                parse_mode=ParseMode.MARKDOWN_V2
+            )# Function to check if a user has a Player model or not
 def check_player(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name

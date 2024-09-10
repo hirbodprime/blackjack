@@ -49,7 +49,9 @@ def tag_users(update: Update, context: CallbackContext):
                 chat_id=chat_id,
                 text=mention,
                 parse_mode=ParseMode.MARKDOWN_V2
-            )# Function to check if a user has a Player model or not
+            )
+            time.sleep(1)  # Wait for 1 second before sending the next tag
+
 def check_player(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name

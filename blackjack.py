@@ -80,7 +80,7 @@ def stats(update: Update, context: CallbackContext):
         # Check if the player already exists
         player = Player.objects.get(id=user_id)
         stats = Stats.objects.get(player=player)
-        update.message.reply_text(f"here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n21: {stats.how_many_21}")
+        update.message.reply_text(f"here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n💥Blackjacks: {stats.how_many_21}")
 
     except ObjectDoesNotExist:
         # If the player does not exist, create the Player and Stats instance
@@ -612,7 +612,6 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
 
 
 
-
 def update_statistics(winners, dealer_wins, joined_players):
     print("Starting update_statistics function")
     
@@ -656,12 +655,64 @@ def update_statistics(winners, dealer_wins, joined_players):
         stats.save()
         print(f"Player {player.id} losses updated: {stats.loses}")
 
-    # Ensure the dealer's losses are not updated
-    if dealer_wins:
+    # Update dealer's losses if dealer did not win
+    if not dealer_wins:
         dealer = Dealer.objects.first()  # Assuming only one dealer
-        dealer.wins += 1
+        dealer.loses += 1  # Make sure you have a `loses` field in your Dealer model
         dealer.save()
-        print(f"Dealer wins updated again: {dealer.wins}")
+        print(f"Dealer losses updated: {dealer.loses}")
+
+    print("Finished update_statistics function")
+
+# def update_statistics(winners, dealer_wins, joined_players):
+#     print("Starting update_statistics function")
+    
+#     # Initialize a list for non-winners
+#     non_winners = []
+#     print("Initialized non_winners list")
+
+#     # Update stats for each winner
+#     for winner in winners:
+#         if winner == 'dealer':
+#             dealer = Dealer.objects.first()  # Assuming only one dealer
+#             dealer.wins += 1
+#             dealer.save()
+#             print(f"Dealer wins updated: {dealer.wins}")
+#         else:
+#             player = Player.objects.get(id=winner.id)
+#             stats, created = Stats.objects.get_or_create(player=player)
+#             stats.wins += 1
+#             stats.save()
+#             print(f"Player {player.id} wins updated: {stats.wins}")
+
+#     # Determine non-winners
+#     winners_ids = {winner.id for winner in winners if winner != 'dealer'}
+#     non_winners = [player.player for player in joined_players if player.player.id not in winners_ids]
+#     print(f"Non-winners determined: {[player.id for player in non_winners]}")
+
+#     # Handle losses for non-winners
+#     if dealer_wins:
+#         # Include all players who did not win
+#         non_winners.extend(player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer')
+#         print(f"Non-winners extended due to dealer win: {[player.id for player in non_winners]}")
+
+#     # Remove duplicates in non_winners list
+#     non_winners = list(set(non_winners))
+#     print(f"Non-winners list after removing duplicates: {[player.id for player in non_winners]}")
+
+#     # Update losses for each non-winner
+#     for player in non_winners:
+#         stats, created = Stats.objects.get_or_create(player=player)
+#         stats.loses += 1
+#         stats.save()
+#         print(f"Player {player.id} losses updated: {stats.loses}")
+
+#     # Ensure the dealer's losses are not updated
+#     if dealer_wins:
+#         dealer = Dealer.objects.first()  # Assuming only one dealer
+#         dealer.wins += 1
+#         dealer.save()
+#         print(f"Dealer wins updated again: {dealer.wins}")
 
 
 
@@ -935,7 +986,7 @@ def hit(update: Update, context: CallbackContext):
         stats =  Stats.objects.get(player=join_game.player)
         stats.how_many_21 += 1
         stats.save()
-        safe_send_message(context.bot, chat_id, f"{mention} got a Blackjack! 💥\\! They automatically stand\\.")
+        safe_send_message(context.bot, chat_id, f"{mention} \\! 💥\\! They automatically stand\\.")
         next_player_turn(update, context)
     elif hand_value > 21:
         time.sleep(3)

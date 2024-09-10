@@ -1,0 +1,1 @@
+from blackjack.wsgi import application

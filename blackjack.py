@@ -4,7 +4,6 @@ from telegram.error import TimedOut,RetryAfter,Unauthorized
 
 import django
 import os
-from threading import Timer
 
 # Set the environment variable to point to your Django settings module
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
@@ -892,38 +891,38 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
 
         time.sleep(3)
         start_round(update, context, game, joined_players)
-
-
-timers = {}
+timer_state = {}
+current_timer = {}
 
 def start_timer(chat_id, callback, seconds):
+    global current_timer, timer_state
+
     print(f"Starting timer for chat_id {chat_id}")
-    if chat_id in timers:
-        current_timer = timers[chat_id]
-        if isinstance(current_timer, Timer):
-            print(f"Cancelling existing Timer for chat_id {chat_id}")
-            current_timer.cancel()  # Cancel existing Timer
-        else:
-            print(f"Error: Expected Timer but found {type(current_timer)}")
+    if chat_id in timer_state and timer_state[chat_id] == 'continue' and chat_id in current_timer:
+        print(f"Cancelling existing Timer for chat_id {chat_id}")
+        current_timer[chat_id].cancel()  # Cancel existing Timer
     
     # Create and start a new Timer
-    new_timer = Timer(seconds, callback)
-    timers[chat_id] = new_timer
-    print(f"Timer started for chat_id {chat_id}: {new_timer}")
-    new_timer.start()
+    timer_state[chat_id] = 'reset'
+    current_timer[chat_id] = threading.Timer(seconds, callback, [chat_id])
+    current_timer[chat_id].start()
+    timer_state[chat_id] = 'continue'
+    print(f"Timer started for chat_id {chat_id}: {current_timer[chat_id]}")
 
 def cancel_timer(chat_id):
-    if chat_id in timers:
-        timer = timers[chat_id]
-        if isinstance(timer, Timer):
-            print(f"Cancelling Timer for chat_id {chat_id}")
-            timer.cancel()  # Cancel Timer
-            del timers[chat_id]  # Remove from dictionary after canceling
-        else:
-            print(f"Error: Expected Timer but found {type(timer)}")
-    else:
-        print(f"No timer found for chat_id {chat_id}")
+    global timer_state, current_timer
 
+    if chat_id in timer_state and timer_state[chat_id] == 'continue' and chat_id in current_timer:
+        print(f"Cancelling Timer for chat_id {chat_id}")
+        current_timer[chat_id].cancel()  # Cancel Timer
+        timer_state[chat_id] = 'stop'
+        print(f"Timer cancelled for chat_id {chat_id}")
+    else:
+        print(f"No active timer to cancel for chat_id {chat_id}")
+
+def reset_timer(chat_id, callback, seconds):
+    cancel_timer(chat_id)  # Cancel any existing timer
+    start_timer(chat_id, callback, seconds)  # Start a new timer
 
 
 def send_reminder(chat_id, context, user_id,username):
@@ -949,22 +948,11 @@ def player_turn(update: Update, context: CallbackContext):
     current_player = Player.objects.get(id=current_player_id)
 
     # Cancel previous timers if they exist
-    if chat_id in timers:
-        if 'auto_stand' in timers[chat_id]:
-            timers[chat_id]['auto_stand'].cancel()
-        if 'reminder' in timers[chat_id]:
-            timers[chat_id]['reminder'].cancel()
-        del timers[chat_id]
+    cancel_timer(chat_id)
 
     # Set up and start the timer for the current player
-    auto_stand_timer = threading.Timer(30.0, auto_stand, [chat_id, current_player_id, current_player.name, context, update.message.chat.type])
-    reminder_timer = threading.Timer(20.0, send_reminder, [chat_id, context, current_player_id, current_player.name])
-
-    auto_stand_timer.start()
-    reminder_timer.start()
-
-    # Store the timers in a dictionary for easy access
-    timers[chat_id] = {'auto_stand': auto_stand_timer, 'reminder': reminder_timer}
+    reset_timer(chat_id, auto_stand, 30.0)
+    reset_timer(chat_id, lambda chat_id: send_reminder(chat_id, context, current_player_id, current_player.name), 20.0)
 
     if update.message.from_user.id == current_player_id:
         user_name_escaped = escape_markdown_v2(current_player.name)
@@ -994,18 +982,19 @@ def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", timeout=20, m
             time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
             retries += 1
     print(f"Failed to send the message after {max_retries} retries.")
+def auto_stand(chat_id):
+    global current_timer, timer_state
 
-def auto_stand(chat_id, current_player_id, current_player_name, context, chat_type='private'):
     # Automatically call the stand function if the timer expires
     context.bot.send_message(chat_id=chat_id, text="Time's up! Your turn is now considered a stand.")
     
     # Create a Chat object with dynamic type
-    chat = Chat(id=chat_id, type=chat_type)  # chat_type could be 'private', 'group', 'supergroup'
+    chat = Chat(id=chat_id, type='group')  # Adjust type as needed
 
     # Create a Message object
     message = Message(
         message_id=0,  # Dummy values; adjust as needed
-        from_user=User(id=current_player_id, first_name=current_player_name, is_bot=False),
+        from_user=User(id=0, first_name="", is_bot=False),
         chat=chat,
         date=datetime.datetime.now(),  # Replace with actual date if necessary
         text=""  # Empty text, as it's not used here
@@ -1014,17 +1003,8 @@ def auto_stand(chat_id, current_player_id, current_player_name, context, chat_ty
     # Create the Update object with the Message
     update = Update(update_id=0, message=message)  # Dummy update_id; adjust as needed
 
-    # Cancel the timers if they exist
-    if chat_id in timers:
-        # Access and cancel individual timers
-        if 'auto_stand' in timers[chat_id]:
-            timers[chat_id]['auto_stand'].cancel()
-        if 'reminder' in timers[chat_id]:
-            timers[chat_id]['reminder'].cancel()
-        del timers[chat_id]
-
+    # Call stand function
     stand(update, context)
-
 
 def hit(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -1053,10 +1033,9 @@ def hit(update: Update, context: CallbackContext):
         update.message.reply_text("It's not your turn!")
         return
 
-    print(f"Timers dictionary: {timers}")
+    print(f"Timers dictionary: {current_timer}")
 
     cancel_timer(chat_id)
-
 
     new_card = deal_card()
     join_game.hand.append(new_card)
@@ -1084,7 +1063,6 @@ def hit(update: Update, context: CallbackContext):
         next_player_turn(update, context)
     else:
         player_turn(update, context)
-        # safe_send_message(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
 
 def stand(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -1114,15 +1092,7 @@ def stand(update: Update, context: CallbackContext):
         return
 
     # Cancel the existing timers if they exist
-    if chat_id in timers:
-        timer_dict = timers[chat_id]
-        # Ensure that we have timers to cancel
-        if 'auto_stand' in timer_dict and timer_dict['auto_stand']:
-            timer_dict['auto_stand'].cancel()
-        if 'reminder' in timer_dict and timer_dict['reminder']:
-            timer_dict['reminder'].cancel()
-        # Remove the timers dictionary entry
-        del timers[chat_id]
+    cancel_timer(chat_id)
 
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
@@ -1131,10 +1101,9 @@ def stand(update: Update, context: CallbackContext):
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
     time.sleep(3)
-    safe_send_message(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
+    safe_send_message(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand} with a total value of {hand_value}.")
 
     next_player_turn(update, context)
-
 
 # Function to move to the next player's turn
 # Move to the next player's turn by removing the current player from the turn order

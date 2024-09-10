@@ -752,7 +752,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             elif len(overall_winners) > 1:
                 # Multiple winners (tie)
                 winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
-                context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot! 🏆", parse_mode="MarkdownV2", timeout=20)
+                context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2", timeout=20)
 
             # Update statistics for winners and losers
             update_statistics(overall_winners, dealer_wins, joined_players)
@@ -963,7 +963,7 @@ def hit(update: Update, context: CallbackContext):
         stats =  Stats.objects.get(player=join_game.player)
         stats.how_many_21 += 1
         stats.save()
-        safe_send_message(context.bot, chat_id, f"{mention} \\! Reached BlackJack💥\\! They automatically stand\\.")
+        safe_send_message(context.bot, chat_id, f"{mention} Reached BlackJack💥\\ \n! They automatically stand\\.")
         next_player_turn(update, context)
     elif hand_value > 21:
         time.sleep(3)

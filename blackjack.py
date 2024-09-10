@@ -963,7 +963,7 @@ def player_turn(update: Update, context: CallbackContext):
 
     # Set up and start the timers for the current player
     reset_timer(chat_id, auto_stand, 30.0)
-    reset_timer(chat_id, lambda chat_id: send_reminder(context,update,chat_id, current_player_id, current_player.name), 20.0)
+    reset_timer(chat_id, lambda chat_id: send_reminder(update,context,chat_id, current_player_id, current_player.name), 20.0)
 
     if update.message.from_user.id == current_player_id:
         user_name_escaped = escape_markdown_v2(current_player.name)

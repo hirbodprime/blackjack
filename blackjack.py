@@ -1038,12 +1038,9 @@ def hit(update: Update, context: CallbackContext):
         return
 
     print(f"Timers dictionary: {timers}")
+    
+    cancel_timer(chat_id)
 
-    if chat_id in timers:
-        if isinstance(timers[chat_id], Timer):
-            timers[chat_id].cancel()
-        else:
-            print(f"Expected Timer, but found: {type(timers[chat_id])}")
 
     new_card = deal_card()
     join_game.hand.append(new_card)

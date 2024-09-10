@@ -384,10 +384,11 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         )
         game.join_start_time = timezone.now()
         game.save()
+        time.sleep(3)
         # Start threads with proper arguments
         threading.Thread(target=check_join_time, args=(update, context, game.chat_id), daemon=True).start()
         threading.Thread(target=send_time_left_reminder, args=(update, context, game.chat_id), daemon=True).start()
-
+        
         context.bot.send_message(
             chat_id=chat_id,
             text=f"The game is in join time, you have 120 sec to join", 
@@ -637,7 +638,7 @@ def start_round(update: Update, context: CallbackContext, game, joined_players):
             # Pin the message
             safe_pin_chat_message(context.bot, chat_id, message.message_id)
 
-
+    time.sleep(3)
     context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...",timeout=20)
     time.sleep(3)
 

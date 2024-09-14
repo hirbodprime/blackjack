@@ -1,6 +1,11 @@
 import random
-from telegram import Update, Bot,ParseMode
-from telegram.ext import Updater, CommandHandler, CallbackContext,PollAnswerHandler
+from telegram import Update, Bot
+from telegram.constants import ParseMode
+from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes
+from telegram.helpers import escape_markdown
+import asyncio
+from telegram.error import TimedOut,RetryAfter
+
 import os
 import django
 
@@ -9,151 +14,94 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
 
 # Initialize Django
 django.setup()
-blackjack_games = {}
 import time
 import re
 from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group
 from django.core.exceptions import ObjectDoesNotExist
-from telegram.error import Unauthorized
+from asgiref.sync import sync_to_async
 import random
-from telegram.error import TimedOut,RetryAfter
-
-def tag_users(update: Update, context: CallbackContext):
-    chat_id = update.message.chat_id
-
-    # Default number of tags
-    repeat_count = 1
+async def is_player_in_another_game(player_id: int, current_chat_id: int) -> bool:
+    """
+    Check if the player is already joined in another game in a different group.
     
-    # Parse the command arguments
-    if context.args:
-        try:
-            repeat_count = int(context.args[0])
-            if repeat_count < 1:
-                repeat_count = 1
-        except ValueError:
-            context.bot.send_message(
-                chat_id=chat_id,
-                text="Invalid number. Please enter a valid integer.",
-                timeout=20
-            )
-            return
+    Args:
+        player_id (int): The ID of the player.
+        current_chat_id (int): The ID of the current group chat.
 
-    # Get the list of chat members
-    members = context.bot.get_chat_administrators(chat_id)
-    mentions = [f"[{member.user.full_name}](tg://user?id={member.user.id})" for member in members]
+    Returns:
+        bool: True if the player is in another game, False otherwise.
+    """
+    # Query to check if the player is active in another game in a different group
+    is_in_another_game = await sync_to_async(
+        JoinGame.objects.filter(
+            player_id=player_id, 
+            is_active=True
+        ).exclude(game__chat_id=current_chat_id).exists
+    )()
+    
+    return is_in_another_game
 
-    # Helper function to send a message with retry logic
-    def send_message_with_retry(mention):
-        retries = 3
-        while retries > 0:
-            try:
-                context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"{mention} Lets play and win some money\\!\nuse the /join command to join a game of 💥BlackJack",
-                    parse_mode=ParseMode.MARKDOWN_V2
-                )
-                break  # Exit loop if message sent successfully
-            except TimedOut:
-                # Handle timeout error, retry after a short delay
-                time.sleep(1)
-                retries -= 1
-            except RetryAfter as e:
-                # Handle flood control exceeded, retry after the specified time
-                time.sleep(e.retry_after)
-                retries -= 1
-            except Exception as e:
-                # Handle other exceptions
-                context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"An error occurred: {e}",
-                    timeout=20
-                )
-                break
 
-    # Send each mention as a separate message
-    for _ in range(repeat_count):
-        for mention in mentions:
-            send_message_with_retry(mention)
-            time.sleep(1)  # Wait for 1 second before sending the next tag
 
-def check_player(update: Update, context: CallbackContext):
+
+async def check_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
-    chat_id = update.message.chat_id
-    group_name = context.bot.get_chat(chat_id).title  # Get the group name
 
     try:
         # Try to get the Player instance from the database
-        player = Player.objects.get(id=user_id)
-        
-        # If the player exists, check if the bot can message them
-        try:
-            # Send a personalized message with the group name
-            context.bot.send_message(
-                chat_id=user_id, 
-                text=f"You've joined a game that has started in the group '{group_name}'!", 
-                timeout=20
-            )
-        except Unauthorized:
-            # Bot cannot message the user, prompt them to start the bot in private chat
-            update.message.reply_text(
-                "Please start the bot in private chat so I can message you. Use the following link: "
-                "t.me/blackjack_21_game_bot"
-            )
-            return False
-        return True
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        return True  # Player exists, return True
     except ObjectDoesNotExist:
         # If no player exists, prompt the user to start the bot in private chat
-        update.message.reply_text(
+        await update.message.reply_text(
             "It looks like you don't have a player profile. Please start the bot in private chat to create one. "
             "Use the following link: t.me/blackjack_21_game_bot"
         )
-        return False
+        return False  # Player does not exist
 
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
 
-# When the user starts the bot in private chat, create a Player and Stats instance
-def start(update: Update, context: CallbackContext):
+    try:
+        # Check if the player already exists (using sync_to_async)
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        await update.message.reply_text("Welcome back to Blackjack!")
+
+    except ObjectDoesNotExist:
+        # If the player does not exist, create the Player and Stats instance (using sync_to_async)
+        player = await sync_to_async(Player.objects.create)(id=user_id, name=user_name, chips=200)
+        await sync_to_async(Stats.objects.create)(wins=0, loses=0, how_many_21=0, player=player)
+        await update.message.reply_text(f"Welcome to Blackjack, {user_name}! You have been given 200 💰chips to start.")
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
 
     try:
         # Check if the player already exists
-        player = Player.objects.get(id=user_id)
-        update.message.reply_text("Welcome back to Blackjack!")
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        stats = await sync_to_async(Stats.objects.get)(player=player)
+        await update.message.reply_text(f"here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n💥Blackjacks: {stats.how_many_21}")
 
     except ObjectDoesNotExist:
         # If the player does not exist, create the Player and Stats instance
-        player = Player.objects.create(id=user_id, name=user_name, chips=200)
-        stats = Stats.objects.create(wins=0, loses=0, how_many_21=0,player=player)
-        update.message.reply_text(f"Welcome to Blackjack, {user_name}! You have been given 200 💰chips to start.")
+        player = await sync_to_async(Player.objects.create)(id=user_id, name=user_name, chips=20)
+        stats = await sync_to_async(Stats.objects.create)(wins=0, loses=0, how_many_21=0,player=player)
 
-def stats(update: Update, context: CallbackContext):
-    user_id = update.message.from_user.id
-    user_name = update.message.from_user.first_name
-
-    try:
-        # Check if the player already exists
-        player = Player.objects.get(id=user_id)
-        stats = Stats.objects.get(player=player)
-        update.message.reply_text(f"here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n💥Blackjacks: {stats.how_many_21}")
-
-    except ObjectDoesNotExist:
-        # If the player does not exist, create the Player and Stats instance
-        player = Player.objects.create(id=user_id, name=user_name, chips=20)
-        stats = Stats.objects.create(wins=0, loses=0, how_many_21=0,player=player)
-
-        update.message.reply_text(f"Welcome to Blackjack, {user_name}! You have been given 20 💰chips to start.\here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n21: {stats.how_many_21}")
+        await update.message.reply_text(f"Welcome to Blackjack, {user_name}! You have been given 20 💰chips to start.\here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n21: {stats.how_many_21}")
 
 
-# Deck of cards
+# # Deck of cards
 deck = [2, 3, 4, 5, 6, 7, 8, 9, 10, 'J', 'Q', 'K', 'A'] * 4
 
 # Function to deal cards
 def deal_card():
     return random.choice(deck)
 
-# Function to calculate hand value
+# # Function to calculate hand value
 def calculate_hand_value(hand):
     value = 0
     aces = 0
@@ -175,105 +123,69 @@ def calculate_hand_value(hand):
 
     return value
 
-
-
-# Wrapper function to handle retries with exponential backoff
-def safe_start_blackjack(update: Update, context: CallbackContext, max_retries=3, initial_backoff=2):
-    retries = 0
-    backoff = initial_backoff  # Start with a 2-second backoff
-
-    while retries < max_retries:
-        try:
-            # Attempt to start the Blackjack game
-            start_blackjack(update, context)
-            return  # Exit if successful
-        except TimedOut:
-            retries += 1
-            print(f"Timeout occurred while starting Blackjack. Retrying in {backoff} seconds...")
-            time.sleep(backoff)  # Wait for backoff time before retrying
-            backoff *= 2  # Exponential backoff
-        except RetryAfter as e:
-            retry_after = int(e.retry_after)
-            print(f"Flood control triggered. Retrying in {retry_after} seconds...")
-            time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
-            retries += 1
-
-    print(f"Failed to start the Blackjack game after {max_retries} retries.")
-    update.message.reply_text("Unable to start the Blackjack game due to repeated timeouts. Please try again later.")
-
-# Start Blackjack game (retries handled in safe_start_blackjack)
-def start_blackjack(update: Update, context: CallbackContext):
-    global chat_id
-
-    # Check if the user has a Player profile
-    if not check_player(update, context):
+    
+async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_player(update, context):
         return
-
     chat_id = update.message.chat_id
-    print(f"Chat ID: {chat_id}")
-
-    # Check if a game exists for the current chat ID
-    game = Game.objects.filter(chat_id=chat_id).order_by('-id').first()
+    # Use sync_to_async to interact with Django ORM asynchronously
+    # game = await sync_to_async(Game.objects.filter)(chat_id=chat_id).order_by('-id').first()
+    game = await sync_to_async(lambda: Game.objects.filter(chat_id=chat_id).order_by('-id').first())()
 
     # If no game exists or the last game has ended, create a new game
     if not game or game.ended:
         print("No existing active game found or the last game has ended. Creating a new game...")
-        game, created = Game.objects.get_or_create(chat_id=chat_id, ended=False)
+        game, created = await sync_to_async(Game.objects.get_or_create)(chat_id=chat_id, ended=False)
         game.betting = True
         game.started = False
-        game.save()
-        time.sleep(2)
+        await sync_to_async(game.save)()
 
-        context.bot.send_message(chat_id=chat_id, text="🃏 Set the bet amount for the blackjack game to start.", timeout=20)
-        create_poll(update, context)  # Start the betting poll
-        time.sleep(2)
-        context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!", timeout=20)
+        await asyncio.sleep(2)  # Non-blocking sleep
+        await context.bot.send_message(chat_id=chat_id, text="🃏 Set the bet amount for the blackjack game to start.")
+
+        await create_poll(update, context)  # Assume this is an async function
+        await asyncio.sleep(2)  # Non-blocking sleep
+        await context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!")
         return
-    
+
     print(f"Game found: {game}")
 
-    # Check if the game is in betting progress, started, or in join time
+    # Check the game state and respond accordingly
     if game.betting:
-        update.message.reply_text("A Blackjack game is in betting progress. Wait for the betting process to end and use /join to join the game.")
-        return
+        await update.message.reply_text("A Blackjack game is in betting progress. Wait for the betting process to end and use /join to join the game.")
     elif game.started:
-        update.message.reply_text("A game has already started. Use the /next command to be prompted when the next game starts.")
-        return
+        await update.message.reply_text("A game has already started. Use the /next command to be prompted when the next game starts.")
     elif game.join_time:
-        update.message.reply_text("A game is in join time. Use the /join command to join the game.")
-        return
+        await update.message.reply_text("A game is in join time. Use the /join command to join the game.")
     else:
-        # If none of the above conditions are met, raise an error
-        update.message.reply_text("An error occurred, please try again.")
-        return
+        await update.message.reply_text("An error occurred, please try again.")
 
-def safe_send_poll(bot, chat_id, question, options, timeout=20, max_retries=5):
+async def safe_send_poll(bot, chat_id, question, options, max_retries=5):
     retries = 0
     while retries < max_retries:
         try:
-            message = bot.send_poll(chat_id=chat_id, question=question, options=options, is_anonymous=False)
+            message = await bot.send_poll(chat_id=chat_id, question=question, options=options, is_anonymous=False)
             return message  # Exit if successful
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending poll. Retrying {retries}/{max_retries}...")
-            time.sleep(3)  # Wait before retrying
+            await asyncio.sleep(3)  # Use async sleep
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
-            time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
+            await asyncio.sleep(retry_after)  # Use async sleep
             retries += 1
     print("Failed to send the poll after retries.")
-
-def create_poll(update: Update, context: CallbackContext):
+# Create poll function for setting bet amounts
+async def create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.message.chat_id
 
-    # Retrieve or create Group instance
+    # Retrieve or create Group instance using sync_to_async
     try:
-        group = Group.objects.get(group_chat_id=chat_id)
+        group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
     except Group.DoesNotExist:
-        group = Group(group_chat_id=chat_id)
-        group.save()
-
+        group = await sync_to_async(Group.objects.create)(group_chat_id=chat_id)
+    
     # Check the number of games and update options
     if group.games >= 100:
         options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
@@ -282,394 +194,370 @@ def create_poll(update: Update, context: CallbackContext):
 
     question = "How much do you want to bet?"
 
-    # Send a poll
-    message = safe_send_poll(context.bot, chat_id, question, options)
+    # Send a poll asynchronously
+    message = await safe_send_poll(context.bot, chat_id, question, options)
 
-    # Save the message and poll id so that we can handle the answers later
-    context.bot_data['poll_message_id'] = message.message_id
-    context.bot_data['poll_chat_id'] = update.message.chat_id
-    context.bot_data['poll_id'] = message.poll.id
+    # Store poll data in context.bot_data using poll_id as key
+    if 'poll_data' not in context.bot_data:
+        context.bot_data['poll_data'] = {}
+    
+    context.bot_data['poll_data'][message.poll.id] = {
+        'chat_id': chat_id,
+        'poll_message_id': message.message_id
+    }
 
-def poll_answer_handler(update: Update, context: CallbackContext):
+# Poll answer handler function to process poll results
+async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     poll_answer = update.poll_answer
     user_id = poll_answer.user.id
-    user_name = update.poll_answer.user.first_name
+    user_name = poll_answer.user.first_name
     selected_option = poll_answer.option_ids[0]  # Get the index of the selected option
 
-    # Retrieve the poll data from context
-    poll_id = context.bot_data.get('poll_id')
-    chat_id = context.bot_data.get('poll_chat_id')
+    # Retrieve the poll data from context using poll_id
+    poll_data = context.bot_data.get('poll_data', {}).get(poll_answer.poll_id)
 
-    # Verify the poll_id matches
-    if poll_answer.poll_id == poll_id:
-        # Process the answer based on the selected option
-        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
-        chosen_option = options[selected_option]
-        bet_amount = int(chosen_option.split()[0])
-        
-        try:
-            game = Game.objects.get(chat_id=chat_id, betting=True, started=False, ended=False)
-        except Game.DoesNotExist:
-            print("game not found?")
-            return
-        
-        game.bet_amount = bet_amount
-        game.betting = False
-        game.join_time = True
-        game.save()
-        
-        # Update the Group's game count
-        # try:
-        #     group = Group.objects.get(group_chat_id=chat_id)
-        #     group.games += 1
-        #     group.save()
-        # except Group.DoesNotExist:
-        #     print("Group not found?")
-        
-        # Notify the chat about the bet amount and joining
-        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
-        mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-        
-        context.bot.send_message(
-            chat_id=chat_id,
-            text=f"{mention} has set the bet amount to {chosen_option}\nUse /join to join the game", 
-            parse_mode="MarkdownV2", 
-            timeout=20
-        )
-def safe_send_message_join(bot, chat_id, text, timeout=20, max_retries=3):  # Increased timeout
+    if not poll_data:
+        print("Poll data not found.")
+        return
+
+    chat_id = poll_data['chat_id']
+
+    # Process the answer based on the selected option
+    options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
+    chosen_option = options[selected_option]
+    bet_amount = int(chosen_option.split()[0])
+
+    # Retrieve the game using sync_to_async
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, betting=True, started=False, ended=False)
+    except Game.DoesNotExist:
+        print("Game not found?")
+        return
+
+    # Update game state using sync_to_async
+    game.bet_amount = bet_amount
+    game.betting = False
+    game.join_time = True
+    await sync_to_async(game.save)()
+
+    # Escape special characters in user_name
+    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
+    mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+    
+    # Send a message to notify the chat
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"{mention} has set the bet amount to {chosen_option}\nUse /join to join the game", 
+        parse_mode="MarkdownV2"
+    )
+
+
+async def safe_send_message_join(bot, chat_id, text, max_retries=3):
     retries = 0
     while retries < max_retries:
         try:
-            bot.send_message(chat_id=chat_id, text=text, timeout=timeout)
+            await bot.send_message(chat_id=chat_id, text=text)
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            time.sleep(3)  # Wait a bit before retrying
+            await asyncio.sleep(3)  # Non-blocking sleep
     print("Failed to send the message after retries.")
 
+
 # Players join the game
-def join_blackjack(update: Update, context: CallbackContext):
+async def join_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    
+    if not await check_player(update, context):
+        return
     chat_id = update.message.chat_id
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
 
     try:
-        # First, try to find a game that is in the join time, not started, and not ended.
-        game = Game.objects.get(chat_id=chat_id, join_time=True, started=False, ended=False, betting=False)
+        # Find a game that is in the join time
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=True, started=False, ended=False, betting=False)
     except Game.DoesNotExist:
         try:
-            # If no such game exists, check if there's a game in the betting process.
-            game = Game.objects.get(chat_id=chat_id, join_time=False, started=False, ended=False, betting=True)
-            safe_send_message_join(context.bot, chat_id, "The game is in the betting process. Please wait for it to end, then use /join to join the game.")
-
-            # Inform the user that the game is still in the betting process.
-            # update.message.reply_text("The game is in the betting process. Please wait for it to end, then use /join to join the game.")
+            game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=False, started=False, ended=False, betting=True)
+            await safe_send_message_join(context.bot, chat_id, "The game is in the betting process. Please wait for it to end, then use /join to join the game.")
             return
         except Game.DoesNotExist:
             try:
-                game = Game.objects.get(chat_id=chat_id, join_time=False, started=True, ended=False, betting=False)
-                safe_send_message_join(context.bot, chat_id, "A game has already started you can not join the game, use /nextgame to be prompted when another game is started")
-                # If neither join_time nor betting games exist, inform the user that no game is active.
-                # update.message.reply_text("A game has already started you can not join the game, use /nextgame to be prompted when another game is started")
+                game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=False, started=True, ended=False, betting=False)
+                await safe_send_message_join(context.bot, chat_id, "A game has already started you cannot join. Use /nextgame to be prompted when another game is started.")
                 return
             except Game.DoesNotExist:
-                
-                safe_send_message_join(context.bot, chat_id, "No active Blackjack game. Start one by typing /startblackjack.")
-                
-                # update.message.reply_text("No active Blackjack game. Start one by typing /startblackjack.")
+                await safe_send_message_join(context.bot, chat_id, "No active Blackjack game. Start one by typing /startblackjack.")
                 return
 
     try:
-        player = Player.objects.get(id=user_id)
+        player = await sync_to_async(Player.objects.get)(id=user_id)
     except Player.DoesNotExist:
-        update.message.reply_text(f"{user_name}, please start the bot in private first.")
+        await update.message.reply_text(f"{user_name}, please start the bot in private first.")
         return
+    player_id = update.message.from_user.id
+    current_chat_id = update.message.chat_id
 
+    if await is_player_in_another_game(player_id, current_chat_id):
+        await update.message.reply_text("You are already joined in another game in a different group.")
+        return
     # Check if the player already joined
-    if JoinGame.objects.filter(game=game, player=player, is_active=True).exists():
-        update.message.reply_text(f"{user_name}, you are already in the game!")
+    if await sync_to_async(JoinGame.objects.filter(game=game, player=player, is_active=True).exists)():
+        await update.message.reply_text(f"{user_name}, you are already in the game!")
         return
 
     # Check if the player has enough chips
     if player.chips < game.bet_amount:
-        update.message.reply_text(f"{user_name}, you do not have enough 💰chips to join the game.\nMinimum bet is {game.bet_amount} 💰chips.")
+        await update.message.reply_text(f"{user_name}, you do not have enough 💰chips to join the game.\nMinimum bet is {game.bet_amount} 💰chips.")
         return
 
     # Add the player to the game
-    JoinGame.objects.create(player=player, game=game, is_active=True)
-    # update.message.reply_text(f"{user_name} has joined the game!")
-    # context.bot.send_message(chat_id=chat_id, text=f"{user_name} has joined the game!")
-    # Send a message tagging the user who joined
-    from telegram.utils.helpers import escape_markdown
+    await sync_to_async(JoinGame.objects.create)(player=player, game=game, is_active=True)
 
     escaped_user_name = escape_markdown(user_name, version=2)
 
-    context.bot.send_message(
+    await context.bot.send_message(
         chat_id=chat_id, 
         text=f"[{escaped_user_name}](tg://user?id={user_id}) has joined the game\\!", 
-        parse_mode="MarkdownV2", timeout=20
+        parse_mode="MarkdownV2"
     )
-
-def force_start(update: Update, context: CallbackContext):
+    await context.bot.send_message(
+            chat_id=player.id, 
+            text=f"You have successfully joined a game in group {update.message.chat.title}, Good Luck😃"
+        )
+# Force start the Blackjack game
+# Force start the Blackjack game
+async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
     chat_id = update.message.chat_id
 
-    
     try:
-        # First, try to find a game that is in the join time, not started, and not ended.
-        game = Game.objects.get(chat_id=chat_id, join_time=True, started=False, ended=False, betting=False)
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=True, started=False, ended=False, betting=False)
     except Game.DoesNotExist:
         try:
-            # If no such game exists, check if there's a game in the betting process.
-            game = Game.objects.get(chat_id=chat_id, join_time=False, started=False, ended=False, betting=True)
-            safe_send_message_join(context.bot, chat_id, "The game is in the betting process. Please wait for it to end, then forcestart the game.")
-
-            # Inform the user that the game is still in the betting process.
-            # update.message.reply_text("The game is in the betting process. Please wait for it to end, then use /join to join the game.")
+            game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=False, started=False, ended=False, betting=True)
+            await safe_send_message_join(context.bot, chat_id, "The game is in the betting process. Please wait for it to end, then forcestart the game.")
             return
         except Game.DoesNotExist:
             try:
-                game = Game.objects.get(chat_id=chat_id, join_time=False, started=True, ended=False, betting=False)
-                safe_send_message_join(context.bot, chat_id, "A game has already started you can not forcestart the game, use /nextgame to be prompted when another game is started")
-                # If neither join_time nor betting games exist, inform the user that no game is active.
-                # update.message.reply_text("A game has already started you can not join the game, use /nextgame to be prompted when another game is started")
+                game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=False, started=True, ended=False, betting=False)
+                await safe_send_message_join(context.bot, chat_id, "A game has already started. You cannot forcestart the game, use /nextgame to be prompted when another game is started.")
                 return
             except Game.DoesNotExist:
-                
-                safe_send_message_join(context.bot, chat_id, "No active Blackjack game. Start one by typing /startblackjack.")
-                
-                # update.message.reply_text("No active Blackjack game. Start one by typing /startblackjack.")
+                await safe_send_message_join(context.bot, chat_id, "No active Blackjack game. Start one by typing /startblackjack.")
                 return
 
     # Fetch all active players who have joined the game
-    joined_players = JoinGame.objects.filter(game=game, is_active=True)
+    joined_players = await sync_to_async(lambda: list(JoinGame.objects.filter(game=game, is_active=True)))()
 
     # Check if there are enough players
-    if joined_players.count() < 1:
-        update.message.reply_text('At least 1 players are required to start the game.')
+    if len(joined_players) < 1:
+        await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
+        await update.message.reply_text('At least 1 player is required to start the game, ending the game!')
         return
-    dealer = Dealer.objects.first()  # Assuming there's only one dealer
-    group_game,created = Group.objects.get_or_create(group_chat_id=chat_id)
+
+    dealer = await sync_to_async(Dealer.objects.first)()
+    group_game, created = await sync_to_async(Group.objects.get_or_create)(group_chat_id=chat_id)
     group_game.games += 1
-    group_game.save()
+    await sync_to_async(group_game.save)()
+
     # Handle the dealer's chips deduction
     if dealer:
         dealer.chips -= game.bet_amount
         dealer.games += 1
-        dealer.save()
-        context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer is in the game with {game.bet_amount} 💰chips on the table\\.",
-            parse_mode="MarkdownV2", timeout=20)
-    # Deduct the bet amount from each player's chips
+        await sync_to_async(dealer.save)()
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text=f"🤖 Dealer is in the game with {game.bet_amount} 💰chips on the table\\.",
+            parse_mode="MarkdownV2"
+        )
+
     for join_entry in joined_players:
-        player = join_entry.player
+        # Fetch the player related to the join_entry asynchronously
+        player = await sync_to_async(lambda: join_entry.player)()
+
         player.chips -= game.bet_amount
         player.games += 1
-        player.save()  # Save the updated chips amount to the Player model
-        # update.message.reply_text(f"{player.name} has bet {game.bet_amount} chips. Remaining chips: {player.chips}")
+        await sync_to_async(player.save)()
+        
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player.name)
-
         mention = f"[{user_name_escaped}](tg://user?id={player.id})"
-        time.sleep(2)
-        context.bot.send_message(chat_id=chat_id, text=f"{mention} has bet {game.bet_amount} chips\\.\nRemaining chips: 💰{player.chips}", 
-            parse_mode="MarkdownV2", timeout=20)
+        await asyncio.sleep(2)  # Non-blocking sleep
+        
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text=f"{mention} has bet {game.bet_amount} chips\\.\nRemaining chips: 💰{player.chips}", 
+            parse_mode="MarkdownV2"
+        )
+
 
     # Initialize turn order with the list of player IDs
-    game.turn_order = list(joined_players.values_list('player__id', flat=True))
+    game.turn_order = [join_entry.player.id for join_entry in joined_players]
     game.current_round = 1  # Start with round 1
-    players_count = joined_players.count() + 1
-    game.pot = game.bet_amount *  players_count # Track total pot across rounds
+    players_count = len(joined_players) + 1
+    game.pot = game.bet_amount * players_count  # Track total pot across rounds
 
-    # Set the game as started
     game.started = True
     game.join_time = False
+    await sync_to_async(game.save)()
 
     # Proceed to the first round
-    start_round(update, context, game, joined_players)
-# Function to start each round
-def safe_pin_chat_message(bot, chat_id, message_id, timeout=20, max_retries=3):
+    await start_round(update, context, game, joined_players)
+
+
+
+
+# # Function to start each round
+async def safe_pin_chat_message(bot, chat_id, message_id, max_retries=3):
     retries = 0
     while retries < max_retries:
         try:
-            bot.pin_chat_message(chat_id=chat_id, message_id=message_id, timeout=timeout)
+            await bot.pin_chat_message(chat_id=chat_id, message_id=message_id)  # Assuming timeout is 20
             return  # Exit the loop if successful
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while pinning message. Retrying {retries}/{max_retries}...")
-            time.sleep(2 ** retries)  # Exponential backoff
+            await asyncio.sleep(2 ** retries)  # Non-blocking exponential backoff
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Rate limit exceeded. Retrying in {retry_after} seconds...")
-            time.sleep(retry_after)  # Wait for the retry after time
+            await asyncio.sleep(retry_after)  # Wait for the retry after time
             retries += 1
 
     print("Failed to pin message after multiple retries.")
 
-def start_round(update: Update, context: CallbackContext, game, joined_players):
+async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, joined_players):
     chat_id = update.message.chat_id
 
     print(game.current_round)
-    
+
     if game.current_round >= 2:
         print('in hereadf')
 
-        # Fetch player round winners and dealer wins
-        bot_member = context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
+        bot_member = await context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
 
-        round_winners = RoundWinner.objects.filter(game=game, is_dealer=False)
-        dealer_wins = RoundWinner.objects.filter(game=game, is_dealer=True).count()
+        round_winners = await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False))
+        dealer_wins = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True).count)()
         winner_count = {}
 
         for winner in round_winners:
-            if winner.winner in winner_count:
-                winner_count[winner.winner] += 1
+            # Accessing related 'winner' field asynchronously
+            winner_player = await sync_to_async(lambda: winner.winner)()
+            if winner_player in winner_count:
+                winner_count[winner_player] += 1
             else:
-                winner_count[winner.winner] = 1
+                winner_count[winner_player] = 1
 
-        # Separate players with wins and without wins
         winners = []
         no_wins = []
 
-        for player in joined_players:
-            player_name = player.player.name
-            player_id = player.player.id
-            wins = winner_count.get(player.player, 0)
+        # Fetch related fields with sync_to_async
+        for join_entry in joined_players:
+            player_name = await sync_to_async(lambda: join_entry.player.name)()
+            player_id = await sync_to_async(lambda: join_entry.player.id)()
+            wins = winner_count.get(join_entry.player, 0)
 
             if wins > 0:
                 winners.append((player_name, wins, player_id))
             else:
                 no_wins.append((player_name, player_id))
 
-        # Sort winners by wins (descending)
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
 
-        # Build the standings message
-        time.sleep(2)
+        await asyncio.sleep(2)
         standings_message = "📊 Current standings:\n"
 
-        # Add the dealer wins first, if any
         if dealer_wins > 0:
             standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
         else:
-            standings_message += f"🤖 Dealer: No wins yet\n"
+            standings_message += "🤖 Dealer: No wins yet\n"
 
-        # Add players with wins
         for winner_name, wins, user_id in winners:
-            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
+            user_name_escaped = escape_markdown(winner_name, version=2)
             mention = f"[{user_name_escaped}](tg://user?id={user_id})"
             standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
-        # Add players with no wins
         for player_name, player_id in no_wins:
-            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
+            user_name_escaped = escape_markdown(player_name, version=2)
             mention = f"[{user_name_escaped}](tg://user?id={player_id})"
             standings_message += f"🎲 {mention}: No wins yet\n"
 
-        # Send the message with the standings
-        message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2", timeout=20)
+        message = await context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
 
-
-        # Check if the bot is an admin and pin the message if it is
         if bot_member.status in ['administrator', 'creator']:
-            # Pin the message
-            safe_pin_chat_message(context.bot, chat_id, message.message_id)
+            await safe_pin_chat_message(context.bot, chat_id, message.message_id)
 
-    time.sleep(2)
+    await asyncio.sleep(2)
 
-    context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...",timeout=20)
-    time.sleep(3)
-
+    await context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...")
+    await asyncio.sleep(3)
 
     player_blackjacks = []
-    # chat_id = update.message.chat_id
 
-    # Deal initial hands to players and save to the JoinGame model
-    # Add this after dealing the cards to players
     for join_entry in joined_players:
         player_hand = [deal_card(), deal_card()]
-        join_entry.hand = player_hand  # Assuming the 'hand' is a JSONField in JoinGame model
-        join_entry.save()
+        join_entry.hand = player_hand
+        await sync_to_async(join_entry.save)()
 
-        print(f"Dealt hand {player_hand} to player {join_entry.player.name}")  # Debugging line
-    
+        print(f"Dealt hand {player_hand} to player {join_entry.player.name}")
 
-        # Check for natural Blackjack
+        # Fetch player's name asynchronously
         player_hand_value = calculate_hand_value(player_hand)
         if player_hand_value == 21:
             player_blackjacks.append(join_entry)
         else:
-            context.bot.send_message(chat_id=join_entry.player.id, text=f"🃏Your hand: {player_hand}.\n♠️Total value: {player_hand_value}",timeout=20)
+            await context.bot.send_message(chat_id=join_entry.player.id, text=f"🃏Your hand: {player_hand}.\n♠️Total value: {player_hand_value}")
 
-    # Deal cards to the dealer and save to the Game model
     dealer_hand = [deal_card(), deal_card()]
-    game.dealer_hand = dealer_hand  # Assuming 'dealer_hand' is a JSONField in Game model
-    game.save()
+    game.dealer_hand = dealer_hand
+    await sync_to_async(game.save)()
 
-    # Show only one dealer card
-    context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible card: ♠️{dealer_hand[0]}",timeout=20)
+    await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible card: ♠️{dealer_hand[0]}")
 
-    # Check for dealer
     dealer_value = calculate_hand_value(dealer_hand)
     dealer_has_blackjack = dealer_value == 21
 
     if dealer_has_blackjack:
-        context.bot.send_message(chat_id=chat_id, text="🤖 Dealer has a Blackjack! 💥",timeout=20)
-        dealer = Dealer.objects.get(id=1)
+        await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer has a Blackjack! 💥")
+        dealer = await sync_to_async(Dealer.objects.get)(id=1)
         dealer.blackjack_count += 1
-        # dealer.wins += 1
-        dealer.save()
+        await sync_to_async(dealer.save)()
 
-        # Mark losing stats for players who didn't get Blackjack
-        # for join_entry in joined_players:
-        #     if join_entry not in player_blackjacks:
-        #         stats = Stats.objects.get(player=join_entry.player)
-        #         stats.loses += 1  # Increment losing stats
-        #         stats.save()
-
-        # Check for player Blackjack ties (push)
         for join_entry in player_blackjacks:
-            context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} had Blackjack💥 too. It's a push.",timeout=20)
+            await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} had Blackjack💥 too. It's a push.")
 
-        # Mark dealer as the round winner
-        RoundWinner.objects.create(game=game, round_number=game.current_round, is_dealer=True)
+        await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
         game.current_round += 1
-        check_for_next_round(update, context, game, joined_players)
+        await check_for_next_round(update, context, game, joined_players)
         return
 
-    # If dealer doesn't have a Blackjack but players do
     if player_blackjacks:
         for join_entry in player_blackjacks:
-            context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.",timeout=20)
-            
-            # Update stats (no payout, just marking the win)
-            stats = Stats.objects.get(player=join_entry.player)
-            # stats.wins += 1
+            await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.")
+            stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
             stats.how_many_21 += 1
-            stats.save()
+            await sync_to_async(stats.save)()
 
-            # Mark the player as the round winner
-            RoundWinner.objects.create(game=game, round_number=game.current_round, winner=join_entry.player)
+            await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=join_entry.player)
 
         game.current_round += 1
-        check_for_next_round(update, context, game, joined_players)
+        await check_for_next_round(update, context, game, joined_players)
         return
 
-    # Mark losing stats for players who don't have Blackjack
     for join_entry in joined_players:
         if join_entry not in player_blackjacks:
-            stats = Stats.objects.get(player=join_entry.player)
-            # stats.loses += 1  # Increment losing stats
-            stats.save()
+            stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
+            await sync_to_async(stats.save)()
 
-    # Continue to the first player's turn if no Blackjack
-    player_turn(update, context)
+    await player_turn(update, context)
 
 
 
 
 
-
-
-def update_statistics(winners, dealer_wins, joined_players):
+async def update_statistics(winners, dealer_wins, joined_players):
     print("Starting update_statistics function")
     
     # Initialize a list for non-winners
@@ -679,15 +567,15 @@ def update_statistics(winners, dealer_wins, joined_players):
     # Update stats for each winner
     for winner in winners:
         if winner == 'dealer':
-            dealer = Dealer.objects.first()  # Assuming only one dealer
+            dealer = await sync_to_async(Dealer.objects.first)()  # Assuming only one dealer
             dealer.wins += 1
-            dealer.save()
+            await sync_to_async(dealer.save)()
             print(f"Dealer wins updated: {dealer.wins}")
         else:
-            player = Player.objects.get(id=winner.id)
-            stats, created = Stats.objects.get_or_create(player=player)
+            player = await sync_to_async(Player.objects.get)(id=winner.id)
+            stats, created = await sync_to_async(Stats.objects.get_or_create)(player=player)
             stats.wins += 1
-            stats.save()
+            await sync_to_async(stats.save)()
             print(f"Player {player.id} wins updated: {stats.wins}")
 
     # Determine non-winners
@@ -701,93 +589,90 @@ def update_statistics(winners, dealer_wins, joined_players):
 
     # Update losses for each non-winner
     for player in non_winners:
-        stats, created = Stats.objects.get_or_create(player=player)
+        stats, created = await sync_to_async(Stats.objects.get_or_create)(player=player)
         stats.loses += 1
-        stats.save()
+        await sync_to_async(stats.save)()
         print(f"Player {player.id} losses updated: {stats.loses}")
 
     # Update dealer's losses if dealer did not win
     if not dealer_wins:
-        dealer = Dealer.objects.first()  # Assuming only one dealer
+        dealer = await sync_to_async(Dealer.objects.first)()  # Assuming only one dealer
         dealer.loses += 1  # Ensure you have a `loses` field in your Dealer model
-        dealer.save()
+        await sync_to_async(dealer.save)()
         print(f"Dealer losses updated: {dealer.loses}")
 
     print("Finished update_statistics function")
 
-
-
-
-
-def check_for_next_round(update: Update, context: CallbackContext, game, joined_players):
+async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, joined_players):
     chat_id = update.message.chat_id
-    time.sleep(3)
-    
+    await asyncio.sleep(3)
+
     if game.current_round > game.total_rounds:
         # Determine the overall winner
-        round_winners = RoundWinner.objects.filter(game=game)
-        
+        round_winners = await sync_to_async(list)(RoundWinner.objects.filter(game=game))
+
         # Count wins for each player and the dealer
         winner_count = {}
         for winner in round_winners:
-            if winner.winner:
-                if winner.winner in winner_count:
-                    winner_count[winner.winner] += 1
+            # Fetch the related 'winner' field asynchronously
+            winner_player = await sync_to_async(lambda: winner.winner)()
+            if winner_player:
+                if winner_player in winner_count:
+                    winner_count[winner_player] += 1
                 else:
-                    winner_count[winner.winner] = 1
+                    winner_count[winner_player] = 1
 
-        dealer_wins = RoundWinner.objects.filter(game=game, is_dealer=True).count()
+        dealer_wins = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True).count)()
         if dealer_wins > 0:
             winner_count['dealer'] = dealer_wins
 
         print(f"Winner counts (including dealer): {winner_count}")
-        
+
         if winner_count:
             # Determine the overall winner(s)
             max_wins = max(winner_count.values())
             overall_winners = [winner for winner, wins in winner_count.items() if wins == max_wins]
-            
+
             if len(overall_winners) == 1:
                 # One clear winner
                 overall_winner = overall_winners[0]
-                
+
                 if overall_winner == 'dealer':
-                    context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game! 🏆", timeout=20)
+                    await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game! 🏆")
                 else:
-                    context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆", timeout=20)
-                    
+                    await context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆")
             elif len(overall_winners) > 1:
                 # Multiple winners (tie)
                 winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
-                context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2", timeout=20)
+                await context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2")
 
             # Update statistics for winners and losers
-            update_statistics(overall_winners, dealer_wins, joined_players)
-            
+            await update_statistics(overall_winners, dealer_wins, joined_players)
         else:
-            context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.", timeout=20)
+            await context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.")
 
         # Call the end_game function to finalize the game
-        end_game(update, context)  # Ensure end_game is called after determining the winner
+        await end_game(update, context)
 
         # Prepare standings message
-        bot_member = context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
-        round_winners = RoundWinner.objects.filter(game=game, is_dealer=False)
-        dealer_wins = RoundWinner.objects.filter(game=game, is_dealer=True).count()
+        bot_member = await context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
+        round_winners = await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False))
+        dealer_wins = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True).count)()
         winner_count = {}
 
         for winner in round_winners:
-            if winner.winner in winner_count:
-                winner_count[winner.winner] += 1
+            winner_player = await sync_to_async(lambda: winner.winner)()
+            if winner_player in winner_count:
+                winner_count[winner_player] += 1
             else:
-                winner_count[winner.winner] = 1
+                winner_count[winner_player] = 1
 
         winners = []
         no_wins = []
 
         for player in joined_players:
-            player_name = player.player.name
-            player_id = player.player.id
+            player_name = await sync_to_async(lambda: player.player.name)()
+            player_id = await sync_to_async(lambda: player.player.id)()
             wins = winner_count.get(player.player, 0)
 
             if wins > 0:
@@ -796,7 +681,7 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
                 no_wins.append((player_name, player_id))
 
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
-        time.sleep(2)
+        await asyncio.sleep(2)
 
         standings_message = "📊 Current standings:\n"
 
@@ -815,297 +700,267 @@ def check_for_next_round(update: Update, context: CallbackContext, game, joined_
             mention = f"[{user_name_escaped}](tg://user?id={player_id})"
             standings_message += f"🎲 {mention}: No wins yet\n"
 
-        message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2", timeout=20)
+        message = await context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
 
         if bot_member.status in ['administrator', 'creator']:
-            safe_pin_chat_message(context.bot, chat_id, message.message_id)
-            
-        Game.objects.filter(chat_id=chat_id).delete()
-        context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.", timeout=20)
+            await safe_pin_chat_message(context.bot, chat_id, message.message_id)
+
+        await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
+        await context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.")
 
     else:
         # Prepare for the next round
         game.hands_reset = False
-        game.save()
+        await sync_to_async(game.save)()
 
-        time.sleep(3)
-        start_round(update, context, game, joined_players)
+        await asyncio.sleep(3)
+        await start_round(update, context, game, joined_players)
 
 
-
-# Function to start player's turn in a specific round
-def player_turn(update: Update, context: CallbackContext):
+async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
 
     try:
         # Fetch the active game in the chat
-        game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        update.message.reply_text("No active game or the game has not started.")
+        await update.message.reply_text("No active game or the game has not started.")
         return
 
     # Get the players in turn order for the current game
-    players_in_game = JoinGame.objects.filter(game=game, is_active=True).order_by('id')
-    
+    players_in_game = await sync_to_async(list)(
+        JoinGame.objects.filter(game=game, is_active=True).order_by('id')
+    )
+
     # Check if turn order exists, initialize if not
     if not game.turn_order or game.current_round > 1:
-        game.turn_order = list(players_in_game.values_list('player__id', flat=True))
-        game.save()
-
-    # # If it's the start of the new round, reset hands for all players
-    # if game.current_round > 1 and not game.hands_reset:
-    #     for join_entry in players_in_game:
-    #         player_hand = [deal_card(), deal_card()]
-    #         join_entry.hand = player_hand
-    #         join_entry.save()
-    #         # Send the player their new hand privately
-    #         player = join_entry.player
-    #         hand_value = calculate_hand_value(player_hand)
-    #         context.bot.send_message(chat_id=player.id, text=f"🃏Your hand for round {game.current_round}: {player_hand}. \n♠️Total value: {hand_value}")
+        game.turn_order = await sync_to_async(list)(
+            JoinGame.objects.filter(game=game, is_active=True).values_list('player__id', flat=True)
+        )
+        await sync_to_async(game.save)()
 
     # Get the current player from the turn order
     current_player_id = game.turn_order[0]
-    current_player = Player.objects.get(id=current_player_id)
-    # from telegram.utils.helpers import escape_markdown
+    current_player = await sync_to_async(Player.objects.get)(id=current_player_id)
 
-    # escaped_user_name = escape_markdown(user_name, version=2)
-    # Notify the current player it is their turn
+    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
+    mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
+
     if update.message.from_user.id == current_player_id:
-
-        # Escape special characters in the user's name
-        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
-
-        mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-        # update.message.reply_text(
-        #     f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.", 
-        #     parse_mode="MarkdownV2"
-        # )
-            # Send the private message with the full hand and value
-        time.sleep(2)
-        context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",parse_mode="MarkdownV2", timeout=20)
+        # Notify the current player it is their turn
+        await asyncio.sleep(2)  # Non-blocking sleep
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",
+            parse_mode="MarkdownV2"
+        )
     else:
-        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
-
-        mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
-        # update.message.reply_text(
-        #     f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", 
-        #     parse_mode="MarkdownV2"
-        # )
-        time.sleep(2)
-        context.bot.send_message(chat_id=chat_id, text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.", parse_mode="MarkdownV2", timeout=20)
+        # Notify others that the current player is making a decision
+        await asyncio.sleep(2)  # Non-blocking sleep
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.",
+            parse_mode="MarkdownV2"
+        )
 
 
-# Escape special characters in the player's name
-def escape_markdown_v2(text):
-    return re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', text)
+# # Escape special characters in the player's name
 
-def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", timeout=20, max_retries=5):
+# Asynchronous version of safe_send_message
+async def safe_send_message_async(bot, chat_id, text, parse_mode="MarkdownV2", max_retries=5):
     retries = 0
     while retries < max_retries:
         try:
-            bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, timeout=timeout)
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            time.sleep(2 ** retries)  # Exponential backoff: 2, 4, 8 seconds, etc.
+            await asyncio.sleep(2 ** retries)  # Non-blocking exponential backoff
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
-            time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
+            await asyncio.sleep(retry_after)  # Non-blocking wait for the RetryAfter period before retrying
             retries += 1
     print(f"Failed to send the message after {max_retries} retries.")
 
-
-def hit(update: Update, context: CallbackContext):
+async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
 
     try:
-        game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        update.message.reply_text("No active game or the game has not started.")
+        await update.message.reply_text("No active game or the game has not started.")
         return
 
     try:
-        player = Player.objects.get(id=user_id)
+        player = await sync_to_async(Player.objects.get)(id=user_id)
     except Player.DoesNotExist:
-        update.message.reply_text(f"{user_name}, please start the bot in private first.")
+        await update.message.reply_text(f"{user_name}, please start the bot in private first.")
         return
 
-    # Get the current player's game record
     try:
-        join_game = JoinGame.objects.get(player=player, game=game, is_active=True)
+        join_game = await sync_to_async(JoinGame.objects.select_related('player').get)(player=player, game=game, is_active=True)
     except JoinGame.DoesNotExist:
-        update.message.reply_text("You are not part of the game.")
+        await update.message.reply_text("You are not part of the game.")
         return
 
     # Check if it's the player's turn
     if user_id != game.turn_order[0]:
-        update.message.reply_text("It's not your turn!")
+        await update.message.reply_text("It's not your turn!")
         return
 
     # Add a card to the player's hand
     new_card = deal_card()
     join_game.hand.append(new_card)
-    join_game.save()
+    await sync_to_async(join_game.save)()
 
-    # Escape special characters in the user's name
-    import re
-    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
-
+    user_name_escaped = re.sub(r'([_*[\]()~>#+\-=|{}.!])', r'\\\1', user_name)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-    # Use safe_send_message to send messages safely
 
-    safe_send_message(context.bot, chat_id, f"{mention} drew: {new_card}")
+    await safe_send_message_async(context.bot, chat_id, f"{mention} drew: {new_card}")
 
-    # Calculate the hand value and send it privately to the player
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
 
-    safe_send_message(context.bot, user_id, f"Your full hand: {player_hand}\\. Total value: {hand_value}")
+    await safe_send_message_async(context.bot, user_id, f"Your full hand: {player_hand}\\. Total value: {hand_value}")
 
     # Check for bust or 21
     if hand_value == 21:
-        time.sleep(3)
-        stats =  Stats.objects.get(player=join_game.player)
+        await asyncio.sleep(3)
+        stats = await sync_to_async(Stats.objects.get)(player=join_game.player)
         stats.how_many_21 += 1
-        stats.save()
-        safe_send_message(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
-        next_player_turn(update, context)
+        await sync_to_async(stats.save)()
+        await safe_send_message_async(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
+        await next_player_turn(update, context)
     elif hand_value > 21:
-        time.sleep(3)
-        safe_send_message(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\.")
-        next_player_turn(update, context)
+        await asyncio.sleep(3)
+        await safe_send_message_async(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\. ")
+        await next_player_turn(update, context)
     else:
-        time.sleep(3)
-        safe_send_message(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
+        await asyncio.sleep(3)
+        await safe_send_message_async(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
 
-
-def stand(update: Update, context: CallbackContext):
+# Asynchronous stand function
+async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
 
     try:
-        game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        update.message.reply_text("No active game or the game has not started.")
+        await update.message.reply_text("No active game or the game has not started.")
         return
 
     try:
-        player = Player.objects.get(id=user_id)
+        player = await sync_to_async(Player.objects.get)(id=user_id)
     except Player.DoesNotExist:
-        update.message.reply_text(f"{user_name}, please start the bot in private first.")
+        await update.message.reply_text(f"{user_name}, please start the bot in private first.")
         return
 
-    # Get current player's game record
     try:
-        join_game = JoinGame.objects.get(player=player, game=game, is_active=True)
+        join_game = await sync_to_async(JoinGame.objects.get)(player=player, game=game, is_active=True)
     except JoinGame.DoesNotExist:
-        update.message.reply_text("You are not part of the game.")
+        await update.message.reply_text("You are not part of the game.")
         return
 
     # Check if it's the player's turn
     if user_id != game.turn_order[0]:
-        update.message.reply_text("It's not your turn!")
+        await update.message.reply_text("It's not your turn!")
         return
 
-    # Escape special characters in the user's name
-    import re
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
-
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-    # Use safe_send_message to send messages safely
-    safe_send_message(context.bot, chat_id, f"{mention} has chosen to stand\\.")
 
-    # Send the private message with the full hand and value
+    await safe_send_message_async(context.bot, chat_id, f"{mention} has chosen to stand\\.")
+
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
-    time.sleep(2)
+    await asyncio.sleep(2)
 
-    safe_send_message(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
+    await safe_send_message_async(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
 
     # Move to the next player's turn
-    next_player_turn(update, context)
+    await next_player_turn(update, context)
 
 
-# Function to move to the next player's turn
-# Move to the next player's turn by removing the current player from the turn order
-def safe_send_message_next_player_turn(bot, chat_id, text, timeout=20, max_retries=5):  # Increased timeout
+# # Function to move to the next player's turn
+# # Move to the next player's turn by removing the current player from the turn order
+async def safe_send_message_next_player_turn(bot, chat_id, text, max_retries=5):  # Increased timeout
     retries = 0
     while retries < max_retries:
         try:
-            bot.send_message(chat_id=chat_id, text=text, timeout=timeout, parse_mode="MarkdownV2")
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode="MarkdownV2")
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            time.sleep(3)  # Wait a bit before retrying
+            await asyncio.sleep(3)  # Non-blocking sleep before retrying
     print("Failed to send the message after retries.")
 
-def next_player_turn(update: Update, context: CallbackContext):
+# Asynchronous version of next_player_turn
+async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
 
     try:
-        game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        update.message.reply_text("No active game or the game has not started.")
+        await update.message.reply_text("No active game or the game has not started.")
         return
 
     if not game.turn_order:
         # If no players are left in the turn order, proceed to the dealer's turn
-        dealer_turn(update, context)
+        await dealer_turn(update, context)
         return
 
     # Remove the current player from the turn order
     game.turn_order.pop(0)
-    game.save()
+    await sync_to_async(game.save)()
 
     # Check if there are more players left to take their turn
     if game.turn_order:
         next_player_id = game.turn_order[0]
-        next_player = Player.objects.get(id=next_player_id)
+        next_player = await sync_to_async(Player.objects.get)(id=next_player_id)
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', next_player.name)
 
         mention = f"[{user_name_escaped}](tg://user?id={next_player_id})"
-        time.sleep(3)
-        safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
+        await asyncio.sleep(3)  # Non-blocking sleep
+        await safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
     else:
         # All players have finished their turns, now it's the dealer's turn
-        dealer_turn(update, context)
+        await dealer_turn(update, context)
 
-
-
-def safe_send_message_dealer(bot, chat_id, text, timeout=20, max_retries=5):
+# Asynchronous version of safe_send_message_dealer
+async def safe_send_message_dealer(bot, chat_id, text, max_retries=5):
     retries = 0
     while retries < max_retries:
         try:
-            bot.send_message(chat_id=chat_id, text=text, timeout=timeout, parse_mode="MarkdownV2")
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode="MarkdownV2")
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            time.sleep(3)  # Wait a bit before retrying
+            await asyncio.sleep(3)  # Non-blocking sleep before retrying
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
-            time.sleep(retry_after)  # Wait for the RetryAfter period before retrying
+            await asyncio.sleep(retry_after)  # Non-blocking wait for the RetryAfter period before retrying
             retries += 1
-
     print("Failed to send the message after retries.")
-
-def dealer_turn(update: Update, context: CallbackContext):
+async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
 
     try:
-        game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started\\.")
+        await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
         return
-    time.sleep(2)
-    safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
+
+    await asyncio.sleep(2)
+    await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
 
     dealer_hand = game.dealer_hand
     dealer_value = calculate_hand_value(dealer_hand)
@@ -1115,31 +970,34 @@ def dealer_turn(update: Update, context: CallbackContext):
         new_card = deal_card()
         dealer_hand.append(new_card)
         dealer_value = calculate_hand_value(dealer_hand)
-        time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
 
     # If dealer busts (> 21)
     if dealer_value > 21:
-        time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
         dealer_busted = True
     else:
-        time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
         dealer_busted = False
 
     # Save the updated dealer hand
     game.dealer_hand = dealer_hand
-    game.save()
+    await sync_to_async(game.save)()
 
     # Fetch all active players who have joined the game
-    joined_players = JoinGame.objects.filter(game=game, is_active=True)
+    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
 
     # Track the player(s) who win this round
     highest_valid_score = 0
     round_winners = []
 
     for join_entry in joined_players:
+        # Fetch the player asynchronously
+        player = await sync_to_async(lambda: join_entry.player)()
+        
         player_hand_value = calculate_hand_value(join_entry.hand)
         
         # If player busted, skip them
@@ -1150,90 +1008,88 @@ def dealer_turn(update: Update, context: CallbackContext):
         if dealer_busted or player_hand_value > dealer_value:
             if player_hand_value > highest_valid_score:
                 highest_valid_score = player_hand_value
-                round_winners = [join_entry.player]
+                round_winners = [player]
             elif player_hand_value == highest_valid_score:
-                round_winners.append(join_entry.player)
+                round_winners.append(player)
 
     if not round_winners:
-        time.sleep(2)
-
-        safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
-        RoundWinner.objects.create(game=game, round_number=game.current_round, is_dealer=True)
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
+        
+        await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
     else:
         for winner in round_winners:
-            time.sleep(2)
+            await asyncio.sleep(2)
             try:
-                # Try to tag winner using their name
+                # Try to tag the winner using their name
                 mention = f"[{winner.name}](tg://user?id={winner.id})"
             except Exception as e:
                 # Fallback to just using the player's name if tagging fails
                 mention = winner.name
-                print(f"Error tagging player {winner.name}: {str(e)}")  # Log the error for debugging
+                print(f"Error tagging player {winner.name}: {str(e)}")
 
-            safe_send_message_dealer(context.bot, chat_id, f"{mention} wins🥇 this round with a hand of {highest_valid_score}\\!")
-            RoundWinner.objects.create(game=game, round_number=game.current_round, winner=winner)
-
-    # Announce the round winner before starting the next round
+            await safe_send_message_dealer(context.bot, chat_id, f"{mention} wins this round with a hand of {highest_valid_score}\\!")
+            await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
     if not round_winners:
-        time.sleep(2)
-        safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer won🥇 round {game.current_round}\\!")
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer won🥇 round {game.current_round}\\!")
     else:
-        time.sleep(2)
-        # Initialize winner_mentions to avoid UnboundLocalError
-        winner_mentions = ""
+        for winner in round_winners:
+            await asyncio.sleep(2)
+            try:
+                # Try to tag the winner using their name
+                mention = f"[{winner.name}](tg://user?id={winner.id})"
+            except Exception as e:
+                # Fallback to just using the player's name if tagging fails
+                mention = winner.name
+                print(f"Error tagging player {winner.name}: {str(e)}")
 
-        try:
-            winner_mentions = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" for winner in round_winners])
-        except Exception as e:
-            # Fallback to using plain names if tagging fails
-            winner_mentions = ', '.join([winner.name for winner in round_winners])
-            print(f"Error tagging winners: {str(e)}")  # Log the error for debugging
-
-        # Send the message with the round winners
-        safe_send_message_dealer(context.bot, chat_id, f"{winner_mentions} won🥇 round {game.current_round}\\!")
-
-
+            await safe_send_message_dealer(context.bot, chat_id, f"{mention} won🥇 round {game.current_round}\\!")
 
     # Proceed to the next round or end the game if all rounds are done
     game.current_round += 1
-    check_for_next_round(update, context, game, joined_players)
+    await check_for_next_round(update, context, game, joined_players)
 
-def reset_game(chat_id):
+
+# Asynchronous version of reset_game
+async def reset_game(chat_id):
     try:
         # Get the active game with the given chat_id
-        game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
-        
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+
         # Mark the game as ended and reset its fields
         game.ended = True
         game.started = False
         game.betting = False
         game.join_time = False
-        game.save()
+        await sync_to_async(game.save)()
 
         # Reset all players' is_active status to False for the current game
-        JoinGame.objects.filter(game=game, is_active=True).update(is_active=False)
+        await sync_to_async(JoinGame.objects.filter(game=game, is_active=True).update)(is_active=False)
 
     except Game.DoesNotExist:
         pass
-def end_game(update: Update, context: CallbackContext):
+async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
 
     try:
-        game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
-        context.bot.send_message(chat_id=chat_id, text="No active game to end.", timeout=20)
+        await context.bot.send_message(chat_id=chat_id, text="No active game to end.")
         return
 
     # Get round winners and determine the final winner
-    dealer_rounds_won = RoundWinner.objects.filter(game=game, is_dealer=True, rounds_ended=False).count()
-    player_rounds = RoundWinner.objects.filter(game=game, is_dealer=False, rounds_ended=False)
+    dealer_rounds_won = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True, rounds_ended=False).count)()
+    player_rounds = await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False, rounds_ended=False))
 
     round_wins = {}
     for round_win in player_rounds:
-        if round_win.winner in round_wins:
-            round_wins[round_win.winner] += 1
+        # Wrap access to the foreign key field in sync_to_async
+        winner_player = await sync_to_async(lambda: round_win.winner)()
+        if winner_player in round_wins:
+            round_wins[winner_player] += 1
         else:
-            round_wins[round_win.winner] = 1
+            round_wins[winner_player] = 1
 
     # Determine the highest number of rounds won
     max_rounds_won = max(max(round_wins.values(), default=0), dealer_rounds_won)
@@ -1249,98 +1105,94 @@ def end_game(update: Update, context: CallbackContext):
         
         if 'dealer' in winners:
             winners.remove('dealer')
-            dealer = Dealer.objects.get(id=1)
+            dealer = await sync_to_async(Dealer.objects.get)(id=1)
             dealer.chips += split_pot
-            # dealer.wins += 1
-            dealer.save()
-            context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} chips💰!", timeout=20)
+            await sync_to_async(dealer.save)()
+            await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} chips💰!")
 
         for winner in winners:
-
             winner.chips += split_pot
-            # stats = Stats.objects.get(player=winner)
-            # stats.wins +=1
-            # stats.save()
-            winner.save()
-            context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰!", timeout=20)
+            await sync_to_async(winner.save)()
+            await context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰!")
 
     else:
-        context.bot.send_message(chat_id=chat_id, text="No one won this game.", timeout=20)
+        await context.bot.send_message(chat_id=chat_id, text="No one won this game.")
 
     # Mark the game as ended
     game.ended = True
     game.started = False
     game.betting = False
     game.join_time = False
-    game.save()
-    # RoundWinner.objects.filter(game=game, rounds_ended=False).update(rounds_ended=True)
+    await sync_to_async(game.save)()
 
-        
-def reset_round_state(game):
+
+# Asynchronous version of reset_round_state
+async def reset_round_state(game):
     # Reset the hands and necessary state for the next round
-    JoinGame.objects.filter(game=game, is_active=True).update(hand=[])
+    await sync_to_async(JoinGame.objects.filter(game=game, is_active=True).update)(hand=[])
     game.dealer_hand = []
-    game.save()
+    await sync_to_async(game.save)()
 
-def start_next_round(update: Update, context: CallbackContext):
-    time.sleep(2)
+# Asynchronous version of start_next_round
+async def start_next_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await asyncio.sleep(2)
     chat_id = update.message.chat_id
-    game = Game.objects.get(chat_id=chat_id, started=True, ended=False)
+    game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
 
     # Deal new hands to players and start the next round
-    joined_players = JoinGame.objects.filter(game=game, is_active=True)
-    
+    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
+
     for join_entry in joined_players:
         player_hand = [deal_card(), deal_card()]
         join_entry.hand = player_hand
-        join_entry.save()
+        await sync_to_async(join_entry.save)()
 
         # Inform the player about their new hand
         player = join_entry.player
         hand_value = calculate_hand_value(player_hand)
-        context.bot.send_message(chat_id=chat_id, text=f"Your new 🃏hand: {player_hand}. Total value: {hand_value}", timeout=20)
+        await context.bot.send_message(chat_id=chat_id, text=f"Your new 🃏hand: {player_hand}. Total value: {hand_value}")
 
     # Deal cards to the dealer for the next round
     dealer_hand = [deal_card(), deal_card()]
     game.dealer_hand = dealer_hand
-    game.save()
+    await sync_to_async(game.save)()
 
-    # update.message.reply_text(f"Dealer's visible card: {dealer_hand[0]}")
-    context.bot.send_message(chat_id=player.id, text=f"🤖 Dealer's visible 🃏card: {dealer_hand[0]}", timeout=20)
+    # Send the dealer's visible card
+    await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible 🃏card: {dealer_hand[0]}")
 
     # Continue to the first player's turn for the next round
-    player_turn(update, context)
-from django.core.exceptions import ObjectDoesNotExist
+    await player_turn(update, context)
 
-def get_player_instance(user_id):
+# Asynchronous version of get_player_instance
+async def get_player_instance(user_id):
     try:
-        # Attempt to retrieve the Player instance based on user ID
-        player = Player.objects.get(id=user_id)
+        player = await sync_to_async(Player.objects.get)(id=user_id)
         return player
     except ObjectDoesNotExist:
-        # Return None or handle the case where the player does not exist
         return None
 
-# Example usage in the bot:
-def get_player_chips(update: Update, context: CallbackContext):
+# Asynchronous version of get_player_chips
+async def get_player_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     
     # Fetch the player instance
-    player = get_player_instance(user_id)
+    player = await get_player_instance(user_id)
     
     if player:
         # If the player exists, return their chips or use them in logic
-        context.bot.send_message(chat_id=update.message.chat_id, text=f"{player.name} has {player.chips} 💰chips.", timeout=20)
+        await context.bot.send_message(chat_id=update.message.chat_id, text=f"{player.name} has {player.chips} 💰chips.")
     else:
         # Handle the case where the player does not exist
-        context.bot.send_message(chat_id=update.message.chat_id, text="You don't have a player profile yet. Start the bot in private to create one.", timeout=20)
-def get_dealer_blackjack_stats(update: Update, context: CallbackContext):
+        await context.bot.send_message(chat_id=update.message.chat_id, text="You don't have a player profile yet. Start the bot in private to create one.")
+
+# Asynchronous version of get_dealer_blackjack_stats
+async def get_dealer_blackjack_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
 
     try:
-        dealer = Dealer.objects.first()  # Assuming there's only one dealer, get the first instance
+        dealer = await sync_to_async(Dealer.objects.first)()  # Assuming there's only one dealer
         if dealer is None:
-            update.message.reply_text("No dealer stats found.")
+            await context.bot.send_message(chat_id=chat_id, text="No dealer stats found.")
             return
 
         # Format the dealer stats into a readable format
@@ -1353,35 +1205,26 @@ def get_dealer_blackjack_stats(update: Update, context: CallbackContext):
         )
         
         # Send the stats message to the chat
-        context.bot.send_message(chat_id=chat_id, text=stats_message, timeout=20)
+        await context.bot.send_message(chat_id=chat_id, text=stats_message)
 
     except Exception as e:
-        update.message.reply_text(f"Error retrieving dealer stats: {str(e)}")
-
-# Main function
-def main():
-   
-    bot_token = '7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118'
-    updater = Updater(bot_token, use_context=True)
-    dp = updater.dispatcher
-
-    # Handlers for commands
-    dp.add_handler(CommandHandler('startblackjack', start_blackjack))
-    dp.add_handler(CommandHandler('dealer_stats', get_dealer_blackjack_stats))
-    dp.add_handler(CommandHandler('join', join_blackjack))
-    dp.add_handler(CommandHandler('forcestart', force_start))
-    dp.add_handler(CommandHandler('hit', hit))
-    dp.add_handler(CommandHandler('stand', stand))
-    dp.add_handler(CommandHandler('start', start))
-    dp.add_handler(CommandHandler('stats', stats))
-    dp.add_handler(CommandHandler('my_tokens', get_player_chips))
-    dp.add_handler(PollAnswerHandler(poll_answer_handler))
-    dp.add_handler(CommandHandler("Tag", tag_users))
+        await context.bot.send_message(chat_id=chat_id, text=f"Error retrieving dealer stats: {str(e)}")
 
 
-    # Start the bot
-    updater.start_polling()
-    updater.idle()
 
-if __name__ == '__main__':
-    main()
+app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("stats", stats))
+app.add_handler(CommandHandler("startblackjack", start_blackjack, block=False))
+app.add_handler(CommandHandler("join", join_blackjack))
+app.add_handler(CommandHandler("forcestart", force_start))
+app.add_handler(PollAnswerHandler(poll_answer_handler))  # PollAnswerHandler for poll answers
+app.add_handler(CommandHandler("my_tokens", get_player_chips))
+app.add_handler(CommandHandler("stand", stand))
+app.add_handler(CommandHandler("hit", hit))
+app.add_handler(CommandHandler("dealer_stats", get_dealer_blackjack_stats))
+
+app.run_polling()
+
+

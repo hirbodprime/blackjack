@@ -16,7 +16,7 @@ venv/
 .vscode/
 .idea/
 *.swp
-
+     
 # Static files
 staticfiles/
 

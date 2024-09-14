@@ -1,0 +1,3099 @@
+Exception in thread Thread-2 (send_time_left_reminder):
+Traceback (most recent call last):
+  File "/opt/alt/python311/lib64/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "/opt/alt/python311/lib64/python3.11/threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 47, in send_time_left_reminder
+    send_message(game.chat_id, message)
+    ^^^^^^^^^^^^
+NameError: name 'send_message' is not defined. Did you mean: 'safe_send_message'?
+Exiting immediately!
+Exception in thread Thread-2 (send_time_left_reminder):
+Traceback (most recent call last):
+  File "/opt/alt/python311/lib64/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "/opt/alt/python311/lib64/python3.11/threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 48, in send_time_left_reminder
+    context.bot.send_message(
+    ^^^^^^^
+NameError: name 'context' is not defined
+Exiting immediately!
+Exception in thread Thread-1 (check_join_time):
+Traceback (most recent call last):
+  File "/opt/alt/python311/lib64/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "/opt/alt/python311/lib64/python3.11/threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+TypeError: check_join_time() takes 2 positional arguments but 3 were given
+Exiting immediately!
+Exiting immediately!
+Chat ID: -4523759485
+No existing active game found or the last game has ended. Creating a new game...
+Exception in thread Thread-6:
+Traceback (most recent call last):
+  File "/opt/alt/python311/lib64/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "/opt/alt/python311/lib64/python3.11/threading.py", line 1401, in run
+    self.function(*self.args, **self.kwargs)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 64, in send_time_left_reminder
+    threading.Thread(target=check_join_time, args=(update, context, game_id), daemon=True).start()
+                                                   ^^^^^^
+NameError: name 'update' is not defined. Did you mean: 'Update'?
+Exiting immediately!
+Exception in thread Thread-7 (check_join_time):
+Traceback (most recent call last):
+  File "/opt/alt/python311/lib64/python3.11/threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "/opt/alt/python311/lib64/python3.11/threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 37, in check_join_time
+    force_start(update, context,game.chat_id)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 552, in force_start
+    start_round(update, context, game, joined_players)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 573, in start_round
+    chat_id = update.message.chat_id
+              ^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'chat_id'
+No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/dispatcher.py", line 555, in process_update
+    handler.handle_update(update, self, check, context)
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/handler.py", line 198, in handle_update
+    return self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/blackjack/blackjack.py", line 1018, in hit
+    next_player_turn(update, context)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 1119, in next_player_turn
+    dealer_turn(update, context)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 1241, in dealer_turn
+    check_for_next_round(update, context, game, joined_players)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 834, in check_for_next_round
+    end_game(update, context)  # Ensure end_game is called after determining the winner
+    ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/blackjack/blackjack.py", line 1307, in end_game
+    context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰!", timeout=20)
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 130, in decorator
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 522, in send_message
+    return self._message(  # type: ignore[return-value]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/extbot.py", line 200, in _message
+    result = super()._message(
+             ^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 336, in _message
+    result = self._post(endpoint, data, timeout=timeout, api_kwargs=api_kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 295, in _post
+    return self.request.post(
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 361, in post
+    result = self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 272, in _request_wrapper
+    message = str(self._parse(resp.data))
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 230, in _parse
+    raise RetryAfter(retry_after)
+telegram.error.RetryAfter: Flood control exceeded. Retry in 9.0 seconds
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+Asdafsdfashhhhhhhhhhhhhh
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [9, 4] to player Hirbod
+2
+in hereadf
+Dealt hand [7, 3] to player Hirbod
+3
+in hereadf
+Dealt hand ['Q', 'A'] to player Hirbod
+4
+in hereadf
+Dealt hand [6, 3] to player Hirbod
+5
+in hereadf
+Dealt hand ['A', 4] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 2
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/dispatcher.py", line 555, in process_update
+    handler.handle_update(update, self, check, context)
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/handler.py", line 198, in handle_update
+    return self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/blackjack/blackjack.py", line 976, in hit
+    next_player_turn(update, context)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 1073, in next_player_turn
+    dealer_turn(update, context)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 1195, in dealer_turn
+    check_for_next_round(update, context, game, joined_players)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 828, in check_for_next_round
+    start_round(update, context, game, joined_players)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 662, in start_round
+    player_turn(update, context)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 881, in player_turn
+    context.bot.send_message(chat_id=chat_id, text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",parse_mode="MarkdownV2", timeout=20)
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 130, in decorator
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 522, in send_message
+    return self._message(  # type: ignore[return-value]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/extbot.py", line 200, in _message
+    result = super()._message(
+             ^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 336, in _message
+    result = self._post(endpoint, data, timeout=timeout, api_kwargs=api_kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 295, in _post
+    return self.request.post(
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 361, in post
+    result = self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 272, in _request_wrapper
+    message = str(self._parse(resp.data))
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 230, in _parse
+    raise RetryAfter(retry_after)
+telegram.error.RetryAfter: Flood control exceeded. Retry in 12.0 seconds
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [5, 10] to player Hirbod
+2
+in hereadf
+Dealt hand [5, 8] to player Hirbod
+3
+in hereadf
+Dealt hand [3, 'K'] to player Hirbod
+4
+in hereadf
+Dealt hand ['K', 'J'] to player Hirbod
+Chat ID: -1002148827357
+Game found: Game object (157)
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [2, 9] to player Hirbod
+Dealt hand [5, 4] to player Reza
+2
+in hereadf
+Dealt hand [10, 2] to player Hirbod
+Dealt hand ['Q', 2] to player Reza
+3
+in hereadf
+Dealt hand [7, 'K'] to player Hirbod
+Dealt hand ['Q', 6] to player Reza
+4
+in hereadf
+Dealt hand [6, 10] to player Hirbod
+Dealt hand [4, 6] to player Reza
+5
+in hereadf
+Dealt hand [9, 'A'] to player Hirbod
+Dealt hand ['Q', 9] to player Reza
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (5501122833)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 3
+Dealer wins updated: 22
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 1
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [7, 3] to player Hirbod
+Dealt hand [7, 'K'] to player Reza
+2
+in hereadf
+Dealt hand ['J', 7] to player Hirbod
+Dealt hand [9, 10] to player Reza
+3
+in hereadf
+Dealt hand [7, 3] to player Hirbod
+Dealt hand [4, 6] to player Reza
+4
+in hereadf
+Dealt hand [4, 'A'] to player Hirbod
+Dealt hand ['A', 6] to player Reza
+5
+in hereadf
+Dealt hand [10, 6] to player Hirbod
+Dealt hand ['A', 5] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 2, <Player: Player object (1628536823)>: 2, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 2
+Player 1628536823 wins updated: 4
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [8, 8] to player Hirbod
+Dealt hand ['Q', 'A'] to player Reza
+2
+in hereadf
+Dealt hand [4, 7] to player Hirbod
+Dealt hand ['K', 'A'] to player Reza
+3
+in hereadf
+Dealt hand ['Q', 10] to player Hirbod
+Dealt hand ['K', 7] to player Reza
+4
+in hereadf
+Dealt hand [8, 8] to player Hirbod
+Dealt hand [7, 2] to player Reza
+5
+in hereadf
+Dealt hand [7, 8] to player Hirbod
+Dealt hand [4, 'A'] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 4, <Player: Player object (1628536823)>: 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 3
+Non-winners determined: [1628536823]
+Non-winners list after removing duplicates: [1628536823]
+Player 1628536823 losses updated: 7
+Dealer losses updated: 3
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['Q', 9] to player Hirbod
+Dealt hand [6, 'Q'] to player Reza
+2
+in hereadf
+Dealt hand [6, 'J'] to player Hirbod
+Dealt hand ['Q', 4] to player Reza
+3
+in hereadf
+Dealt hand [3, 'K'] to player Hirbod
+Dealt hand [6, 8] to player Reza
+4
+in hereadf
+Dealt hand [3, 7] to player Hirbod
+Dealt hand [6, 'K'] to player Reza
+5
+in hereadf
+Dealt hand [8, 5] to player Hirbod
+Dealt hand [8, 'Q'] to player Reza
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 5
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 2
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [7, 9] to player Reza
+Dealt hand [3, 10] to player Hirbod
+2
+in hereadf
+Dealt hand [4, 'A'] to player Reza
+Dealt hand [2, 'Q'] to player Hirbod
+3
+in hereadf
+Dealt hand ['A', 'J'] to player Reza
+Dealt hand ['K', 'Q'] to player Hirbod
+4
+in hereadf
+Dealt hand [5, 9] to player Reza
+Dealt hand ['Q', 2] to player Hirbod
+5
+in hereadf
+Dealt hand ['K', 7] to player Reza
+Dealt hand ['K', 10] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (5501122833)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 6
+Dealer wins updated: 23
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 3
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['A', 5] to player Hirbod
+Dealt hand [3, 4] to player Reza
+2
+in hereadf
+Dealt hand [10, 9] to player Hirbod
+Dealt hand [6, 'Q'] to player Reza
+3
+in hereadf
+Dealt hand [4, 5] to player Hirbod
+Dealt hand [5, 2] to player Reza
+4
+in hereadf
+Dealt hand [9, 4] to player Hirbod
+Dealt hand [6, 3] to player Reza
+5
+in hereadf
+Dealt hand [7, 'K'] to player Hirbod
+Dealt hand ['Q', 3] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 2, <Player: Player object (1628536823)>: 2, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 4
+Player 1628536823 wins updated: 7
+Dealer wins updated: 24
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [2, 3] to player Reza
+Dealt hand [7, 'J'] to player Hirbod
+2
+in hereadf
+Dealt hand ['J', 9] to player Reza
+Dealt hand [6, 3] to player Hirbod
+3
+in hereadf
+Dealt hand [8, 7] to player Reza
+Dealt hand [10, 8] to player Hirbod
+4
+in hereadf
+Dealt hand [9, 10] to player Reza
+Dealt hand [10, 6] to player Hirbod
+5
+in hereadf
+Dealt hand [6, 7] to player Reza
+Dealt hand [7, 10] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 3, <Player: Player object (1628536823)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 5
+Non-winners determined: [1628536823]
+Non-winners list after removing duplicates: [1628536823]
+Player 1628536823 losses updated: 8
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [6, 'Q'] to player Reza
+Dealt hand [7, 10] to player Hirbod
+2
+in hereadf
+Dealt hand [5, 2] to player Reza
+Dealt hand ['A', 3] to player Hirbod
+3
+in hereadf
+Dealt hand [5, 'K'] to player Reza
+Dealt hand [9, 'A'] to player Hirbod
+4
+in hereadf
+Dealt hand [2, 3] to player Reza
+Dealt hand [7, 6] to player Hirbod
+5
+in hereadf
+Dealt hand [2, 8] to player Reza
+Dealt hand ['A', 8] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 8
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 4
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [4, 'Q'] to player Hirbod
+Dealt hand ['A', 6] to player Reza
+2
+in hereadf
+Dealt hand [2, 5] to player Hirbod
+Dealt hand [2, 'J'] to player Reza
+3
+in hereadf
+Dealt hand [2, 4] to player Hirbod
+Dealt hand [7, 'A'] to player Reza
+4
+in hereadf
+Dealt hand [8, 6] to player Hirbod
+Dealt hand [3, 'K'] to player Reza
+5
+in hereadf
+Dealt hand [3, 'Q'] to player Hirbod
+Dealt hand ['K', 'A'] to player Reza
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (5501122833)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 9
+Dealer wins updated: 25
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 5
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [2, 8] to player Hirbod
+2
+in hereadf
+Dealt hand [6, 'Q'] to player Hirbod
+3
+in hereadf
+Dealt hand [3, 9] to player Hirbod
+4
+in hereadf
+Dealt hand [4, 'Q'] to player Hirbod
+5
+in hereadf
+Dealt hand [8, 9] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 10
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [2, 9] to player Hirbod
+Dealt hand [8, 10] to player Reza
+2
+in hereadf
+Dealt hand ['A', 'Q'] to player Hirbod
+Dealt hand ['K', 4] to player Reza
+3
+in hereadf
+Dealt hand ['K', 'A'] to player Hirbod
+Dealt hand ['Q', 5] to player Reza
+4
+in hereadf
+Dealt hand [8, 4] to player Hirbod
+Dealt hand [7, 'J'] to player Reza
+5
+in hereadf
+Dealt hand [5, 6] to player Hirbod
+Dealt hand [2, 8] to player Reza
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (5501122833)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 11
+Dealer wins updated: 26
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 6
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [5, 7] to player Reza
+Dealt hand [2, 'K'] to player Hirbod
+2
+in hereadf
+Dealt hand ['K', 10] to player Reza
+Dealt hand [3, 8] to player Hirbod
+3
+in hereadf
+Dealt hand [8, 2] to player Reza
+Dealt hand [5, 5] to player Hirbod
+4
+in hereadf
+Dealt hand [7, 'K'] to player Reza
+Dealt hand [4, 2] to player Hirbod
+5
+in hereadf
+Dealt hand [7, 3] to player Reza
+Dealt hand [2, 2] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (5501122833)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 12
+Dealer wins updated: 27
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 7
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['Q', 4] to player Reza
+Dealt hand ['K', 'A'] to player Hirbod
+2
+in hereadf
+Dealt hand ['K', 'Q'] to player Reza
+Dealt hand [5, 'A'] to player Hirbod
+3
+in hereadf
+Dealt hand [2, 'A'] to player Reza
+Dealt hand [2, 2] to player Hirbod
+4
+in hereadf
+Dealt hand [4, 4] to player Reza
+Dealt hand ['Q', 8] to player Hirbod
+5
+in hereadf
+Dealt hand [10, 4] to player Reza
+Dealt hand [6, 'Q'] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 28
+Non-winners determined: [5501122833, 1628536823]
+Non-winners list after removing duplicates: [5501122833, 1628536823]
+Player 5501122833 losses updated: 8
+Player 1628536823 losses updated: 9
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [9, 'Q'] to player Reza
+Dealt hand ['A', 'K'] to player Hirbod
+2
+in hereadf
+Dealt hand [6, 4] to player Reza
+Dealt hand [4, 10] to player Hirbod
+3
+in hereadf
+Dealt hand [5, 'J'] to player Reza
+Dealt hand [4, 2] to player Hirbod
+4
+in hereadf
+Dealt hand [6, 10] to player Reza
+Dealt hand [10, 4] to player Hirbod
+5
+in hereadf
+Dealt hand ['J', 6] to player Reza
+Dealt hand [5, 5] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (5501122833)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 13
+Dealer wins updated: 29
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 9
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [9, 6] to player Reza
+Dealt hand [3, 4] to player Hirbod
+2
+in hereadf
+Dealt hand [7, 8] to player Reza
+Dealt hand [4, 2] to player Hirbod
+3
+in hereadf
+Dealt hand [9, 'K'] to player Reza
+Dealt hand [9, 7] to player Hirbod
+4
+in hereadf
+Dealt hand ['A', 7] to player Reza
+Dealt hand ['K', 8] to player Hirbod
+5
+in hereadf
+Dealt hand [4, 'Q'] to player Reza
+Dealt hand [7, 10] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 1, 'dealer': 4}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 30
+Non-winners determined: [5501122833, 1628536823]
+Non-winners list after removing duplicates: [5501122833, 1628536823]
+Player 5501122833 losses updated: 10
+Player 1628536823 losses updated: 10
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [3, 2] to player Hirbod
+Dealt hand ['J', 8] to player Reza
+2
+in hereadf
+Dealt hand [7, 4] to player Hirbod
+Dealt hand [5, 4] to player Reza
+3
+in hereadf
+Dealt hand ['Q', 7] to player Hirbod
+Dealt hand [5, 'Q'] to player Reza
+4
+in hereadf
+Dealt hand ['A', 2] to player Hirbod
+Dealt hand ['A', 'K'] to player Reza
+5
+in hereadf
+Dealt hand [4, 5] to player Hirbod
+Dealt hand [9, 6] to player Reza
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, <Player: Player object (5501122833)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 14
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 11
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['K', 9] to player Hirbod
+Dealt hand ['K', 'K'] to player Reza
+2
+in hereadf
+Dealt hand ['A', 2] to player Hirbod
+Dealt hand ['A', 2] to player Reza
+3
+in hereadf
+Dealt hand [4, 9] to player Hirbod
+Dealt hand ['K', 'K'] to player Reza
+4
+in hereadf
+Dealt hand ['J', 9] to player Hirbod
+Dealt hand ['A', 3] to player Reza
+5
+in hereadf
+Dealt hand ['Q', 8] to player Hirbod
+Dealt hand [10, 5] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 3, <Player: Player object (1628536823)>: 3}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 6
+Player 1628536823 wins updated: 15
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Dealer losses updated: 4
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['Q', 'K'] to player Hirbod
+Dealt hand [2, 7] to player Reza
+2
+in hereadf
+Dealt hand [9, 3] to player Hirbod
+Dealt hand ['A', 'Q'] to player Reza
+3
+in hereadf
+Dealt hand [5, 7] to player Hirbod
+Dealt hand [9, 8] to player Reza
+4
+in hereadf
+Dealt hand ['Q', 6] to player Hirbod
+Dealt hand [9, 2] to player Reza
+5
+in hereadf
+Dealt hand ['Q', 7] to player Hirbod
+Dealt hand [4, 'K'] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 7
+Non-winners determined: [1628536823]
+Non-winners list after removing duplicates: [1628536823]
+Player 1628536823 losses updated: 11
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [5, 7] to player Reza
+Dealt hand ['Q', 8] to player Hirbod
+2
+in hereadf
+Dealt hand [2, 2] to player Reza
+Dealt hand [5, 'A'] to player Hirbod
+3
+in hereadf
+Dealt hand [4, 2] to player Reza
+Dealt hand ['A', 'A'] to player Hirbod
+4
+in hereadf
+Dealt hand [8, 'A'] to player Reza
+Dealt hand [2, 'K'] to player Hirbod
+5
+in hereadf
+Dealt hand ['K', 'K'] to player Reza
+Dealt hand [4, 5] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 2, <Player: Player object (1628536823)>: 2, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 8
+Player 1628536823 wins updated: 16
+Dealer wins updated: 31
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [7, 7] to player Reza
+Dealt hand [10, 2] to player Hirbod
+2
+in hereadf
+Dealt hand ['K', 6] to player Reza
+Dealt hand [4, 9] to player Hirbod
+3
+in hereadf
+Dealt hand ['A', 7] to player Reza
+Dealt hand [6, 6] to player Hirbod
+4
+in hereadf
+Dealt hand [5, 'K'] to player Reza
+Dealt hand [5, 'A'] to player Hirbod
+5
+in hereadf
+Dealt hand [5, 10] to player Reza
+Dealt hand [2, 'K'] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 17
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 12
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [5, 9] to player Hirbod
+Dealt hand [4, 'J'] to player Reza
+2
+in hereadf
+Dealt hand [3, 4] to player Hirbod
+Dealt hand [3, 2] to player Reza
+3
+in hereadf
+Dealt hand ['Q', 9] to player Hirbod
+Dealt hand [10, 3] to player Reza
+4
+in hereadf
+Dealt hand [2, 'J'] to player Hirbod
+Dealt hand ['Q', 2] to player Reza
+5
+in hereadf
+Dealt hand [10, 'A'] to player Hirbod
+Dealt hand [8, 4] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 1, <Player: Player object (1628536823)>: 2, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 18
+Dealer wins updated: 32
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 13
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [3, 10] to player Hirbod
+Dealt hand [6, 'A'] to player Reza
+2
+in hereadf
+Dealt hand [2, 5] to player Hirbod
+Dealt hand ['J', 5] to player Reza
+3
+in hereadf
+Dealt hand [6, 7] to player Hirbod
+Dealt hand [2, 8] to player Reza
+4
+in hereadf
+Dealt hand [3, 4] to player Hirbod
+Dealt hand [5, 'Q'] to player Reza
+5
+in hereadf
+Dealt hand ['J', 7] to player Hirbod
+Dealt hand [10, 6] to player Reza
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 19
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 14
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['K', 'Q'] to player Hirbod
+Dealt hand [10, 2] to player Reza
+2
+in hereadf
+Dealt hand ['K', 'A'] to player Hirbod
+Dealt hand [3, 10] to player Reza
+3
+in hereadf
+Dealt hand [2, 4] to player Hirbod
+Dealt hand ['Q', 8] to player Reza
+4
+in hereadf
+Dealt hand [4, 9] to player Hirbod
+Dealt hand ['K', 10] to player Reza
+5
+in hereadf
+Dealt hand ['A', 4] to player Hirbod
+Dealt hand [8, 10] to player Reza
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (5501122833)>: 2, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 20
+Player 5501122833 wins updated: 9
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [8, 2] to player Reza
+Dealt hand ['Q', 6] to player Hirbod
+2
+in hereadf
+Dealt hand [2, 5] to player Reza
+Dealt hand [7, 7] to player Hirbod
+3
+in hereadf
+Dealt hand [2, 3] to player Reza
+Dealt hand [7, 'Q'] to player Hirbod
+4
+in hereadf
+Dealt hand ['Q', 'J'] to player Reza
+Dealt hand [6, 3] to player Hirbod
+5
+in hereadf
+Dealt hand [9, 4] to player Reza
+Dealt hand [5, 9] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 3, <Player: Player object (1628536823)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 10
+Non-winners determined: [1628536823]
+Non-winners list after removing duplicates: [1628536823]
+Player 1628536823 losses updated: 12
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [7, 8] to player Reza
+Dealt hand [3, 8] to player Hirbod
+2
+in hereadf
+Dealt hand [6, 7] to player Reza
+Dealt hand ['K', 3] to player Hirbod
+3
+in hereadf
+Dealt hand [9, 2] to player Reza
+Dealt hand [5, 'Q'] to player Hirbod
+4
+in hereadf
+Dealt hand [10, 'A'] to player Reza
+Dealt hand ['K', 'A'] to player Hirbod
+5
+in hereadf
+Dealt hand ['K', 6] to player Reza
+Dealt hand ['J', 10] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, <Player: Player object (5501122833)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 21
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 15
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['K', 4] to player Hirbod
+2
+in hereadf
+Dealt hand [10, 5] to player Hirbod
+3
+in hereadf
+Dealt hand [9, 9] to player Hirbod
+4
+in hereadf
+Dealt hand [10, 'A'] to player Hirbod
+5
+in hereadf
+Dealt hand [10, 10] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 4, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 22
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [8, 9] to player Hirbod
+2
+in hereadf
+Dealt hand ['Q', 3] to player Hirbod
+3
+in hereadf
+Dealt hand [7, 7] to player Hirbod
+4
+in hereadf
+Dealt hand [3, 4] to player Hirbod
+5
+in hereadf
+Dealt hand [8, 'J'] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 23
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['K', 6] to player Hirbod
+2
+in hereadf
+Dealt hand ['K', 3] to player Hirbod
+3
+in hereadf
+Dealt hand [2, 'Q'] to player Hirbod
+4
+in hereadf
+Dealt hand [10, 9] to player Hirbod
+5
+in hereadf
+Dealt hand [5, 8] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 24
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['K', 7] to player Hirbod
+Dealt hand [4, 2] to player Hirbod;
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/updater.py", line 646, in _network_loop_retry
+    if not action_cb():
+           ^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/updater.py", line 597, in polling_action_cb
+    updates = self.bot.get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/extbot.py", line 224, in get_updates
+    updates = super().get_updates(
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 130, in decorator
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 3054, in get_updates
+    self._post(
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 295, in _post
+    return self.request.post(
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 361, in post
+    result = self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 283, in _request_wrapper
+    raise Conflict(message)
+telegram.error.Conflict: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/updater.py", line 646, in _network_loop_retry
+    if not action_cb():
+           ^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/updater.py", line 597, in polling_action_cb
+    updates = self.bot.get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/extbot.py", line 224, in get_updates
+    updates = super().get_updates(
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 130, in decorator
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 3054, in get_updates
+    self._post(
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 295, in _post
+    return self.request.post(
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 361, in post
+    result = self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 283, in _request_wrapper
+    raise Conflict(message)
+telegram.error.Conflict: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2
+in hereadf
+Dealt hand [9, 10] to player Hirbod
+Dealt hand [6, 5] to player Hirbod;
+3
+in hereadf
+Dealt hand [9, 'Q'] to player Hirbod
+Dealt hand [10, 'A'] to player Hirbod;
+4
+in hereadf
+Dealt hand [5, 10] to player Hirbod
+Dealt hand ['K', 10] to player Hirbod;
+5
+in hereadf
+Dealt hand [9, 'J'] to player Hirbod
+Dealt hand [3, 3] to player Hirbod;
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, <Player: Player object (1553620403)>: 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 25
+Non-winners determined: [1553620403]
+Non-winners list after removing duplicates: [1553620403]
+Player 1553620403 losses updated: 1
+Dealer losses updated: 5
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [5, 'K'] to player Hirbod
+2
+in hereadf
+Dealt hand ['J', 'K'] to player Hirbod
+3
+in hereadf
+Dealt hand ['J', 6] to player Hirbod
+4
+in hereadf
+Dealt hand [7, 4] to player Hirbod
+5
+in hereadf
+Dealt hand [8, 'K'] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 33
+Non-winners determined: [1628536823]
+Non-winners list after removing duplicates: [1628536823]
+Player 1628536823 losses updated: 13
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [3, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [4, 'Q'] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [2, 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [9, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [9, 10] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (651860962)>: 2, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 34
+Non-winners determined: [651860962]
+Non-winners list after removing duplicates: [651860962]
+Player 651860962 losses updated: 1
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+Chat ID: -1002148827357
+Game found: Game object (189)
+1
+Dealt hand ['K', 9] to player Reza
+Dealt hand ['J', 7] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [8, 8] to player Reza
+Dealt hand ['Q', 5] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand ['K', 'J'] to player Reza
+Dealt hand [6, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [3, 'J'] to player Reza
+Dealt hand ['A', 10] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [2, 7] to player Reza
+Dealt hand [2, 5] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 1, <Player: Player object (651860962)>: 2, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 651860962 wins updated: 1
+Dealer wins updated: 35
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 16
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [8, 8] to player Hirbod
+Dealt hand [3, 6] to player Reza
+Dealt hand [6, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand ['K', 2] to player Hirbod
+Dealt hand ['K', 10] to player Reza
+Dealt hand [8, 7] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand ['Q', 9] to player Hirbod
+Dealt hand [6, 'J'] to player Reza
+Dealt hand ['A', 'K'] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [10, 'K'] to player Hirbod
+Dealt hand [10, 8] to player Reza
+Dealt hand ['A', 'Q'] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [4, 6] to player Hirbod
+Dealt hand [2, 2] to player Reza
+Dealt hand [2, 'Q'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 1, <Player: Player object (651860962)>: 2, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 651860962 wins updated: 2
+Dealer wins updated: 36
+Non-winners determined: [1628536823, 5501122833]
+Non-winners list after removing duplicates: [5501122833, 1628536823]
+Player 5501122833 losses updated: 17
+Player 1628536823 losses updated: 14
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [8, 'A'] to player Hirbod
+Dealt hand [6, 7] to player Reza
+Dealt hand ['A', 4] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand ['K', 3] to player Hirbod
+Dealt hand [2, 6] to player Reza
+Dealt hand [10, 9] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [4, 8] to player Hirbod
+Dealt hand [8, 4] to player Reza
+Dealt hand [5, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand ['Q', 8] to player Hirbod
+Dealt hand ['A', 'K'] to player Reza
+Dealt hand [3, 7] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand ['Q', 'Q'] to player Hirbod
+Dealt hand [10, 5] to player Reza
+Dealt hand [2, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (651860962)>: 1, <Player: Player object (5501122833)>: 1, <Player: Player object (1628536823)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 37
+Non-winners determined: [1628536823, 5501122833, 651860962]
+Non-winners list after removing duplicates: [5501122833, 651860962, 1628536823]
+Player 5501122833 losses updated: 18
+Player 651860962 losses updated: 2
+Player 1628536823 losses updated: 15
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand [8, 'A'] to player Hirbod;
+Dealt hand [9, 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [10, 10] to player Reza
+2
+in hereadf
+Dealt hand [10, 10] to player Hirbod;
+Dealt hand ['K', 6] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [9, 4] to player Reza
+3
+in hereadf
+Dealt hand [10, 'K'] to player Hirbod;
+Dealt hand [7, 5] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand ['A', 9] to player Reza
+4
+in hereadf
+Dealt hand ['J', 5] to player Hirbod;
+Dealt hand ['Q', 10] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [5, 5] to player Reza
+5
+in hereadf
+Dealt hand [9, 'K'] to player Hirbod;
+Dealt hand [3, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [8, 'J'] to player Reza
+Winner counts (including dealer): {<Player: Player object (651860962)>: 3, <Player: Player object (5501122833)>: 2, <Player: Player object (1553620403)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 651860962 wins updated: 3
+Non-winners determined: [1553620403, 5501122833]
+Non-winners list after removing duplicates: [5501122833, 1553620403]
+Player 5501122833 losses updated: 19
+Player 1553620403 losses updated: 2
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand ['J', 3] to player Hirbod
+Dealt hand [2, 'K'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [5, 8] to player Reza
+2
+in hereadf
+Dealt hand [9, 5] to player Hirbod
+Dealt hand [5, 10] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand ['A', 5] to player Reza
+3
+in hereadf
+Dealt hand [2, 5] to player Hirbod
+Dealt hand [2, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [3, 'A'] to player Reza
+4
+in hereadf
+Dealt hand [2, 4] to player Hirbod
+Dealt hand ['A', 5] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [10, 'Q'] to player Reza
+5
+in hereadf
+Dealt hand [3, 3] to player Hirbod
+Dealt hand [10, 2] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [4, 'J'] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 4, <Player: Player object (1628536823)>: 1, <Player: Player object (651860962)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 11
+Non-winners determined: [1628536823, 651860962]
+Non-winners list after removing duplicates: [651860962, 1628536823]
+Player 651860962 losses updated: 3
+Player 1628536823 losses updated: 16
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand ['A', 7] to player Hirbod
+Dealt hand [6, 'A'] to player Reza
+Dealt hand [9, 2] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [5, 8] to player Hirbod
+Dealt hand [3, 'J'] to player Reza
+Dealt hand ['Q', 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [5, 3] to player Hirbod
+Dealt hand [7, 3] to player Reza
+Dealt hand ['K', 6] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [2, 'Q'] to player Hirbod
+Dealt hand [9, 7] to player Reza
+Dealt hand ['J', 4] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand ['Q', 2] to player Hirbod
+Dealt hand [6, 5] to player Reza
+Dealt hand [4, 'Q'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 2, <Player: Player object (651860962)>: 3}
+Starting update_statistics function
+Initialized non_winners list
+Player 651860962 wins updated: 4
+Non-winners determined: [1628536823, 5501122833]
+Non-winners list after removing duplicates: [5501122833, 1628536823]
+Player 5501122833 losses updated: 20
+Player 1628536823 losses updated: 17
+Dealer losses updated: 6
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand ['A', 7] to player Reza
+Dealt hand [2, 6] to player Hirbod
+2
+in hereadf
+Dealt hand [7, 8] to player Reza
+Dealt hand ['A', 6] to player Hirbod
+3
+in hereadf
+Dealt hand ['J', 3] to player Reza
+Dealt hand [7, 8] to player Hirbod
+4
+in hereadf
+Dealt hand [10, 5] to player Reza
+Dealt hand ['J', 'J'] to player Hirbod
+5
+in hereadf
+Dealt hand [3, 'Q'] to player Reza
+Dealt hand [7, 'K'] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 1, <Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 26
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 21
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [8, 8] to player Reza
+2
+in hereadf
+Dealt hand [3, 9] to player Reza
+3
+in hereadf
+Dealt hand [6, 'A'] to player Reza
+4
+in hereadf
+Dealt hand [3, 'J'] to player Reza
+5
+in hereadf
+Dealt hand ['K', 4] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 1, 'dealer': 4}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 38
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 22
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['A', 'A'] to player Reza
+2
+in hereadf
+Dealt hand ['J', 9] to player Reza
+3
+in hereadf
+Dealt hand [2, 5] to player Reza
+4
+in hereadf
+Dealt hand [9, 8] to player Reza
+5
+in hereadf
+Dealt hand [3, 'J'] to player Reza
+Winner counts (including dealer): {'dealer': 5}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 39
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 23
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [5, 2] to player Reza
+Dealt hand [2, 5] to player Hirbod
+2
+in hereadf
+Dealt hand [7, 6] to player Reza
+Dealt hand [2, 10] to player Hirbod
+3
+in hereadf
+Dealt hand ['K', 3] to player Reza
+Dealt hand [5, 2] to player Hirbod
+4
+in hereadf
+Dealt hand [4, 'A'] to player Reza
+Dealt hand [9, 2] to player Hirbod
+5
+in hereadf
+Dealt hand ['Q', 'K'] to player Reza
+Dealt hand ['Q', 'A'] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 1, <Player: Player object (1628536823)>: 1, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 40
+Non-winners determined: [5501122833, 1628536823]
+Non-winners list after removing duplicates: [5501122833, 1628536823]
+Player 5501122833 losses updated: 24
+Player 1628536823 losses updated: 18
+Finished update_statistics function
+Chat ID: -1002148827357
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['K', 8] to player Hirbod
+2
+in hereadf
+Dealt hand [7, 2] to player Hirbod
+3
+in hereadf
+Dealt hand [8, 'Q'] to player Hirbod
+4
+in hereadf
+Dealt hand ['Q', 3] to player Hirbod
+5
+in hereadf
+Dealt hand [10, 7] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 27
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1001611197829
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [7, 8] to player Hirbod
+Dealt hand [3, 3] to player Reza
+Dealt hand ['J', 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [5, 6] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [10, 7] to player Hirbod
+Dealt hand [8, 7] to player Reza
+Dealt hand ['J', 4] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [6, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [10, 6] to player Hirbod
+Dealt hand [7, 'A'] to player Reza
+Dealt hand [3, 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['Q', 9] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [8, 'Q'] to player Hirbod
+Dealt hand [4, 'K'] to player Reza
+Dealt hand [10, 9] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [4, 8] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [2, 10] to player Hirbod
+Dealt hand [2, 3] to player Reza
+Dealt hand [7, 3] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [4, 6] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1147441628 wins updated: 1
+Non-winners determined: [1628536823, 5501122833, 651860962]
+Non-winners list after removing duplicates: [5501122833, 651860962, 1628536823]
+Player 5501122833 losses updated: 25
+Player 651860962 losses updated: 4
+Player 1628536823 losses updated: 19
+Finished update_statistics function
+Chat ID: -1001611197829
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+game not found?
+1
+Dealt hand [4, 3] to player Reza
+Dealt hand [10, 9] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [5, 6] to player Hirbod
+Dealt hand [3, 4] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand ['Q', 9] to player Reza
+Dealt hand ['K', 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['J', 4] to player Hirbod
+Dealt hand ['Q', 9] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand ['Q', 6] to player Reza
+Dealt hand [7, 10] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['J', 10] to player Hirbod
+Dealt hand [5, 9] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [10, 'A'] to player Reza
+Dealt hand ['A', 2] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [8, 2] to player Hirbod
+Dealt hand [4, 8] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [10, 4] to player Reza
+Dealt hand [9, 7] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['Q', 2] to player Hirbod
+Dealt hand [10, 8] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 2, <Player: Player object (5501122833)>: 1, <Player: Player object (651860962)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1147441628 wins updated: 2
+Non-winners determined: [5501122833, 1628536823, 651860962]
+Non-winners list after removing duplicates: [5501122833, 651860962, 1628536823]
+Player 5501122833 losses updated: 26
+Player 651860962 losses updated: 5
+Player 1628536823 losses updated: 20
+Finished update_statistics function
+Chat ID: -1001611197829
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand [2, 'A'] to player Reza
+Dealt hand ['Q', 5] to player Hirbod
+Dealt hand [10, 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [7, 4] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [3, 4] to player Reza
+Dealt hand ['A', 8] to player Hirbod
+Dealt hand [7, 2] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [2, 6] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [7, 'K'] to player Reza
+Dealt hand [9, 3] to player Hirbod
+Dealt hand [10, 'J'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['K', 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [2, 3] to player Reza
+Dealt hand ['K', 8] to player Hirbod
+Dealt hand [4, 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [2, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [6, 2] to player Reza
+Dealt hand [7, 6] to player Hirbod
+Dealt hand [3, 5] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [5, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (1147441628)>: 1, <Player: Player object (651860962)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 28
+Dealer wins updated: 41
+Non-winners determined: [5501122833, 1147441628, 651860962]
+Non-winners list after removing duplicates: [5501122833, 651860962, 1147441628]
+Player 5501122833 losses updated: 27
+Player 651860962 losses updated: 6
+Player 1147441628 losses updated: 1
+Finished update_statistics function
+Chat ID: -1001611197829
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand [6, 5] to player Hirbod
+Dealt hand [6, 5] to player Reza
+Dealt hand [8, 'J'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [8, 9] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand ['K', 'A'] to player Hirbod
+Dealt hand [9, 6] to player Reza
+Dealt hand [9, 8] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [3, 10] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand ['A', 4] to player Hirbod
+Dealt hand [2, 9] to player Reza
+Dealt hand ['Q', 8] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['J', 8] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand ['K', 9] to player Hirbod
+Dealt hand [8, 9] to player Reza
+Dealt hand [2, 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [6, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand ['Q', 10] to player Hirbod
+Dealt hand [9, 'A'] to player Reza
+Dealt hand [6, 4] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['Q', 'K'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, <Player: Player object (5501122833)>: 2, <Player: Player object (651860962)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 29
+Non-winners determined: [5501122833, 1147441628, 651860962]
+Non-winners list after removing duplicates: [5501122833, 651860962, 1147441628]
+Player 5501122833 losses updated: 28
+Player 651860962 losses updated: 7
+Player 1147441628 losses updated: 2
+Finished update_statistics function
+Chat ID: -1001611197829
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+game not found?
+game not found?
+1
+Dealt hand [6, 10] to player Hirbod
+Dealt hand [3, 4] to player Reza
+Dealt hand ['A', 8] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [10, 2] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [8, 2] to player Hirbod
+Dealt hand [9, 9] to player Reza
+Dealt hand [4, 8] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['A', 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [9, 'J'] to player Hirbod
+Dealt hand [6, 2] to player Reza
+Dealt hand ['J', 8] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [2, 'K'] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand ['J', 10] to player Hirbod
+Dealt hand [6, 9] to player Reza
+Dealt hand [4, 'A'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['Q', 2] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand ['A', 'J'] to player Hirbod
+Dealt hand [5, 'K'] to player Reza
+Dealt hand [2, 'J'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['Q', 'K'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, <Player: Player object (1147441628)>: 2, <Player: Player object (651860962)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 30
+Non-winners determined: [5501122833, 1147441628, 651860962]
+Non-winners list after removing duplicates: [5501122833, 651860962, 1147441628]
+Player 5501122833 losses updated: 29
+Player 651860962 losses updated: 8
+Player 1147441628 losses updated: 3
+Finished update_statistics function
+Chat ID: -1001611197829
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+game not found?
+game not found?
+1
+Dealt hand [10, 9] to player Hirbod
+Dealt hand [8, 9] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['Q', 'K'] to player Ƥѳυɍƴѧ
+Dealt hand [9, 'K'] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand ['A', 8] to player Hirbod
+Dealt hand [9, 'J'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['J', 7] to player Ƥѳυɍƴѧ
+Dealt hand [10, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand ['Q', 4] to player Hirbod
+Dealt hand ['Q', 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [2, 8] to player Ƥѳυɍƴѧ
+Dealt hand [4, 2] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand ['K', 2] to player Hirbod
+Dealt hand [2, 2] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['K', 4] to player Ƥѳυɍƴѧ
+Dealt hand [8, 7] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [3, 3] to player Hirbod
+Dealt hand [4, 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['A', 8] to player Ƥѳυɍƴѧ
+Dealt hand [5, 9] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (622955936)>: 2, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 42
+Non-winners determined: [1628536823, 1147441628, 622955936, 651860962]
+Non-winners list after removing duplicates: [622955936, 651860962, 1147441628, 1628536823]
+Player 622955936 losses updated: 1
+Player 651860962 losses updated: 9
+Player 1147441628 losses updated: 4
+Player 1628536823 losses updated: 21
+Finished update_statistics function
+Chat ID: -1001611197829
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+game not found?
+1
+Dealt hand ['Q', 'J'] to player Hirbod
+Dealt hand [3, 10] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['A', 4] to player Ƥѳυɍƴѧ
+Dealt hand [10, 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [8, 'J'] to player Hirbod
+Dealt hand [4, 3] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [2, 2] to player Ƥѳυɍƴѧ
+Dealt hand [10, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [6, 2] to player Hirbod
+Dealt hand [6, 9] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['Q', 'J'] to player Ƥѳυɍƴѧ
+Dealt hand ['Q', 2] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [6, 'A'] to player Hirbod
+Dealt hand [3, 5] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [10, 7] to player Ƥѳυɍƴѧ
+Dealt hand ['J', 7] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand ['K', 3] to player Hirbod
+Dealt hand ['K', 'J'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [7, 9] to player Ƥѳυɍƴѧ
+Dealt hand [3, 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (651860962)>: 2, <Player: Player object (622955936)>: 2, <Player: Player object (1147441628)>: 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 651860962 wins updated: 5
+Player 622955936 wins updated: 1
+Non-winners determined: [1628536823, 1147441628]
+Non-winners list after removing duplicates: [1147441628, 1628536823]
+Player 1147441628 losses updated: 5
+Player 1628536823 losses updated: 22
+Dealer losses updated: 7
+Finished update_statistics function
+No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/dispatcher.py", line 555, in process_update
+    handler.handle_update(update, self, check, context)
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/handler.py", line 198, in handle_update
+    return self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/blackjack/blackjack.py", line 1031, in stand
+    next_player_turn(update, context)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 1077, in next_player_turn
+    dealer_turn(update, context)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 1199, in dealer_turn
+    check_for_next_round(update, context, game, joined_players)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 832, in check_for_next_round
+    start_round(update, context, game, joined_players)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 568, in start_round
+    message = context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2", timeout=20)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 130, in decorator
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 522, in send_message
+    return self._message(  # type: ignore[return-value]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/extbot.py", line 200, in _message
+    result = super()._message(
+             ^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 336, in _message
+    result = self._post(endpoint, data, timeout=timeout, api_kwargs=api_kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 295, in _post
+    return self.request.post(
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 361, in post
+    result = self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 272, in _request_wrapper
+    message = str(self._parse(resp.data))
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 230, in _parse
+    raise RetryAfter(retry_after)
+telegram.error.RetryAfter: Flood control exceeded. Retry in 5.0 seconds
+Error while getting Updates: Bad Gateway
+No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/updater.py", line 646, in _network_loop_retry
+    if not action_cb():
+           ^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/updater.py", line 597, in polling_action_cb
+    updates = self.bot.get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/extbot.py", line 224, in get_updates
+    updates = super().get_updates(
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 130, in decorator
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 3054, in get_updates
+    self._post(
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 295, in _post
+    return self.request.post(
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 361, in post
+    result = self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 290, in _request_wrapper
+    raise NetworkError('Bad Gateway')
+telegram.error.NetworkError: Bad Gateway
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand [8, 'A'] to player Hirbod
+Dealt hand [8, 'K'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [10, 5] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Dealt hand [4, 'A'] to player Hirbod
+Dealt hand [7, 5] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [2, 8] to player 𝑇𝑖𝑛𝑎🪸
+3
+in hereadf
+Dealt hand [10, 10] to player Hirbod
+Dealt hand ['J', 9] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand ['K', 9] to player 𝑇𝑖𝑛𝑎🪸
+4
+in hereadf
+Dealt hand [7, 7] to player Hirbod
+Dealt hand [10, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [7, 9] to player 𝑇𝑖𝑛𝑎🪸
+5
+in hereadf
+Dealt hand ['Q', 7] to player Hirbod
+Dealt hand [5, 'K'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand ['J', 9] to player 𝑇𝑖𝑛𝑎🪸
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 2, <Player: Player object (651860962)>: 2, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1147441628 wins updated: 3
+Player 651860962 wins updated: 6
+Non-winners determined: [1628536823]
+Non-winners list after removing duplicates: [1628536823]
+Player 1628536823 losses updated: 23
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand [2, 7] to player Hirbod
+Dealt hand ['J', 6] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Dealt hand [9, 'J'] to player Hirbod
+Dealt hand [3, 2] to player 𝑇𝑖𝑛𝑎🪸
+3
+in hereadf
+Dealt hand [7, 2] to player Hirbod
+Dealt hand ['Q', 'K'] to player 𝑇𝑖𝑛𝑎🪸
+4
+in hereadf
+Dealt hand ['A', 3] to player Hirbod
+Dealt hand [2, 10] to player 𝑇𝑖𝑛𝑎🪸
+5
+in hereadf
+Dealt hand ['Q', 7] to player Hirbod
+Dealt hand [2, 2] to player 𝑇𝑖𝑛𝑎🪸
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 1, <Player: Player object (1147441628)>: 1, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 43
+Non-winners determined: [1628536823, 1147441628]
+Non-winners list after removing duplicates: [1147441628, 1628536823]
+Player 1147441628 losses updated: 6
+Player 1628536823 losses updated: 24
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [6, 10] to player Hirbod
+Dealt hand [3, 2] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['A', 10] to player Hirbod
+Dealt hand [2, 6] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Dealt hand [6, 5] to player Hirbod
+Dealt hand [3, 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+3
+in hereadf
+Dealt hand [8, 'A'] to player Hirbod
+Dealt hand [6, 8] to player 𝑇𝑖𝑛𝑎🪸
+4
+in hereadf
+Dealt hand ['Q', 'J'] to player Hirbod
+Dealt hand [10, 7] to player 𝑇𝑖𝑛𝑎🪸
+5
+in hereadf
+Dealt hand [5, 7] to player Hirbod
+Dealt hand [3, 2] to player 𝑇𝑖𝑛𝑎🪸
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 3, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 31
+Non-winners determined: [1147441628]
+Non-winners list after removing duplicates: [1147441628]
+Player 1147441628 losses updated: 7
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+Chat ID: -1002424411318
+Game found: Game object (211)
+1
+Dealt hand [8, 'J'] to player Hirbod
+Dealt hand [10, 'J'] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Dealt hand [7, 'K'] to player Hirbod
+Dealt hand ['A', 'K'] to player 𝑇𝑖𝑛𝑎🪸
+3
+in hereadf
+Dealt hand ['J', 3] to player Hirbod
+Dealt hand ['Q', 6] to player 𝑇𝑖𝑛𝑎🪸
+4
+in hereadf
+Dealt hand ['K', 4] to player Hirbod
+Dealt hand [5, 7] to player 𝑇𝑖𝑛𝑎🪸
+5
+in hereadf
+Dealt hand [5, 4] to player Hirbod
+Dealt hand [10, 'J'] to player 𝑇𝑖𝑛𝑎🪸
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 4, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1147441628 wins updated: 4
+Non-winners determined: [1628536823]
+Non-winners list after removing duplicates: [1628536823]
+Player 1628536823 losses updated: 25
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand [10, 10] to player Reza
+2
+in hereadf
+Dealt hand ['K', 4] to player Reza
+3
+in hereadf
+Dealt hand [9, 8] to player Reza
+4
+in hereadf
+Dealt hand [6, 8] to player Reza
+5
+in hereadf
+Dealt hand ['Q', 6] to player Reza
+Winner counts (including dealer): {'dealer': 5}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 44
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 30
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand ['Q', 3] to player Hirbod
+Dealt hand [3, 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand ['K', 5] to player Reza
+2
+in hereadf
+Dealt hand [9, 6] to player Hirbod
+Dealt hand [6, 6] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [10, 9] to player Reza
+3
+in hereadf
+Dealt hand [10, 4] to player Hirbod
+Dealt hand [2, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [3, 10] to player Reza
+4
+in hereadf
+Dealt hand [9, 'K'] to player Hirbod
+Dealt hand [7, 5] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand ['Q', 10] to player Reza
+5
+in hereadf
+Dealt hand [9, 3] to player Hirbod
+Dealt hand [6, 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [5, 6] to player Reza
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (651860962)>: 1, <Player: Player object (5501122833)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 32
+Dealer wins updated: 45
+Non-winners determined: [651860962, 5501122833]
+Non-winners list after removing duplicates: [5501122833, 651860962]
+Player 5501122833 losses updated: 31
+Player 651860962 losses updated: 10
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [8, 7] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['J', 3] to player Hirbod
+2
+in hereadf
+Dealt hand ['J', 9] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [7, 'Q'] to player Hirbod
+3
+in hereadf
+Dealt hand ['A', 9] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['Q', 'A'] to player Hirbod
+4
+in hereadf
+Dealt hand ['K', 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['J', 'J'] to player Hirbod
+5
+in hereadf
+Dealt hand [8, 10] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['Q', 'J'] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 1, <Player: Player object (1628536823)>: 2, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 33
+Dealer wins updated: 46
+Non-winners determined: [1147441628]
+Non-winners list after removing duplicates: [1147441628]
+Player 1147441628 losses updated: 8
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [5, 'K'] to player Reza
+2
+in hereadf
+Dealt hand ['J', 5] to player Reza
+3
+in hereadf
+Dealt hand [7, 4] to player Reza
+4
+in hereadf
+Dealt hand [3, 'A'] to player Reza
+5
+in hereadf
+Dealt hand ['Q', 9] to player Reza
+Winner counts (including dealer): {'dealer': 5}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 47
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 32
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['Q', 'A'] to player Reza
+Dealt hand [9, 3] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['K', 5] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [5, 7] to player Reza
+Dealt hand [4, 5] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [8, 7] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand ['K', 'K'] to player Reza
+Dealt hand ['A', 'J'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [8, 2] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [5, 8] to player Reza
+Dealt hand [5, 2] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [3, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [8, 4] to player Reza
+Dealt hand [6, 6] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['A', 7] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 1, <Player: Player object (1147441628)>: 2, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1147441628 wins updated: 5
+Dealer wins updated: 48
+Non-winners determined: [5501122833, 651860962]
+Non-winners list after removing duplicates: [5501122833, 651860962]
+Player 5501122833 losses updated: 33
+Player 651860962 losses updated: 11
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [5, 8] to player Reza
+Dealt hand [5, 6] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [10, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [6, 5] to player Hirbod
+2
+in hereadf
+Dealt hand [8, 'A'] to player Reza
+Dealt hand [7, 4] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [7, 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [4, 'J'] to player Hirbod
+3
+in hereadf
+Dealt hand [5, 2] to player Reza
+Dealt hand [4, 3] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['J', 'K'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand ['A', 'Q'] to player Hirbod
+4
+in hereadf
+Dealt hand ['A', 5] to player Reza
+Dealt hand [3, 9] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [5, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand ['K', 5] to player Hirbod
+5
+in hereadf
+Dealt hand [7, 10] to player Reza
+Dealt hand [5, 'A'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [4, 4] to player N ɪ ᴋ ᴛ ᴀ࿐
+Dealt hand [5, 4] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 2, <Player: Player object (1628536823)>: 3, <Player: Player object (5501122833)>: 1, <Player: Player object (651860962)>: 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 34
+Non-winners determined: [5501122833, 1147441628, 651860962]
+Non-winners list after removing duplicates: [5501122833, 651860962, 1147441628]
+Player 5501122833 losses updated: 34
+Player 651860962 losses updated: 12
+Player 1147441628 losses updated: 9
+Dealer losses updated: 8
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['Q', 'A'] to player Reza
+2
+in hereadf
+Dealt hand [5, 'Q'] to player Reza
+3
+in hereadf
+Dealt hand [5, 9] to player Reza
+4
+in hereadf
+Dealt hand [10, 6] to player Reza
+5
+in hereadf
+Dealt hand ['J', 6] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 2, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 49
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 35
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+Chat ID: -1002424411318
+Game found: Game object (219)
+1
+Dealt hand [6, 3] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [3, 8] to player Reza
+Dealt hand [8, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand ['Q', 'A'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [8, 2] to player Reza
+Dealt hand [7, 8] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [3, 4] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [2, 'Q'] to player Reza
+Dealt hand [8, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [6, 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [10, 10] to player Reza
+Dealt hand [2, 'Q'] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand ['Q', 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['K', 2] to player Reza
+Dealt hand ['J', 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 2, <Player: Player object (1147441628)>: 1, <Player: Player object (651860962)>: 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 12
+Player 651860962 wins updated: 7
+Non-winners determined: [1147441628]
+Non-winners list after removing duplicates: [1147441628]
+Player 1147441628 losses updated: 10
+Dealer losses updated: 9
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [6, 6] to player Hirbod
+Dealt hand [6, 7] to player Reza
+Dealt hand [7, 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [4, 6] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [5, 'K'] to player Hirbod
+Dealt hand ['Q', 'A'] to player Reza
+Dealt hand [9, 9] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [8, 6] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [6, 2] to player Hirbod
+Dealt hand [7, 6] to player Reza
+Dealt hand [10, 10] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [4, 'Q'] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [7, 4] to player Hirbod
+Dealt hand [7, 'K'] to player Reza
+Dealt hand ['Q', 8] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [6, 'J'] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [9, 'K'] to player Hirbod
+Dealt hand [10, 'K'] to player Reza
+Dealt hand ['A', 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [10, 4] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 3, <Player: Player object (5501122833)>: 1, <Player: Player object (1628536823)>: 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1147441628 wins updated: 6
+Non-winners determined: [1628536823, 5501122833, 651860962]
+Non-winners list after removing duplicates: [5501122833, 651860962, 1628536823]
+Player 5501122833 losses updated: 36
+Player 651860962 losses updated: 13
+Player 1628536823 losses updated: 26
+Dealer losses updated: 10
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+Chat ID: -1002424411318
+Game found: Game object (221)
+1
+Dealt hand [5, 9] to player Reza
+Dealt hand [3, 2] to player Hirbod
+Dealt hand ['K', 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['J', 'Q'] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [9, 8] to player Reza
+Dealt hand ['J', 7] to player Hirbod
+Dealt hand ['A', 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [4, 3] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [9, 5] to player Reza
+Dealt hand [8, 'K'] to player Hirbod
+Dealt hand ['K', 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [2, 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [6, 3] to player Reza
+Dealt hand ['Q', 'A'] to player Hirbod
+Dealt hand [7, 7] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [4, 6] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [10, 5] to player Reza
+Dealt hand [9, 4] to player Hirbod
+Dealt hand ['A', 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [9, 'A'] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 3, <Player: Player object (651860962)>: 1, <Player: Player object (1628536823)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1147441628 wins updated: 7
+Non-winners determined: [5501122833, 1628536823, 651860962]
+Non-winners list after removing duplicates: [5501122833, 651860962, 1628536823]
+Player 5501122833 losses updated: 37
+Player 651860962 losses updated: 14
+Player 1628536823 losses updated: 27
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['A', 10] to player Reza
+Dealt hand ['K', 7] to player Hirbod
+Dealt hand [6, 'Q'] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand ['Q', 8] to player Reza
+Dealt hand [9, 9] to player Hirbod
+Dealt hand ['Q', 7] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [9, 10] to player Reza
+Dealt hand [7, 9] to player Hirbod
+Dealt hand [3, 6] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand [9, 'J'] to player Reza
+Dealt hand ['K', 4] to player Hirbod
+Dealt hand ['Q', 'Q'] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [8, 5] to player Reza
+Dealt hand ['Q', 'A'] to player Hirbod
+Dealt hand [9, 2] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 2, <Player: Player object (651860962)>: 1, <Player: Player object (1628536823)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 13
+Non-winners determined: [1628536823, 651860962]
+Non-winners list after removing duplicates: [651860962, 1628536823]
+Player 651860962 losses updated: 15
+Player 1628536823 losses updated: 28
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand ['J', 5] to player Hirbod
+Dealt hand [3, 'J'] to player Reza
+Dealt hand ['K', 2] to player Ƥѳυɍƴѧ
+2
+in hereadf
+Dealt hand [3, 6] to player Hirbod
+Dealt hand [10, 4] to player Reza
+Dealt hand [4, 5] to player Ƥѳυɍƴѧ
+3
+in hereadf
+Dealt hand ['K', 8] to player Hirbod
+Dealt hand [6, 4] to player Reza
+Dealt hand [9, 3] to player Ƥѳυɍƴѧ
+4
+in hereadf
+Dealt hand [2, 9] to player Hirbod
+Dealt hand ['Q', 4] to player Reza
+Dealt hand [6, 4] to player Ƥѳυɍƴѧ
+5
+in hereadf
+Dealt hand [7, 3] to player Hirbod
+Dealt hand [3, 10] to player Reza
+Dealt hand [2, 5] to player Ƥѳυɍƴѧ
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 1, <Player: Player object (1628536823)>: 1, <Player: Player object (622955936)>: 3, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 622955936 wins updated: 2
+Non-winners determined: [1628536823, 5501122833]
+Non-winners list after removing duplicates: [5501122833, 1628536823]
+Player 5501122833 losses updated: 38
+Player 1628536823 losses updated: 29
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand [3, 'Q'] to player Hirbod
+Dealt hand ['Q', 7] to player Reza
+Dealt hand [4, 'A'] to player Ƥѳυɍƴѧ
+Dealt hand ['A', 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Dealt hand ['Q', 4] to player Hirbod
+Dealt hand [3, 10] to player Reza
+Dealt hand [7, 9] to player Ƥѳυɍƴѧ
+Dealt hand ['A', 5] to player 𝑇𝑖𝑛𝑎🪸
+3
+in hereadf
+Dealt hand [3, 7] to player Hirbod
+Dealt hand ['A', 5] to player Reza
+Dealt hand [5, 9] to player Ƥѳυɍƴѧ
+Dealt hand ['J', 7] to player 𝑇𝑖𝑛𝑎🪸
+4
+in hereadf
+Dealt hand [7, 9] to player Hirbod
+Dealt hand ['J', 6] to player Reza
+Dealt hand [2, 'Q'] to player Ƥѳυɍƴѧ
+Dealt hand [7, 6] to player 𝑇𝑖𝑛𝑎🪸
+5
+in hereadf
+Dealt hand [2, 6] to player Hirbod
+Dealt hand [3, 8] to player Reza
+Dealt hand [4, 'Q'] to player Ƥѳυɍƴѧ
+Dealt hand [4, 'J'] to player 𝑇𝑖𝑛𝑎🪸
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 1, <Player: Player object (622955936)>: 1, <Player: Player object (5501122833)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 50
+Non-winners determined: [1628536823, 5501122833, 622955936, 1147441628]
+Non-winners list after removing duplicates: [622955936, 5501122833, 1147441628, 1628536823]
+Player 622955936 losses updated: 2
+Player 5501122833 losses updated: 39
+Player 1147441628 losses updated: 11
+Player 1628536823 losses updated: 30
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [2, 'A'] to player Hirbod
+Dealt hand [3, 'K'] to player Reza
+2
+in hereadf
+Dealt hand ['A', 5] to player Hirbod
+Dealt hand ['K', 6] to player Reza
+3
+in hereadf
+Dealt hand ['K', 10] to player Hirbod
+Dealt hand [8, 'J'] to player Reza
+4
+in hereadf
+Dealt hand [9, 'A'] to player Hirbod
+Dealt hand [6, 2] to player Reza
+5
+in hereadf
+Dealt hand ['J', 'A'] to player Hirbod
+Dealt hand [9, 4] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 1, <Player: Player object (1628536823)>: 3, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 35
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 40
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [2, 6] to player Reza
+Dealt hand ['A', 'A'] to player Hirbod
+2
+in hereadf
+Dealt hand ['K', 'J'] to player Reza
+Dealt hand [8, 6] to player Hirbod
+3
+in hereadf
+Dealt hand [5, 'J'] to player Reza
+Dealt hand [4, 9] to player Hirbod
+4
+in hereadf
+Dealt hand [4, 10] to player Reza
+Dealt hand [7, 'J'] to player Hirbod
+5
+in hereadf
+Dealt hand ['K', 7] to player Reza
+Dealt hand ['Q', 10] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 51
+Non-winners determined: [5501122833, 1628536823]
+Non-winners list after removing duplicates: [5501122833, 1628536823]
+Player 5501122833 losses updated: 41
+Player 1628536823 losses updated: 31
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand ['J', 6] to player Hirbod
+Dealt hand [2, 'K'] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Dealt hand [5, 5] to player Hirbod
+Dealt hand [8, 8] to player 𝑇𝑖𝑛𝑎🪸
+3
+in hereadf
+Dealt hand [7, 10] to player Hirbod
+Dealt hand [2, 10] to player 𝑇𝑖𝑛𝑎🪸
+4
+in hereadf
+Dealt hand [2, 'J'] to player Hirbod
+Dealt hand ['Q', 'J'] to player 𝑇𝑖𝑛𝑎🪸
+5
+in hereadf
+Dealt hand [3, 10] to player Hirbod
+Dealt hand [5, 7] to player 𝑇𝑖𝑛𝑎🪸
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 1, <Player: Player object (1628536823)>: 1, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 52
+Non-winners determined: [1628536823, 1147441628]
+Non-winners list after removing duplicates: [1147441628, 1628536823]
+Player 1147441628 losses updated: 12
+Player 1628536823 losses updated: 32
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [4, 4] to player Hirbod
+Dealt hand [5, 10] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Dealt hand [3, 10] to player Hirbod
+Dealt hand [8, 'J'] to player 𝑇𝑖𝑛𝑎🪸
+3
+in hereadf
+Dealt hand ['K', 8] to player Hirbod
+Dealt hand [7, 4] to player 𝑇𝑖𝑛𝑎🪸
+4
+in hereadf
+Dealt hand [9, 5] to player Hirbod
+Dealt hand [2, 10] to player 𝑇𝑖𝑛𝑎🪸
+5
+in hereadf
+Dealt hand [5, 8] to player Hirbod
+Dealt hand ['J', 8] to player 𝑇𝑖𝑛𝑎🪸
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 3, <Player: Player object (1628536823)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1147441628 wins updated: 8
+Non-winners determined: [1628536823]
+Non-winners list after removing duplicates: [1628536823]
+Player 1628536823 losses updated: 33
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['Q', 'K'] to player Hirbod
+Dealt hand [6, 7] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Dealt hand [8, 6] to player Hirbod
+Dealt hand [9, 8] to player 𝑇𝑖𝑛𝑎🪸
+3
+in hereadf
+Dealt hand [5, 'K'] to player Hirbod
+Dealt hand ['K', 'J'] to player 𝑇𝑖𝑛𝑎🪸
+4
+in hereadf
+Dealt hand [4, 'Q'] to player Hirbod
+Dealt hand ['J', 3] to player 𝑇𝑖𝑛𝑎🪸
+5
+in hereadf
+Dealt hand [7, 7] to player Hirbod
+Dealt hand [4, 'K'] to player 𝑇𝑖𝑛𝑎🪸
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (1147441628)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 36
+Dealer wins updated: 53
+Non-winners determined: [1147441628]
+Non-winners list after removing duplicates: [1147441628]
+Player 1147441628 losses updated: 13
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [2, 'A'] to player Hirbod
+Dealt hand [7, 2] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Dealt hand [10, 7] to player Hirbod
+Dealt hand ['J', 3] to player 𝑇𝑖𝑛𝑎🪸
+3
+in hereadf
+Dealt hand [10, 'J'] to player Hirbod
+Dealt hand ['K', 7] to player 𝑇𝑖𝑛𝑎🪸
+4
+in hereadf
+Dealt hand [9, 5] to player Hirbod
+Dealt hand [10, 'J'] to player 𝑇𝑖𝑛𝑎🪸
+5
+in hereadf
+Dealt hand [2, 6] to player Hirbod
+Dealt hand [9, 9] to player 𝑇𝑖𝑛𝑎🪸
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 54
+Non-winners determined: [1628536823, 1147441628]
+Non-winners list after removing duplicates: [1147441628, 1628536823]
+Player 1147441628 losses updated: 14
+Player 1628536823 losses updated: 34
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['J', 'K'] to player Reza
+Dealt hand [9, 6] to player Hirbod
+2
+in hereadf
+Dealt hand ['J', 10] to player Reza
+Dealt hand ['J', 2] to player Hirbod
+3
+in hereadf
+Dealt hand [8, 5] to player Reza
+Dealt hand [3, 10] to player Hirbod
+4
+in hereadf
+Dealt hand [6, 7] to player Reza
+Dealt hand ['K', 'Q'] to player Hirbod
+5
+in hereadf
+Dealt hand [6, 'J'] to player Reza
+Dealt hand ['A', 'A'] to player Hirbod
+Winner counts (including dealer): {'dealer': 5}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 55
+Non-winners determined: [5501122833, 1628536823]
+Non-winners list after removing duplicates: [5501122833, 1628536823]
+Player 5501122833 losses updated: 42
+Player 1628536823 losses updated: 35
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+game not found?
+1
+Dealt hand [4, 6] to player Reza
+Dealt hand ['J', 3] to player Hirbod
+Dealt hand [9, 'A'] to player Saqar
+2
+in hereadf
+Dealt hand [2, 5] to player Reza
+Dealt hand ['J', 3] to player Hirbod
+Dealt hand ['J', 9] to player Saqar
+3
+in hereadf
+Dealt hand [3, 5] to player Reza
+Dealt hand [7, 10] to player Hirbod
+Dealt hand [3, 6] to player Saqar
+4
+in hereadf
+Dealt hand [10, 2] to player Reza
+Dealt hand ['A', 10] to player Hirbod
+Dealt hand [7, 8] to player Saqar
+5
+in hereadf
+Dealt hand [3, 'A'] to player Reza
+Dealt hand [2, 'J'] to player Hirbod
+Dealt hand [4, 9] to player Saqar
+Winner counts (including dealer): {<Player: Player object (967001280)>: 2, <Player: Player object (5501122833)>: 1, <Player: Player object (1628536823)>: 2, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 967001280 wins updated: 1
+Player 1628536823 wins updated: 37
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 43
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['Q', 4] to player Reza
+Dealt hand [5, 10] to player Hirbod
+2
+in hereadf
+Dealt hand [6, 'J'] to player Reza
+Dealt hand ['A', 'K'] to player Hirbod
+3
+in hereadf
+Dealt hand [4, 7] to player Reza
+Dealt hand ['K', 9] to player Hirbod
+4
+in hereadf
+Dealt hand ['K', 10] to player Reza
+Dealt hand ['Q', 8] to player Hirbod
+5
+in hereadf
+Dealt hand [4, 7] to player Reza
+Dealt hand [7, 'K'] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 1, <Player: Player object (5501122833)>: 2, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 14
+Dealer wins updated: 56
+Non-winners determined: [1628536823]
+Non-winners list after removing duplicates: [1628536823]
+Player 1628536823 losses updated: 36
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [4, 5] to player Hirbod
+Dealt hand [3, 3] to player Reza
+2
+in hereadf
+Dealt hand [10, 3] to player Hirbod
+Dealt hand ['A', 7] to player Reza
+3
+in hereadf
+Dealt hand [9, 4] to player Hirbod
+Dealt hand [10, 6] to player Reza
+4
+in hereadf
+Dealt hand [6, 9] to player Hirbod
+Dealt hand [10, 9] to player Reza
+5
+in hereadf
+Dealt hand [4, 'A'] to player Hirbod
+Dealt hand ['A', 'K'] to player Reza
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, <Player: Player object (5501122833)>: 2, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 38
+Player 5501122833 wins updated: 15
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [8, 'Q'] to player Hirbod
+Dealt hand [9, 3] to player Reza
+2
+in hereadf
+Dealt hand [9, 8] to player Hirbod
+Dealt hand [3, 10] to player Reza
+3
+in hereadf
+Dealt hand ['Q', 4] to player Hirbod
+Dealt hand [5, 4] to player Reza
+4
+in hereadf
+Dealt hand ['A', 'A'] to player Hirbod
+Dealt hand [6, 6] to player Reza
+5
+in hereadf
+Dealt hand [10, 7] to player Hirbod
+Dealt hand [6, 6] to player Reza
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 1, <Player: Player object (5501122833)>: 1, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 57
+Non-winners determined: [1628536823, 5501122833]
+Non-winners list after removing duplicates: [5501122833, 1628536823]
+Player 5501122833 losses updated: 44
+Player 1628536823 losses updated: 37
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [6, 9] to player Hirbod
+Dealt hand [2, 6] to player Reza
+2
+in hereadf
+Dealt hand ['Q', 6] to player Hirbod
+Dealt hand ['J', 8] to player Reza
+3
+in hereadf
+Dealt hand ['Q', 'Q'] to player Hirbod
+Dealt hand ['Q', 10] to player Reza
+4
+in hereadf
+Dealt hand ['J', 9] to player Hirbod
+Dealt hand [10, 'J'] to player Reza
+5
+in hereadf
+Dealt hand [4, 2] to player Hirbod
+Dealt hand [3, 4] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 4, <Player: Player object (1628536823)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 16
+Non-winners determined: [1628536823]
+Non-winners list after removing duplicates: [1628536823]
+Player 1628536823 losses updated: 38
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [5, 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [4, 4] to player N ɪ ᴋ ᴛ ᴀ࿐
+2
+in hereadf
+Dealt hand [3, 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['K', 9] to player N ɪ ᴋ ᴛ ᴀ࿐
+3
+in hereadf
+Dealt hand [3, 'Q'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [7, 2] to player N ɪ ᴋ ᴛ ᴀ࿐
+4
+in hereadf
+Dealt hand ['K', 'A'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['J', 'Q'] to player N ɪ ᴋ ᴛ ᴀ࿐
+5
+in hereadf
+Dealt hand [6, 2] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand ['A', 4] to player N ɪ ᴋ ᴛ ᴀ࿐
+Winner counts (including dealer): {<Player: Player object (651860962)>: 2, <Player: Player object (1147441628)>: 1, 'dealer': 2}
+Starting update_statistics function
+Initialized non_winners list
+Player 651860962 wins updated: 8
+Dealer wins updated: 58
+Non-winners determined: [1147441628]
+Non-winners list after removing duplicates: [1147441628]
+Player 1147441628 losses updated: 15
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [3, 7] to player Reza
+2
+in hereadf
+Dealt hand ['A', 'K'] to player Reza
+3
+in hereadf
+Dealt hand ['A', 'J'] to player Reza
+4
+in hereadf
+Dealt hand ['A', 9] to player Reza
+5
+in hereadf
+Dealt hand ['A', 2] to player Reza
+Winner counts (including dealer): {<Player: Player object (5501122833)>: 4, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 17
+Non-winners determined: []
+Non-winners list after removing duplicates: []
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['Q', 7] to player Reza
+2
+in hereadf
+Dealt hand [7, 10] to player Reza
+3
+in hereadf
+Dealt hand [8, 2] to player Reza
+4
+in hereadf
+Dealt hand ['K', 'Q'] to player Reza
+5
+in hereadf
+Dealt hand [2, 5] to player Reza
+Winner counts (including dealer): {'dealer': 5}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 59
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 45
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [8, 3] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [9, 5] to player Reza
+Dealt hand ['Q', 'J'] to player Hirbod
+2
+in hereadf
+Dealt hand [8, 2] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [8, 'Q'] to player Reza
+Dealt hand [6, 7] to player Hirbod
+3
+in hereadf
+Dealt hand ['Q', 2] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [9, 8] to player Reza
+Dealt hand ['Q', 6] to player Hirbod
+4
+in hereadf
+Dealt hand [2, 'J'] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [10, 5] to player Reza
+Dealt hand ['K', 'Q'] to player Hirbod
+5
+in hereadf
+Dealt hand ['A', 2] to player 𝑇𝑖𝑛𝑎🪸
+Dealt hand [10, 'Q'] to player Reza
+Dealt hand [5, 'Q'] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 3, <Player: Player object (1628536823)>: 3}
+Starting update_statistics function
+Initialized non_winners list
+Player 1147441628 wins updated: 9
+Player 1628536823 wins updated: 39
+Non-winners determined: [5501122833]
+Non-winners list after removing duplicates: [5501122833]
+Player 5501122833 losses updated: 46
+Dealer losses updated: 11
+Finished update_statistics function
+Chat ID: -1002414876969
+No existing active game found or the last game has ended. Creating a new game...
+Chat ID: -1002414876969
+Game found: Game object (241)
+1
+Dealt hand [7, 'Q'] to player Hirbod
+Dealt hand [8, 'A'] to player Mahdis
+2
+in hereadf
+Dealt hand [10, 'Q'] to player Hirbod
+Dealt hand [7, 2] to player Mahdis
+3
+in hereadf
+Dealt hand ['K', 3] to player Hirbod
+Dealt hand ['Q', 'K'] to player Mahdis
+4
+in hereadf
+Dealt hand [3, 5] to player Hirbod
+Dealt hand ['K', 2] to player Mahdis
+5
+in hereadf
+Dealt hand [9, 10] to player Hirbod
+Dealt hand ['Q', 5] to player Mahdis
+Winner counts (including dealer): {<Player: Player object (371711819)>: 1, <Player: Player object (1628536823)>: 3, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 40
+Non-winners determined: [371711819]
+Non-winners list after removing duplicates: [371711819]
+Player 371711819 losses updated: 1
+Finished update_statistics function
+Chat ID: -1002414876969
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['K', 'A'] to player Hirbod
+Dealt hand [4, 'A'] to player Mahdis
+2
+in hereadf
+Dealt hand [3, 'K'] to player Hirbod
+Dealt hand [5, 'A'] to player Mahdis
+3
+in hereadf
+Dealt hand [10, 7] to player Hirbod
+Dealt hand [7, 10] to player Mahdis
+4
+in hereadf
+Dealt hand ['A', 'Q'] to player Hirbod
+Dealt hand [5, 8] to player Mahdis
+5
+in hereadf
+Dealt hand ['K', 8] to player Hirbod
+Dealt hand [6, 7] to player Mahdis
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 4, <Player: Player object (371711819)>: 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 1628536823 wins updated: 41
+Non-winners determined: [371711819]
+Non-winners list after removing duplicates: [371711819]
+Player 371711819 losses updated: 2
+Dealer losses updated: 12
+Finished update_statistics function
+Chat ID: -1002414876969
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [9, 10] to player Hirbod
+Dealt hand ['Q', 4] to player Mahdis
+2
+in hereadf
+Dealt hand [4, 5] to player Hirbod
+Dealt hand [10, 7] to player Mahdis
+3
+in hereadf
+Dealt hand [3, 9] to player Hirbod
+Dealt hand [8, 'J'] to player Mahdis
+4
+in hereadf
+Dealt hand [5, 7] to player Hirbod
+Dealt hand [2, 'Q'] to player Mahdis
+5
+in hereadf
+Dealt hand ['K', 'A'] to player Hirbod
+Dealt hand [5, 'K'] to player Mahdis
+Winner counts (including dealer): {<Player: Player object (1628536823)>: 2, 'dealer': 3}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 60
+Non-winners determined: [1628536823, 371711819]
+Non-winners list after removing duplicates: [371711819, 1628536823]
+Player 371711819 losses updated: 3
+Player 1628536823 losses updated: 39
+Finished update_statistics function
+Chat ID: -1001611197829
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [7, 6] to player 𝑇𝑖𝑛𝑎🪸
+2
+in hereadf
+Dealt hand [2, 4] to player 𝑇𝑖𝑛𝑎🪸
+3
+in hereadf
+Dealt hand [4, 3] to player 𝑇𝑖𝑛𝑎🪸
+4
+in hereadf
+Dealt hand [2, 5] to player 𝑇𝑖𝑛𝑎🪸
+5
+in hereadf
+Dealt hand [4, 7] to player 𝑇𝑖𝑛𝑎🪸
+Winner counts (including dealer): {<Player: Player object (1147441628)>: 1, 'dealer': 4}
+Starting update_statistics function
+Initialized non_winners list
+Dealer wins updated: 61
+Non-winners determined: [1147441628]
+Non-winners list after removing duplicates: [1147441628]
+Player 1147441628 losses updated: 16
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand [7, 'Q'] to player Reza
+Dealt hand ['A', 3] to player Saqar
+Dealt hand [10, 8] to player Hirbod
+2
+in hereadf
+Dealt hand [7, 'Q'] to player Reza
+Dealt hand ['J', 8] to player Saqar
+Dealt hand ['Q', 3] to player Hirbod
+3
+in hereadf
+Dealt hand [10, 'J'] to player Reza
+Dealt hand [2, 'K'] to player Saqar
+Dealt hand ['K', 'K'] to player Hirbod
+4
+in hereadf
+Dealt hand [2, 9] to player Reza
+Dealt hand [3, 10] to player Saqar
+Dealt hand ['K', 'J'] to player Hirbod
+5
+in hereadf
+Dealt hand ['K', 4] to player Reza
+Dealt hand [9, 7] to player Saqar
+Dealt hand [10, 'K'] to player Hirbod
+Winner counts (including dealer): {<Player: Player object (967001280)>: 1, <Player: Player object (5501122833)>: 2, <Player: Player object (1628536823)>: 1, 'dealer': 1}
+Starting update_statistics function
+Initialized non_winners list
+Player 5501122833 wins updated: 18
+Non-winners determined: [967001280, 1628536823]
+Non-winners list after removing duplicates: [967001280, 1628536823]
+Player 967001280 losses updated: 1
+Player 1628536823 losses updated: 40
+Finished update_statistics function
+Chat ID: -1002424411318
+No existing active game found or the last game has ended. Creating a new game...
+1
+Dealt hand ['J', 6] to player Hirbod
+Dealt hand ['J', 'A'] to player Saqar
+2
+in hereadf
+Dealt hand [5, 'J'] to player Hirbod
+Dealt hand ['A', 6] to player Saqar
+3
+in hereadf
+Dealt hand ['Q', 7] to player Hirbod
+Dealt hand ['A', 7] to player Saqar
+4
+in hereadf
+Dealt hand [4, 7] to player Hirbod
+Dealt hand [3, 'A'] to player Saqar
+5
+in hereadf
+Dealt hand [8, 3] to player Hirbod
+No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/dispatcher.py", line 555, in process_update
+    handler.handle_update(update, self, check, context)
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/handler.py", line 198, in handle_update
+    return self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/blackjack/blackjack.py", line 487, in force_start
+    start_round(update, context, game, joined_players)
+  File "/home/hirbotsc/blackjack/blackjack.py", line 608, in start_round
+    context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible card: ♠️{dealer_hand[0]}",timeout=20)
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 130, in decorator
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 522, in send_message
+    return self._message(  # type: ignore[return-value]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/ext/extbot.py", line 200, in _message
+    result = super()._message(
+             ^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 336, in _message
+    result = self._post(endpoint, data, timeout=timeout, api_kwargs=api_kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/bot.py", line 295, in _post
+    return self.request.post(
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 361, in post
+    result = self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 272, in _request_wrapper
+    message = str(self._parse(resp.data))
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hirbotsc/virtualenv/blackjack/3.11/lib/python3.11/site-packages/telegram/utils/request.py", line 230, in _parse
+    raise RetryAfter(retry_after)
+telegram.error.RetryAfter: Flood control exceeded. Retry in 13.0 seconds

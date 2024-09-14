@@ -1329,7 +1329,7 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """
     await context.bot.send_message(chat_id=user_id, text=rules_text, parse_mode="Markdown")
 
-app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
+app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
 app.add_handler(CommandHandler("help", help_command))

@@ -1212,8 +1212,9 @@ async def get_dealer_blackjack_stats(update: Update, context: ContextTypes.DEFAU
 
 
 
-app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
-
+app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
+# real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
+# test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("stats", stats))
 app.add_handler(CommandHandler("startblackjack", start_blackjack, block=False))

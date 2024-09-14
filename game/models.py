@@ -1,6 +1,12 @@
 from django.db import models
 
 
+class NextGameNotification(models.Model):
+    user_id = models.BigIntegerField()
+    chat_id = models.BigIntegerField()
+
+    def __str__(self):
+        return f"User {self.user_id} in chat {self.chat_id}"
 
 
 class Game(models.Model):

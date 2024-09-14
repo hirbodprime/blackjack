@@ -1,5 +1,12 @@
 from django.contrib import admin
-from .models import Player, Stats, Game, JoinGame,Dealer,RoundWinner,Group
+from .models import Player, Stats, Game, JoinGame,Dealer,RoundWinner,Group,NextGameNotification
+
+
+
+@admin.register(NextGameNotification)
+class NextGameNotificationAdmin(admin.ModelAdmin):
+    list_display = ('user_id', 'chat_id')
+    search_fields = ('user_id', 'chat_id')
 
 class GroupAdmin(admin.ModelAdmin):
     list_display = ('group_chat_id', 'games')  # Fields to display in the list view

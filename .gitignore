@@ -22,6 +22,8 @@ staticfiles/
 
 # Database
 db.sqlite3
+.\db.sqlite3
+*.sqlite3
 
 # Django secret key file
 secret_key.txt

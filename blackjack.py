@@ -1612,7 +1612,7 @@ async def buy_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         print(f"Error sending message to user {user_id}: {e}")
 
 
-app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
+app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
 app.add_handler(photo_handler)

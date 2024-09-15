@@ -1,7 +1,7 @@
 import random
 from telegram import Update, Bot
 from telegram.constants import ParseMode
-from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes, MessageHandler, filters
 from telegram.helpers import escape_markdown
 import asyncio
 from telegram.error import TimedOut,RetryAfter
@@ -20,6 +20,12 @@ from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,Ne
 from django.core.exceptions import ObjectDoesNotExist
 from asgiref.sync import sync_to_async
 import random
+
+
+from datetime import datetime, timedelta
+from django.utils import timezone
+
+
 async def is_player_in_another_game(player_id: int, current_chat_id: int) -> bool:
     """
     Check if the player is already joined in another game in a different group.
@@ -40,9 +46,7 @@ async def is_player_in_another_game(player_id: int, current_chat_id: int) -> boo
     )()
     
     return is_in_another_game
-
-
-
+from telegram.error import TelegramError
 
 async def check_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.message.from_user.id
@@ -51,7 +55,22 @@ async def check_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bo
     try:
         # Try to get the Player instance from the database
         player = await sync_to_async(Player.objects.get)(id=user_id)
-        return True  # Player exists, return True
+
+        try:
+            # Test if the bot can send a chat action (e.g., typing) to check if the user has blocked the bot
+            await context.bot.send_chat_action(chat_id=user_id, action="typing")
+
+            # If no exception is raised, the bot can message the user
+            return True
+
+        except TelegramError as e:
+            # Handle case where the bot is blocked or cannot message the user
+            await update.message.reply_text(
+                "It seems like I can't message you in private. Please make sure to start the bot in private chat first: "
+                "t.me/blackjack_21_game_bot"
+            )
+            return False
+
     except ObjectDoesNotExist:
         # If no player exists, prompt the user to start the bot in private chat
         await update.message.reply_text(
@@ -59,6 +78,30 @@ async def check_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bo
             "Use the following link: t.me/blackjack_21_game_bot"
         )
         return False  # Player does not exist
+
+
+async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+
+    if not await check_player(update, context):
+        return
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    now = timezone.now()
+    # Reset the count if 24 hours have passed
+    if player.last_claimed_tokens is None or player.last_claimed_tokens.date() != now.date():
+        player.tokens_claimed_today = 0
+        player.last_claimed_tokens = now
+
+    if player.tokens_claimed_today < 2:
+        # Grant 200 tokens
+        player.chips += 200
+        player.tokens_claimed_today += 1
+        player.last_claimed_tokens = now
+        await sync_to_async(player.save)()
+
+        await update.message.reply_text(f"You've received 💰200 chips! You now have 💰{player.chips} chips.")
+    else:
+        await update.message.reply_text("You've already claimed 💰200 chips twice today. Try again tomorrow!")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -74,7 +117,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # If the player does not exist, create the Player and Stats instance (using sync_to_async)
         player = await sync_to_async(Player.objects.create)(id=user_id, name=user_name, chips=200)
         await sync_to_async(Stats.objects.create)(wins=0, loses=0, how_many_21=0, player=player)
-        await update.message.reply_text(f"Welcome to Blackjack, {user_name}! You have been given 200 💰chips to start.")
+        
+        # Send a welcome message and suggest using /help
+        await update.message.reply_text(
+            f"Welcome to Blackjack, {user_name}! You have been given 200 💰chips to start.\n"
+            "Type /help to see all available commands."
+        )
+
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -122,6 +171,8 @@ def calculate_hand_value(hand):
             value += 1  # If counting as 11 would bust, count as 1
 
     return value
+
+
 async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_player(update, context):
         return
@@ -197,16 +248,20 @@ async def create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
     except Group.DoesNotExist:
         group = await sync_to_async(Group.objects.create)(group_chat_id=chat_id)
-    
-    # Check the number of games and update options
-    if group.games >= 100:
-        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
+
+    # Determine if the game should be based on real tokens or chips
+    if group.vip and group.real_money:
+        options = ["100 $", "200 $", "500 $", "1000 $"]
+        if group.games >= 100:
+            options.extend(["10000 $", "20000 $", "50000 $"])
+        question = "How much do you want to bet (real tokens 💵)?"
     else:
         options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰"]
+        if group.games >= 100:
+            options.extend(["10000 chips💰", "20000 chips💰", "50000 chips💰"])
+        question = "How much do you want to bet (virtual chips 💰)?"
 
-    question = "How much do you want to bet?"
-
-    # Send a poll asynchronously
+    # Send the poll asynchronously
     message = await safe_send_poll(context.bot, chat_id, question, options)
 
     # Store poll data in context.bot_data using poll_id as key
@@ -218,7 +273,6 @@ async def create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         'poll_message_id': message.message_id
     }
 
-# Poll answer handler function to process poll results
 async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     poll_answer = update.poll_answer
     user_id = poll_answer.user.id
@@ -234,8 +288,15 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     chat_id = poll_data['chat_id']
 
-    # Process the answer based on the selected option
-    options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
+    # Retrieve the group using sync_to_async
+    group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+
+    # Set bet amounts based on real tokens or chips
+    if group.vip and group.real_money:
+        options = ["100 $", "200 $", "500 $", "1000 $", "10000 $", "20000 $", "50000 $"]
+    else:
+        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
+
     chosen_option = options[selected_option]
     bet_amount = int(chosen_option.split()[0])
 
@@ -257,11 +318,13 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
     
     # Send a message to notify the chat
+    currency_type = "$" if group.vip and group.real_money else "chips💰"
     await context.bot.send_message(
         chat_id=chat_id,
         text=f"{mention} has set the bet amount to {chosen_option}\nUse /join to join the game", 
         parse_mode="MarkdownV2"
     )
+
 
 
 async def safe_send_message_join(bot, chat_id, text, max_retries=3):
@@ -290,41 +353,37 @@ async def join_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Find a game that is in the join time
         game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=True, started=False, ended=False, betting=False)
     except Game.DoesNotExist:
-        try:
-            game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=False, started=False, ended=False, betting=True)
-            await safe_send_message_join(context.bot, chat_id, "The game is in the betting process. Please wait for it to end, then use /join to join the game.")
-            return
-        except Game.DoesNotExist:
-            try:
-                game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=False, started=True, ended=False, betting=False)
-                await safe_send_message_join(context.bot, chat_id, "A game has already started you cannot join. Use /nextgame to be prompted when another game is started.")
-                return
-            except Game.DoesNotExist:
-                await safe_send_message_join(context.bot, chat_id, "No active Blackjack game. Start one by typing /startblackjack.")
-                return
+        await update.message.reply_text("No active game found or the game is not in join time.")
+        return
 
     try:
         player = await sync_to_async(Player.objects.get)(id=user_id)
     except Player.DoesNotExist:
         await update.message.reply_text(f"{user_name}, please start the bot in private first.")
         return
-    player_id = update.message.from_user.id
-    current_chat_id = update.message.chat_id
 
-    if await is_player_in_another_game(player_id, current_chat_id):
-        await update.message.reply_text("You are already joined in another game in a different group.")
-        return
+    # Retrieve the group using sync_to_async
+    group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+
     # Check if the player already joined
     if await sync_to_async(JoinGame.objects.filter(game=game, player=player, is_active=True).exists)():
         await update.message.reply_text(f"{user_name}, you are already in the game!")
         return
 
-    # Check if the player has enough chips
-    if player.chips < game.bet_amount:
-        await update.message.reply_text(f"{user_name}, you do not have enough 💰chips to join the game.\nMinimum bet is {game.bet_amount} 💰chips.")
-        return
+    # Determine if using real tokens or chips
+    if group.vip and group.real_money:
+        # Check if the player has enough real tokens
+        if player.real_tokens < game.bet_amount:
+            await update.message.reply_text(f"{user_name}, you do not have enough 💵real tokens to join the game.\nMinimum bet is {game.bet_amount} 💵real tokens.")
+            return
+    else:
+        # Check if the player has enough chips
+        if player.chips < game.bet_amount:
+            await update.message.reply_text(f"{user_name}, you do not have enough 💰chips to join the game.\nMinimum bet is {game.bet_amount} 💰chips.")
+            return
 
-    # Add the player to the game
+    # Save player state and add the player to the game
+    await sync_to_async(player.save)()
     await sync_to_async(JoinGame.objects.create)(player=player, game=game, is_active=True)
 
     escaped_user_name = escape_markdown(user_name, version=2)
@@ -338,7 +397,6 @@ async def join_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=player.id, 
             text=f"You have successfully joined a game in group {update.message.chat.title}, Good Luck😃"
         )
-# Force start the Blackjack game
 # Force start the Blackjack game
 async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_player(update, context):
@@ -375,24 +433,50 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     group_game.games += 1
     await sync_to_async(group_game.save)()
 
-    # Handle the dealer's chips deduction
+    # Determine whether to use real tokens or chips
+    is_real_token_game = group_game.vip and group_game.real_money
+    currency_type = "$" if is_real_token_game else "chips💰"
+
+    # Handle the dealer's token/chips deduction
     if dealer:
-        dealer.chips -= game.bet_amount
+        if is_real_token_game:
+            if dealer.real_tokens < game.bet_amount:
+                await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer doesn't have enough 💵real tokens to participate. The game is ending.")
+                await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
+                return
+            else:
+                dealer.real_tokens -= game.bet_amount
+        else:
+            if dealer.chips < game.bet_amount:
+                await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer doesn't have enough chips to participate. The game is ending.")
+                await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
+                return
+            else:
+                dealer.chips -= game.bet_amount
+        
         dealer.games += 1
         await sync_to_async(dealer.save)()
         await context.bot.send_message(
             chat_id=chat_id, 
-            text=f"🤖 Dealer is in the game with {game.bet_amount} 💰chips on the table\\.",
+            text=f"🤖 Dealer is in the game with {game.bet_amount} {currency_type} on the table\\.",
             parse_mode="MarkdownV2"
         )
-
     for join_entry in joined_players:
         # Fetch the player related to the join_entry asynchronously
         player = await sync_to_async(lambda: join_entry.player)()
 
-        player.chips -= game.bet_amount
-        player.games += 1
-        await sync_to_async(player.save)()
+        # Deduct bet amount based on whether it's a real token or chips game
+        if is_real_token_game:
+            player.real_tokens -= game.bet_amount  # Deduct the bet amount once
+
+            remaining_tokens = player.real_tokens
+
+        else:
+            player.chips -= game.bet_amount  # Deduct the chips once
+            remaining_tokens = player.chips
+        
+        player.games += 1  # Update the games count
+        await sync_to_async(player.save)()  # Save the player after deduction
         
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player.name)
         mention = f"[{user_name_escaped}](tg://user?id={player.id})"
@@ -400,10 +484,9 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await context.bot.send_message(
             chat_id=chat_id, 
-            text=f"{mention} has bet {game.bet_amount} chips\\.\nRemaining chips: 💰{player.chips}", 
+            text=f"{mention} has bet {game.bet_amount} {currency_type}\\.\nRemaining {currency_type}: {remaining_tokens}", 
             parse_mode="MarkdownV2"
         )
-
 
     # Initialize turn order with the list of player IDs
     game.turn_order = [join_entry.player.id for join_entry in joined_players]
@@ -417,7 +500,6 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Proceed to the first round
     await start_round(update, context, game, joined_players)
-
 
 
 
@@ -708,12 +790,18 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
         await context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.")
 
     else:
+        # Reset has_stood for all players
+        for player in joined_players:
+            player.has_stood = False
+            await sync_to_async(player.save)()
+
         # Prepare for the next round
         game.hands_reset = False
         await sync_to_async(game.save)()
 
         await asyncio.sleep(3)
         await start_round(update, context, game, joined_players)
+
 
 
 async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -810,7 +898,14 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id != game.turn_order[0]:
         await update.message.reply_text("It's not your turn!")
         return
-
+    player_hand = join_game.hand
+    hand_value = calculate_hand_value(player_hand)
+    if hand_value > 21:
+        await update.message.reply_text("You have already busted and cannot take any more actions.")
+        return
+    elif hand_value == 21:
+        await update.message.reply_text("You have automaticly standing and cannot take any more actions.")
+        return
     # Add a card to the player's hand
     new_card = deal_card()
     join_game.hand.append(new_card)
@@ -865,11 +960,31 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except JoinGame.DoesNotExist:
         await update.message.reply_text("You are not part of the game.")
         return
-
-    # Check if it's the player's turn
-    if user_id != game.turn_order[0]:
-        await update.message.reply_text("It's not your turn!")
+    if join_game.has_stood:
+        await update.message.reply_text("You have already chosen to stand and cannot take further actions.")
         return
+    # Check if it's the player's turn
+    try:
+        if user_id != game.turn_order[0]:
+            await update.message.reply_text("It's not your turn!")
+            return
+    except:
+        player_hand = join_game.hand
+        hand_value = calculate_hand_value(player_hand)
+
+        # Prevent the player from standing if they have already busted
+        if hand_value > 21:
+            await update.message.reply_text("You have already busted and cannot stand.")
+            return
+        if hand_value == 21:
+            await update.message.reply_text("You are automaticly standing")
+            return
+        # Check if the player has already chosen to stand
+        
+
+    # Mark the player as having stood
+    join_game.has_stood = True
+    await sync_to_async(join_game.save)()
 
     user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
@@ -1077,6 +1192,16 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text="No active game to end.")
         return
 
+    # Get the group's real money and VIP status
+    try:
+        group_game = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+    except Group.DoesNotExist:
+        await context.bot.send_message(chat_id=chat_id, text="Group not found.")
+        return
+
+    is_real_token_game = group_game.vip and group_game.real_money
+    currency_type = "$" if is_real_token_game else "chips💰"
+
     # Get round winners and determine the final winner
     dealer_rounds_won = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True, rounds_ended=False).count)()
     player_rounds = await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False, rounds_ended=False))
@@ -1105,14 +1230,23 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if 'dealer' in winners:
             winners.remove('dealer')
             dealer = await sync_to_async(Dealer.objects.get)(id=1)
-            dealer.chips += split_pot
+            
+            if is_real_token_game:
+                dealer.real_tokens += split_pot
+            else:
+                dealer.chips += split_pot
+
             await sync_to_async(dealer.save)()
-            await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} chips💰!")
+            await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} {currency_type}!")
 
         for winner in winners:
-            winner.chips += split_pot
+            if is_real_token_game:
+                winner.real_tokens += split_pot
+            else:
+                winner.chips += split_pot
+
             await sync_to_async(winner.save)()
-            await context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} chips💰!")
+            await context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} {currency_type}!")
 
     else:
         await context.bot.send_message(chat_id=chat_id, text="No one won this game.")
@@ -1123,8 +1257,6 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game.betting = False
     game.join_time = False
     await sync_to_async(game.save)()
-
-
 # Asynchronous version of reset_round_state
 async def reset_round_state(game):
     # Reset the hands and necessary state for the next round
@@ -1178,8 +1310,13 @@ async def get_player_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player = await get_player_instance(user_id)
     
     if player:
-        # If the player exists, return their chips or use them in logic
-        await context.bot.send_message(chat_id=update.message.chat_id, text=f"{player.name} has {player.chips} 💰chips.")
+        stats_message = (
+            f"💰 Chips: {player.chips}\n"
+            f"💵 Real Tokens: {player.real_tokens}\n"
+        )
+        
+        # Send the stats message to the chat
+        await context.bot.send_message(chat_id=update.message.chat_id, text=stats_message)
     else:
         # Handle the case where the player does not exist
         await context.bot.send_message(chat_id=update.message.chat_id, text="You don't have a player profile yet. Start the bot in private to create one.")
@@ -1198,6 +1335,7 @@ async def get_dealer_blackjack_stats(update: Update, context: ContextTypes.DEFAU
         stats_message = (
             f"🤖 Dealer's Blackjack Stats:\n"
             f"💰 Chips: {dealer.chips}\n"
+            f"💵 Real Tokens: {dealer.real_tokens}\n"
             f"Wins: {dealer.wins}\n"
             f"Losses: {dealer.loses}\n"
             f"💥 Blackjacks: {dealer.blackjack_count}"
@@ -1254,36 +1392,56 @@ async def nextgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         await update.message.reply_text("You're already signed up to be notified when the next game starts.")
 
-
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+    chat_id = update.message.chat_id
 
-    # Inform user in the group chat
-    await update.message.reply_text("📩 A message with the available commands has been sent to your private chat.")
+    # Inform the user in the group chat if the message is sent in a group
+    if chat_id != user_id:
+        await update.message.reply_text("📩 A message with the available commands has been sent to your private chat.")
 
-    # Send the help message to the user's private chat
+    # Prepare the help message
     help_text = """
-    🤖 *Blackjack Bot Commands*:
+🤖 *Blackjack Bot Help* 🃏
 
-    1. /start - Start the bot and register as a player.
-    2. /stats - Show your player statistics.
-    3. /startblackjack - Start a new Blackjack game and make some money!
-    4. /join - Join the current Blackjack game in the group.
-    5. /nextgame - Receive a private message when the next game starts.
-    6. /forcestart - Force start the game if you are an admin.
-    7. /hit - Request an additional card during your turn.
-    8. /stand - Keep your current hand and end your turn.
-    9. /flee - Leave the current Blackjack game before it ends.
-    10. /my_tokens - Display your current chip count.
-    11. /dealer_stats - Show the Blackjack dealer's statistics.
-    12. /help - Display this help message.
-    13. /rules - Show detailed rules of the Blackjack game.
+*General Commands*:
+/start \\- Start the bot and register as a player
+/stats \\- Show your player statistics
+/help \\- Display this help message
+/rules \\- Show detailed rules of the Blackjack game
+/nextgame \\- Receive a private message when the next game starts
 
-    You can use these commands in any group where the bot is present. Happy playing! 🃏
+*Blackjack Game Commands*:
+/startblackjack \\- Start a new Blackjack game and make some money\\!
+/join \\- Join the current Blackjack game in the group
+/forcestart \\- Force start the game if you are an admin
+/hit \\- Request an additional card during your turn
+/stand \\- Keep your current hand and end your turn
+/flee \\- Leave the current Blackjack game before it ends
+
+*Token \\& Dealer Commands*:
+/my\\_tokens \\- Display your current chip count
+/dealer\\_stats \\- Show the Blackjack dealer's statistics
+/buy\\_tokens \\- Buy real tokens \\(100 real tokens for 10 Toman\\)
+/claim\\_tokens \\- Claim free tokens twice a day
+/set\\_status \\- Set the group's status to use either chips or real tokens
+
+You can use these commands in any group where the bot is present\\. Happy playing 🃏\\!
     """
 
-    await context.bot.send_message(chat_id=user_id, text=help_text, parse_mode="Markdown")
+    # Send the help message to the user's private chat
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=help_text,
+            parse_mode="MarkdownV2"
+        )
+    except Exception as e:
+        print(f"Error sending help message to {user_name} (ID: {user_id}): {e}")
+        await update.message.reply_text("There was an error sending the help message to your private chat. Please make sure you've started the bot privately.")
+
+
 async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
 
@@ -1329,9 +1487,138 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """
     await context.bot.send_message(chat_id=user_id, text=rules_text, parse_mode="Markdown")
 
-app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
+
+
+
+
+
+
+
+async def set_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.message.chat_id
+    chat_name = update.message.chat.title  # Get the group's name
+    args = context.args
+
+    if len(args) != 1 or args[0] not in ["real_token", "chips"]:
+        await update.message.reply_text(
+            "Invalid usage. Use /set_status real_token or /set_status chips."
+        )
+        return
+
+    try:
+        # Fetch the group from the database based on chat_id
+        group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+    except Group.DoesNotExist:
+        # If group doesn't exist, create a new one and set the name
+        group = await sync_to_async(Group.objects.create)(group_chat_id=chat_id, group_name=chat_name)
+
+    # Update the group name if it has changed
+    if group.group_name != chat_name:
+        group.group_name = chat_name
+
+    # Check if the group is VIP
+    if group.vip:
+        # Set status based on the command argument
+        if args[0] == "real_token":
+            group.real_money = True
+            await update.message.reply_text("This group is now using 💵real tokens for the next games.")
+        else:
+            group.real_money = False
+            await update.message.reply_text("This group is now using 💰chips for the next games.")
+    else:
+        # If group is not VIP, always use chips
+        group.real_money = False
+        await update.message.reply_text("This group is not VIP. Using chips for the next games.")
+
+    # Save the updated group settings
+    await sync_to_async(group.save)()
+
+
+
+
+
+
+
+ADMIN_CHAT_ID = '1628536823'
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+
+    # Ensure the message is sent in private chat (user_id == chat_id)
+    if chat_id == user_id:
+        # Get the player's profile information
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+            profile_info = (
+                f"Player Profile:\n"
+                f"Name: {player.name}\n"
+                f"Chips: {player.chips}\n"
+                f"Games Played: {player.games}\n"
+                f"Real Tokens: {player.real_tokens}\n"
+            )
+        except ObjectDoesNotExist:
+            profile_info = "Player profile not found."
+
+        # Get the highest resolution of the photo
+        photo_file = update.message.photo[-1].file_id
+        caption = update.message.caption if update.message.caption else "No caption"
+
+        # Combine the caption with the player's profile info
+        message_text = f"Photo from {update.message.from_user.first_name} (ID: {user_id})\n\n{profile_info}\nCaption: {caption}"
+
+        # Forward the photo to your own private chat
+        await context.bot.send_photo(
+            chat_id=ADMIN_CHAT_ID,
+            photo=photo_file,
+            caption=message_text
+        )
+
+        # Optionally, send a confirmation message to the user
+        await update.message.reply_text("Your photo and profile have been forwarded to the admin.")
+    else:
+        pass
+        # await update.message.reply_text("Please send the photo in private chat.")
+
+
+photo_handler = MessageHandler(filters.PHOTO, handle_photo)
+
+
+async def buy_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+    user_name = update.message.from_user.first_name
+
+    # Define the credit card number and token buying details
+    credit_card_info = "Credit Card Number: \n6219 8619 4904 7871\nهیربد افلاکی "
+    token_info = "💵Each 100 real tokens is : 10 Toman\\."
+
+    # Check if the message was sent in a group or private chat
+    if chat_id != user_id:
+        # If in a group, notify the user that the message will be sent privately
+        await context.bot.send_message(chat_id=chat_id, text="A message has been sent to your private chat with the payment details.")
+    
+    # Send the message with credit card info and token buying options to the user's private chat
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"Hello {user_name},\n\n{token_info}\n{credit_card_info}",
+        parse_mode="MarkdownV2"
+    )
+
+    # Optionally log or notify in case of failure to send to private chat
+    try:
+        await context.bot.send_message(chat_id=user_id, text="Send the image here, after the PURCHASE was DONE")
+    except Exception as e:
+        print(f"Error sending message to user {user_id}: {e}")
+
+
+app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
+app.add_handler(photo_handler)
+app.add_handler(CommandHandler("buy_tokens", buy_tokens))
+app.add_handler(CommandHandler("set_status", set_status))
+app.add_handler(CommandHandler("claim_tokens", claim_tokens))
 app.add_handler(CommandHandler("help", help_command))
 app.add_handler(CommandHandler("rules", rules_command))
 app.add_handler(CommandHandler("start", start))

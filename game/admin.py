@@ -9,7 +9,7 @@ class NextGameNotificationAdmin(admin.ModelAdmin):
     search_fields = ('user_id', 'chat_id')
 
 class GroupAdmin(admin.ModelAdmin):
-    list_display = ('group_chat_id', 'games')  # Fields to display in the list view
+    list_display = ('group_name','group_chat_id', 'games')  # Fields to display in the list view
     search_fields = ('group_chat_id',)  # Fields to search by in the admin interface
     list_filter = ('games',)  # Add filters for better management
 

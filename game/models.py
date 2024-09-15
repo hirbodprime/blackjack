@@ -26,8 +26,10 @@ class Game(models.Model):
 
 class Group(models.Model):
     group_chat_id = models.CharField(max_length=100)
+    group_name = models.CharField(max_length=255, null=True, blank=True)  # New field for the group's name
     games = models.IntegerField(default=0)
-    
+    vip = models.BooleanField(default=False)
+    real_money = models.BooleanField(default=False)
 
 class Dealer(models.Model):
     chips = models.IntegerField(default=0)  # The dealer's chips
@@ -35,13 +37,16 @@ class Dealer(models.Model):
     loses = models.IntegerField(default=0)
     blackjack_count = models.IntegerField(default=0)
     games = models.IntegerField(default=0)
+    real_tokens = models.IntegerField(default=0)
 
 
 class Player(models.Model):
     name = models.CharField(max_length=50)
     chips = models.IntegerField(default=0)
     games = models.IntegerField(default=0)
-
+    last_claimed_tokens = models.DateTimeField(null=True, blank=True)  # Track last claim time
+    tokens_claimed_today = models.IntegerField(default=0)  # Track how many times they claimed today
+    real_tokens = models.IntegerField(default=0)
 
 class Stats(models.Model):
     wins = models.IntegerField(default=0)
@@ -55,7 +60,7 @@ class JoinGame(models.Model):
     game = models.ForeignKey(Game, on_delete=models.CASCADE)
     is_active = models.BooleanField(default=False)
     hand = models.JSONField(default=list)
-
+    has_stood = models.BooleanField(default=False)
 
 # New model for tracking round winners
 class RoundWinner(models.Model):

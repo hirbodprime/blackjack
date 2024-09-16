@@ -1682,10 +1682,10 @@ async def get_user_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text(f"Player with the name {player_name} was not found.")
 
-debug = os.getenv("DEBUG")
-if debug:
+DEBUG = os.getenv("DEBUG")
+if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
-else:
+elif DEBUG == "False":
     app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
     
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118

@@ -95,14 +95,14 @@ async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     if player.tokens_claimed_today < 2:
         # Grant 200 tokens
-        player.chips += 200
+        player.chips += 100
         player.tokens_claimed_today += 1
         player.last_claimed_tokens = now
         await sync_to_async(player.save)()
 
-        await update.message.reply_text(f"You've received 💰200 chips! You now have 💰{player.chips} chips.")
+        await update.message.reply_text(f"You've received 💰100 chips! You now have 💰{player.chips} chips.")
     else:
-        await update.message.reply_text("You've already claimed 💰200 chips twice today. Try again tomorrow!")
+        await update.message.reply_text("You've already claimed 💰100 chips twice today. Try again tomorrow!")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

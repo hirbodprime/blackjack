@@ -14,6 +14,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
 
 # Initialize Django
 django.setup()
+from dotenv import load_dotenv
 import time
 import re
 from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification
@@ -25,7 +26,7 @@ import random
 from datetime import datetime, timedelta
 from django.utils import timezone
 
-
+load_dotenv()
 async def is_player_in_another_game(player_id: int, current_chat_id: int) -> bool:
     """
     Check if the player is already joined in another game in a different group.
@@ -1610,12 +1611,101 @@ async def buy_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await context.bot.send_message(chat_id=user_id, text="Send the image here, after the PURCHASE was DONE")
     except Exception as e:
         print(f"Error sending message to user {user_id}: {e}")
+async def give_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    args = context.args  # Extract command arguments
+    try:
+        admin_player = await sync_to_async(Player.objects.get)(id=user_id)
+        if not admin_player.admin:
+            await update.message.reply_text("You don't have permission to use this command.")
+            return
+    except ObjectDoesNotExist:
+        await update.message.reply_text("Admin player does not exist.")
+        return
+    # Check if command has the correct number of arguments
+    if len(args) != 3:
+        await update.message.reply_text("Usage: /give_token [real_token/chips] [user_id] [amount]")
+        return
 
+    token_type, target_user_id, amount = args
+    try:
+        # Convert amount to integer
+        amount = int(amount)
+    except ValueError:
+        await update.message.reply_text("Amount must be a number.")
+        return
 
-app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
+    # Check if the player issuing the command is an admin
+    
+
+    # Fetch the target player by user ID
+    try:
+        target_player = await sync_to_async(Player.objects.get)(id=target_user_id)
+    except ObjectDoesNotExist:
+        await update.message.reply_text("The player you are trying to give tokens to does not exist.")
+        return
+
+    # Add tokens or chips to the target player
+    if token_type == "real_token":
+        target_player.real_tokens += amount
+        token_name = "real tokens"
+    elif token_type == "chips":
+        target_player.chips += amount
+        token_name = "chips"
+    else:
+        await update.message.reply_text("Invalid token type. Use 'real_token' or 'chips'.")
+        return
+
+    # Save the changes
+    await sync_to_async(target_player.save)()
+
+    # Send confirmation to the admin
+    await update.message.reply_text(f"Successfully given {amount} {token_name} to user {target_user_id}.")
+
+    # Notify the player privately
+    try:
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=f"You have been given {amount} {token_name} by an admin."
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Failed to notify the player: {e}")
+
+async def get_player_user_id(player_name: str):
+    try:
+        # Fetch the player by name
+        player = await sync_to_async(Player.objects.get)(name=player_name)
+        return player.id  # The user_id from the Player model
+    except ObjectDoesNotExist:
+        return None
+
+# Command handler for /get_user_id
+async def get_user_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) == 0:
+        await update.message.reply_text("Please provide a player name. Usage: /get_user_id [player_name]")
+        return
+    
+    player_name = context.args[0]
+    
+    # Retrieve the user ID
+    user_id = await get_player_user_id(player_name)
+
+    if user_id:
+        await update.message.reply_text(f"User ID for {player_name} is {user_id}.")
+    else:
+        await update.message.reply_text(f"Player with the name {player_name} was not found.")
+
+debug = os.getenv("DEBUG")
+if debug:
+    app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
+else:
+    app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
+    
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
 app.add_handler(photo_handler)
+app.add_handler(CommandHandler("user_id", get_user_id_command))
+app.add_handler(CommandHandler("give_token", give_token))
 app.add_handler(CommandHandler("buy_tokens", buy_tokens))
 app.add_handler(CommandHandler("set_status", set_status))
 app.add_handler(CommandHandler("claim_tokens", claim_tokens))

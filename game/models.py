@@ -47,6 +47,7 @@ class Player(models.Model):
     last_claimed_tokens = models.DateTimeField(null=True, blank=True)  # Track last claim time
     tokens_claimed_today = models.IntegerField(default=0)  # Track how many times they claimed today
     real_tokens = models.IntegerField(default=0)
+    admin = models.BooleanField(default=False)
 
 class Stats(models.Model):
     wins = models.IntegerField(default=0)

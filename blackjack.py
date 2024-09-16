@@ -1611,65 +1611,52 @@ async def buy_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await context.bot.send_message(chat_id=user_id, text="Send the image here, after the PURCHASE was DONE")
     except Exception as e:
         print(f"Error sending message to user {user_id}: {e}")
+# Function to give tokens (real or fake) only if the player is admin
 async def give_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
-    args = context.args  # Extract command arguments
     try:
-        admin_player = await sync_to_async(Player.objects.get)(id=user_id)
-        if not admin_player.admin:
-            await update.message.reply_text("You don't have permission to use this command.")
+        # Check if the player exists and is an admin
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        
+        if not player.admin:
+            await update.message.reply_text("You do not have permission to use this command.")
             return
-    except ObjectDoesNotExist:
-        await update.message.reply_text("Admin player does not exist.")
-        return
-    # Check if command has the correct number of arguments
-    if len(args) != 3:
-        await update.message.reply_text("Usage: /give_token [real_token/chips] [user_id] [amount]")
-        return
 
-    token_type, target_user_id, amount = args
-    try:
-        # Convert amount to integer
-        amount = int(amount)
-    except ValueError:
-        await update.message.reply_text("Amount must be a number.")
-        return
+        # Parse arguments: token type, target player id, and amount
+        args = context.args
+        if len(args) != 3 or args[0] not in ["real_token", "chips"]:
+            await update.message.reply_text("Usage: /give_token real_token|chips [user_id] [amount]")
+            return
+        
+        token_type = args[0]
+        target_user_id = args[1]
+        amount = int(args[2])
 
-    # Check if the player issuing the command is an admin
-    
+        # Fetch the target player
+        try:
+            target_player = await sync_to_async(Player.objects.get)(id=target_user_id)
+        except ObjectDoesNotExist:
+            await update.message.reply_text(f"Player with ID {target_user_id} does not exist.")
+            return
 
-    # Fetch the target player by user ID
-    try:
-        target_player = await sync_to_async(Player.objects.get)(id=target_user_id)
-    except ObjectDoesNotExist:
-        await update.message.reply_text("The player you are trying to give tokens to does not exist.")
-        return
+        # Update the player's tokens
+        if token_type == "real_token":
+            target_player.real_tokens += amount
+            await update.message.reply_text(f"{amount} 💵 real tokens have been given to {target_player.name}.")
+        else:
+            target_player.chips += amount
+            await update.message.reply_text(f"{amount} 💰 chips have been given to {target_player.name}.")
 
-    # Add tokens or chips to the target player
-    if token_type == "real_token":
-        target_player.real_tokens += amount
-        token_name = "real tokens"
-    elif token_type == "chips":
-        target_player.chips += amount
-        token_name = "chips"
-    else:
-        await update.message.reply_text("Invalid token type. Use 'real_token' or 'chips'.")
-        return
+        # Save the changes
+        await sync_to_async(target_player.save)()
 
-    # Save the changes
-    await sync_to_async(target_player.save)()
-
-    # Send confirmation to the admin
-    await update.message.reply_text(f"Successfully given {amount} {token_name} to user {target_user_id}.")
-
-    # Notify the player privately
-    try:
+        # Send a private message to the target player
         await context.bot.send_message(
             chat_id=target_user_id,
-            text=f"You have been given {amount} {token_name} by an admin."
+            text=f"{amount} {'💵 real tokens' if token_type == 'real_token' else '💰 chips'} have been given to you by the admin."
         )
-    except Exception as e:
-        await update.message.reply_text(f"Failed to notify the player: {e}")
+    except ObjectDoesNotExist:
+        await update.message.reply_text("You are not registered as a player.")
 
 async def get_player_user_id(player_name: str):
     try:

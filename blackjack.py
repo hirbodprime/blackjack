@@ -128,6 +128,33 @@ async def my_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 
+async def achievement_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+
+    # Fetch all achievements from the database
+    achievements = await sync_to_async(list)(Achievement.objects.all())
+
+    # Check if there are any achievements available
+    if not achievements:
+        await update.message.reply_text("There are no achievements available yet.")
+        return
+
+    # Prepare the list of achievements with descriptions
+    achievement_list = "\n".join([f"🏅 *{achievement.name}*: {achievement.description}" for achievement in achievements])
+
+    # Send the achievements list to the player
+    await context.bot.send_message(
+        chat_id=user_id,  # Send to player's private chat
+        text=f"🎉 *Achievements Info* 🎉\n\n"
+             f"Here’s how you can unlock the achievements:\n\n{achievement_list}",
+        parse_mode="Markdown"
+    )
+
+    # Inform the user in the group chat if the message is sent in a group
+    if chat_id != user_id:
+        await update.message.reply_text("📩 A message with the achievements info has been sent to your private chat.")
+
 
 
 
@@ -1873,6 +1900,7 @@ app.add_handler(CommandHandler("nextgame", nextgame))
 app.add_handler(CommandHandler("hit", hit))
 app.add_handler(CommandHandler("dealer_stats", get_dealer_blackjack_stats))
 app.add_handler(CommandHandler("achievements", my_achievements))
+app.add_handler(CommandHandler("achievement_info", achievement_info))
 
 app.run_polling()
 

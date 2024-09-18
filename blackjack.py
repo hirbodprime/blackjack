@@ -20,7 +20,6 @@ import re
 from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification,Achievement,PlayerAchievement
 from django.core.exceptions import ObjectDoesNotExist
 from asgiref.sync import sync_to_async
-import random
 
 
 from datetime import datetime, timedelta
@@ -1583,6 +1582,9 @@ async def nextgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("You're already signed up to be notified when the next game starts.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_player(update, context):
+        return
+
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
     chat_id = update.message.chat_id
@@ -1591,7 +1593,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if chat_id != user_id:
         await update.message.reply_text("📩 A message with the available commands has been sent to your private chat.")
 
-    # Prepare the help message
+    # Prepare the help message with correct escaping
     help_text = """
 🤖 *Blackjack Bot Help* 🃏
 
@@ -1610,6 +1612,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 /stand \\- Keep your current hand and end your turn
 /flee \\- Leave the current Blackjack game before it ends
 
+*Minigames*:
+/dice \\- Roll the dice and test your luck \\(/dice [betamount]\\)
+/slot \\- a chance to win big \\(/slot [betamount]\\)
+/coin \\-  flip a coin and try your luck \\(/coin [heads/tails] [betamount]\\)
+/draw \\- draw a card against the bot \\(/draw [betamount]\\)
+/rps \\- Play RPS \\(/rps [rock/paper/scissors] [betamount]\\)
+
+
 *Token \\& Dealer Commands*:
 /my\\_tokens \\- Display your current chip count
 /dealer\\_stats \\- Show the Blackjack dealer's statistics
@@ -1617,8 +1627,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 /claim\\_tokens \\- Claim free tokens twice a day
 /set\\_status \\- Set the group's status to use either chips or real tokens
 
+*Achievements*:
+/achievements \\- View your current achievements and progress
+/achievements\\_info \\- See how to unlock achievements
+
 You can use these commands in any group where the bot is present\\. Happy playing 🃏\\!
-    """
+"""
 
     # Send the help message to the user's private chat
     try:
@@ -1633,6 +1647,9 @@ You can use these commands in any group where the bot is present\\. Happy playin
 
 
 async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_player(update, context):
+        return
+
     user_id = update.message.from_user.id
 
     # Inform user in the group chat
@@ -1871,6 +1888,300 @@ async def get_user_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text(f"Player with the name {player_name} was not found.")
 
+# games------------------------------
+
+async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    bet_amount = int(context.args[0]) if context.args else 50  # Default bet amount is 50 chips
+    
+    if not await check_player(update, context):
+        return
+    
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("You don't have enough chips to spin the slot machine!")
+        return
+
+    # Deduct the bet amount
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Possible symbols for the slot machine
+    slot_symbols = ['🍒', '🍋', '💰', '🍀', '🔔', '⭐']
+
+    # Send the initial message
+    message = await update.message.reply_text('🎰 Spinning...')
+
+    # Simulate spinning effect by editing the same message
+    spinning_texts = [
+        '🎰 Spinning... 🍒 | 🍋 | 💰',
+        '🎰 Spinning... 🍀 | 💰 | 🔔',
+        '🎰 Spinning... ⭐ | 🍋 | 🍒',
+        '🎰 Spinning... 🔔 | ⭐ | 🍀',
+        '🎰 Spinning... 🍒 | 💰 | ⭐'
+    ]
+    
+    for text in spinning_texts:
+        await message.edit_text(text)
+        await asyncio.sleep(1)  # Add delay to simulate the spinning
+
+    # Final result
+    slot_result = [random.choice(slot_symbols) for _ in range(3)]
+    result_text = ' | '.join(slot_result)
+
+    # Define winning combinations
+    if len(set(slot_result)) == 1:  # All three symbols match
+        winnings = bet_amount * 10
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await message.edit_text(f"🎰 {result_text} 🎰\nJackpot! You win {winnings} chips!")
+    elif slot_result[0] == slot_result[1] or slot_result[1] == slot_result[2]:
+        winnings = bet_amount * 3
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await message.edit_text(f"🎰 {result_text} 🎰\nYou win {winnings} chips!")
+    else:
+        await message.edit_text(f"🎰 {result_text} 🎰\nNo match! You lose your bet.")
+
+
+
+async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    guess = context.args[0].lower() if context.args else 'heads'  # Default to heads if no argument
+    bet_amount = int(context.args[1]) if len(context.args) > 1 else 50  # Default bet amount is 50 chips
+
+    if guess not in ['heads', 'tails']:
+        await update.message.reply_text("Please choose either 'heads' or 'tails'.")
+        return
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("You don't have enough chips for this bet!")
+        return
+
+    # Deduct the bet amount
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Send the initial "spinning" message
+    message = await update.message.reply_text("🪙 Flipping the coin...")
+
+    # Simulate the flipping effect with several edits
+    flip_animation = ['🪙 Heads...', '🪙 Tails...', '🪙 Heads...', '🪙 Tails...']
+
+    for flip in flip_animation:
+        await message.edit_text(flip)
+        await asyncio.sleep(0.5)
+
+    # Final coin flip result
+    flip_result = random.choice(['heads', 'tails'])
+
+    if flip_result == guess:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await message.edit_text(f"🪙 Coin landed on {flip_result.capitalize()}! You win {winnings} chips!")
+    else:
+        await message.edit_text(f"🪙 Coin landed on {flip_result.capitalize()}! You lose your bet.")
+
+cards = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+card_values = {card: index for index, card in enumerate(cards, start=2)}
+
+async def lucky_draw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    bet_amount = int(context.args[0]) if context.args else 50  # Default bet amount is 50 chips
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("You don't have enough chips for this bet!")
+        return
+
+    # Deduct the bet amount
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Send the initial message
+    message = await update.message.reply_text("🃏 Drawing your card...")
+
+    # Draw player's card
+    await asyncio.sleep(1)  # Wait to build suspense
+    player_card = random.choice(cards)
+    await message.edit_text(f"🃏 You drew: {player_card}")
+
+    # Wait a bit and simulate dealer's turn
+    await asyncio.sleep(2)
+    await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer is drawing a card...")
+
+    # Draw dealer's card
+    await asyncio.sleep(2)  # More suspense before revealing
+    bot_card = random.choice(cards)
+    await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}")
+
+    # Compare card values
+    player_card_value = card_values[player_card]
+    bot_card_value = card_values[bot_card]
+
+    # Determine the result after a short pause
+    await asyncio.sleep(1)
+
+    if player_card_value > bot_card_value:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}\n\nYou win {winnings} chips!")
+    elif player_card_value == bot_card_value:
+        player.chips += bet_amount  # Return the bet for a tie
+        await sync_to_async(player.save)()
+        await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}\n\nIt's a tie! You get your bet back.")
+    else:
+        await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}\n\nYou lose your bet.")
+
+
+
+choices = ['rock', 'paper', 'scissors']
+choice_emojis = {'rock': '🪨', 'paper': '📄', 'scissors': '✂️'}
+
+# Rock-Paper-Scissors game
+async def rps_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    # Parse the player's choice and the bet amount from the command
+    player_choice = context.args[0].lower() if len(context.args) > 0 else 'rock'  # Default to rock
+    bet_amount = int(context.args[1]) if len(context.args) > 1 else 50  # Default bet amount is 50 chips
+
+    if player_choice not in choices:
+        await update.message.reply_text("Please choose either 'rock', 'paper', or 'scissors'.")
+        return
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    # Check if the player has enough chips for the bet
+    if player.chips < bet_amount:
+        await update.message.reply_text(f"You don't have enough chips to place a bet of {bet_amount}!")
+        return
+
+    # Deduct the bet amount
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Initial message
+    message = await update.message.reply_text(f"👊 You chose {choice_emojis[player_choice]} {player_choice.capitalize()}!\nWaiting for the dealer...")
+
+    # Simulate dealer's choice with suspense
+    await asyncio.sleep(2)
+    bot_choice = random.choice(choices)
+    await message.edit_text(f"👊 You chose {choice_emojis[player_choice]} {player_choice.capitalize()}!\n🤖 Dealer is thinking...")
+
+    await asyncio.sleep(2)
+    await message.edit_text(f"👊 You chose {choice_emojis[player_choice]} {player_choice.capitalize()}!\n🤖 Dealer chose {choice_emojis[bot_choice]} {bot_choice.capitalize()}!")
+
+    # Compare choices and determine the outcome
+    await determine_rps_winner(player_choice, bot_choice, player, message, bet_amount)
+
+
+# Determine the winner of the Rock-Paper-Scissors game
+async def determine_rps_winner(player_choice, bot_choice, player, message, bet_amount):
+    # Rules of Rock-Paper-Scissors
+    win_conditions = {
+        'rock': 'scissors',
+        'scissors': 'paper',
+        'paper': 'rock'
+    }
+
+    # Win, lose, or tie
+    if player_choice == bot_choice:
+        player.chips += bet_amount  # Return bet for tie
+        await sync_to_async(player.save)()
+        await asyncio.sleep(1)
+        await message.edit_text(f"🤝 It's a tie! You get your bet of {bet_amount} chips back!")
+    elif win_conditions[player_choice] == bot_choice:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await asyncio.sleep(1)
+        await message.edit_text(f"🎉 You win! {choice_emojis[player_choice]} beats {choice_emojis[bot_choice]}!\nYou win {winnings} chips!")
+    else:
+        await asyncio.sleep(1)
+        await message.edit_text(f"😔 You lose! {choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}!\nYou lose your bet of {bet_amount} chips.")
+
+async def determine_rps_winner(player_choice, bot_choice, player, message, bet_amount):
+    # Rules of Rock-Paper-Scissors
+    win_conditions = {
+        'rock': 'scissors',
+        'scissors': 'paper',
+        'paper': 'rock'
+    }
+
+    # Win, lose, or tie
+    if player_choice == bot_choice:
+        player.chips += bet_amount  # Return bet for tie
+        await sync_to_async(player.save)()
+        await asyncio.sleep(1)
+        await message.edit_text(f"🤝 It's a tie! You get your bet of 50 chips back!")
+    elif win_conditions[player_choice] == bot_choice:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await asyncio.sleep(1)
+        await message.edit_text(f"🎉 You win! {choice_emojis[player_choice]} beats {choice_emojis[bot_choice]}!\nYou win {winnings} chips!")
+    else:
+        await asyncio.sleep(1)
+        await message.edit_text(f"😔 You lose! {choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}!\nYou lose your bet.")
+
+
+async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    bet_amount = int(context.args[0]) if context.args else 50  # Default bet amount is 50 chips
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("You don't have enough chips for this bet!")
+        return
+
+    # Deduct the bet amount
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Roll the dice using Telegram's dice feature
+    message = await context.bot.send_dice(chat_id=update.message.chat_id, emoji="🎲")
+
+    # Wait for a second for dice to roll
+    await asyncio.sleep(4)
+
+    dice_value = message.dice.value  # Get the dice value (1-6)
+
+    # Determine win/loss based on the dice value
+    if dice_value > 4:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou win {winnings} chips!")
+    else:
+        await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou lose your bet of {bet_amount} chips.")
+
+
+
+
+
+
+
+
+
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
@@ -1879,6 +2190,14 @@ elif DEBUG == "False":
     
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
+
+app.add_handler(CommandHandler("dice", roll_dice))
+app.add_handler(CommandHandler("slot", slot_machine))
+app.add_handler(CommandHandler("coin", coinflip))
+app.add_handler(CommandHandler("draw", lucky_draw))
+app.add_handler(CommandHandler("rps", rps_game))
+
+
 app.add_handler(photo_handler)
 app.add_handler(CommandHandler("user_id", get_user_id_command))
 app.add_handler(CommandHandler("give_token", give_token))
@@ -1893,14 +2212,14 @@ app.add_handler(CommandHandler("startblackjack", start_blackjack, block=False))
 app.add_handler(CommandHandler("join", join_blackjack))
 app.add_handler(CommandHandler("forcestart", force_start))
 app.add_handler(PollAnswerHandler(poll_answer_handler))  # PollAnswerHandler for poll answers
-app.add_handler(CommandHandler("tokens", get_player_chips))
+app.add_handler(CommandHandler("my_tokens", get_player_chips))
 app.add_handler(CommandHandler("stand", stand))
 app.add_handler(CommandHandler("flee", flee_game))
 app.add_handler(CommandHandler("nextgame", nextgame))
 app.add_handler(CommandHandler("hit", hit))
 app.add_handler(CommandHandler("dealer_stats", get_dealer_blackjack_stats))
 app.add_handler(CommandHandler("achievements", my_achievements))
-app.add_handler(CommandHandler("achievement_info", achievement_info))
+app.add_handler(CommandHandler("achievements_info", achievement_info))
 
 app.run_polling()
 

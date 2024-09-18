@@ -17,7 +17,7 @@ django.setup()
 from dotenv import load_dotenv
 import time
 import re
-from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification
+from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification,Achievement,PlayerAchievement
 from django.core.exceptions import ObjectDoesNotExist
 from asgiref.sync import sync_to_async
 import random
@@ -27,6 +27,110 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 
 load_dotenv()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# achievementssssssssssssssss ------------------------------------------------ 
+
+
+async def unlock_achievement(player, condition_name, context):
+    try:
+        # Fetch the achievement by its condition name
+        achievement = await sync_to_async(Achievement.objects.get)(condition=condition_name)
+        
+        # Check if the player already has this achievement
+        already_unlocked = await sync_to_async(lambda: PlayerAchievement.objects.filter(player=player, achievement=achievement).exists())()
+
+        if not already_unlocked:
+            # Unlock the achievement for the player
+            await sync_to_async(PlayerAchievement.objects.create)(
+                player=player, achievement=achievement, unlocked_at=datetime.now()
+            )
+
+            # Notify the player
+            await context.bot.send_message(
+                chat_id=player.id,
+                text=f"🎉 Congratulations! You've unlocked the '{achievement.name}' achievement: {achievement.description}"
+            )
+        else:
+            print(f"{player.name} already has the {achievement.name} achievement.")
+
+    except ObjectDoesNotExist:
+        print(f"Achievement with condition '{condition_name}' does not exist.")
+
+
+
+
+
+async def my_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_player(update, context):
+        return
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+    chat_id = update.message.chat_id  # This is the chat where the command was used
+    
+    try:
+        # Fetch the player from the database
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text(f"{user_name}, you don't seem to have a player profile. Start a game first!")
+        return
+
+    # Fetch all achievements for the player
+    player_achievements = await sync_to_async(list)(
+        PlayerAchievement.objects.filter(player=player).select_related('achievement')
+    )
+
+    # Fetch total achievements available in the system
+    total_achievements = await sync_to_async(Achievement.objects.count)()
+
+    # Send notification in the group or chat where the command was used
+    if chat_id != user_id:  # If the command was used in a group
+        await update.message.reply_text(f"📩 A message with your achievements has been sent to your private chat.")
+
+    # If no achievements found
+    if not player_achievements:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"{user_name}, you haven't unlocked any achievements yet.\n\n0/{total_achievements} achievements unlocked.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Calculate the player's achievement progress
+    unlocked_achievements_count = len(player_achievements)
+
+    # Prepare the achievement list
+    achievements_list = "\n".join([f"🏅 *{pa.achievement.name}*: {pa.achievement.description}" for pa in player_achievements])
+
+    # Send the message with the achievements list and progress to the player's private chat
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"🎉 *Your Achievements* 🎉\n\n"
+             f"Progress: {unlocked_achievements_count}/{total_achievements} achievements unlocked.\n\n"
+             f"{achievements_list}",
+        parse_mode="Markdown"
+    )
+
+
+
+
+
+
+
 async def is_player_in_another_game(player_id: int, current_chat_id: int) -> bool:
     """
     Check if the player is already joined in another game in a different group.
@@ -80,29 +184,43 @@ async def check_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bo
         )
         return False  # Player does not exist
 
-
 async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
 
     if not await check_player(update, context):
         return
+
     player = await sync_to_async(Player.objects.get)(id=user_id)
     now = timezone.now()
+
     # Reset the count if 24 hours have passed
     if player.last_claimed_tokens is None or player.last_claimed_tokens.date() != now.date():
         player.tokens_claimed_today = 0
         player.last_claimed_tokens = now
 
-    if player.tokens_claimed_today < 2:
+    if player.tokens_claimed_today >= 2:
+        await update.message.reply_text("You've already Tried twice today. Try again tomorrow!")
+        return
+
+    # Send the dart emoji and check the result
+    message = await context.bot.send_dice(chat_id=update.message.chat_id, emoji='🎯')
+
+    # Check if the dart hits the middle (value = 6, which represents hitting the bullseye)
+    await asyncio.sleep(3)
+    if message.dice.value == 6:
         # Grant 200 tokens
         player.chips += 200
         player.tokens_claimed_today += 1
         player.last_claimed_tokens = now
         await sync_to_async(player.save)()
 
-        await update.message.reply_text(f"You've received 💰200 chips! You now have 💰{player.chips} chips.")
+        await update.message.reply_text(f"🎯 Bullseye! You've received 💰200 chips! You now have 💰{player.chips} chips.")
     else:
-        await update.message.reply_text("You've already claimed 💰200 chips twice today. Try again tomorrow!")
+        player.tokens_claimed_today += 1
+        player.last_claimed_tokens = now
+        await sync_to_async(player.save)()
+        await update.message.reply_text("🎯 You missed the bullseye! Better luck next time!")
+
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -428,6 +546,12 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
         await update.message.reply_text('At least 1 player is required to start the game, ending the game!')
         return
+    if game.forced:
+        await context.bot.send_message(chat_id=chat_id, text="This game has already been force-started.")
+        return
+
+    game.forced = True
+    await sync_to_async(game.save)()
 
     dealer = await sync_to_async(Dealer.objects.first)()
     group_game, created = await sync_to_async(Group.objects.get_or_create)(group_chat_id=chat_id)
@@ -462,10 +586,15 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=f"🤖 Dealer is in the game with {game.bet_amount} {currency_type} on the table\\.",
             parse_mode="MarkdownV2"
         )
+    if len(joined_players) >= 5:
+        for join_entry in joined_players:
+            player = await sync_to_async(lambda: join_entry.player)()
+            await unlock_achievement(player, "5_or_more_player", context)
     for join_entry in joined_players:
         # Fetch the player related to the join_entry asynchronously
         player = await sync_to_async(lambda: join_entry.player)()
-
+        if game.bet_amount >= 5000:
+            await unlock_achievement(player, "5000_game_join", context)
         # Deduct bet amount based on whether it's a real token or chips game
         if is_real_token_game:
             player.real_tokens -= game.bet_amount  # Deduct the bet amount once
@@ -474,6 +603,9 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         else:
             player.chips -= game.bet_amount  # Deduct the chips once
+            if player.chips == 0:
+                await unlock_achievement(player, "all_in", context)
+
             remaining_tokens = player.chips
         
         player.games += 1  # Update the games count
@@ -612,13 +744,13 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     dealer_has_blackjack = dealer_value == 21
 
     if dealer_has_blackjack:
-        await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer has a Blackjack! 💥")
+        await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer has a natural Blackjack! 💥")
         dealer = await sync_to_async(Dealer.objects.get)(id=1)
         dealer.blackjack_count += 1
         await sync_to_async(dealer.save)()
 
         for join_entry in player_blackjacks:
-            await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} had Blackjack💥 too. It's a push.")
+            await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} had Blackjack💥 too.")
 
         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
         game.current_round += 1
@@ -627,10 +759,16 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
     if player_blackjacks:
         for join_entry in player_blackjacks:
+            await unlock_achievement(join_entry.player, "first_natrual_blackjack", context)
             await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.")
             stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
+
             stats.how_many_21 += 1
             await sync_to_async(stats.save)()
+            if stats.how_many_21 == 21:
+                await unlock_achievement(join_entry.player, "21_black_jacks", context)
+            if stats.how_many_21 >= 100:
+                await unlock_achievement(join_entry.player, "100_black_jacks", context)
 
             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=join_entry.player)
 
@@ -724,9 +862,17 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
                 else:
                     await context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆")
             elif len(overall_winners) > 1:
-                # Multiple winners (tie)
-                winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
-                await context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2")
+                # Check if all players and the dealer tied
+                if len(overall_winners) == (len(joined_players) + 1) and dealer_wins == max_wins:
+                    for join_entry in joined_players:
+                        player = await sync_to_async(lambda: join_entry.player)()
+                        await unlock_achievement(player, "paid_back_tie", context)
+
+                    await context.bot.send_message(chat_id=chat_id, text="All players and the dealer tied, and shared the pot! 🏆 Everyone gets the `paid_back_tie` achievement.")
+                else:
+                    # Multiple winners (tie without all players tying)
+                    winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
+                    await context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2")
 
             # Update statistics for winners and losers
             await update_statistics(overall_winners, dealer_wins, joined_players)
@@ -928,13 +1074,29 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats = await sync_to_async(Stats.objects.get)(player=join_game.player)
         stats.how_many_21 += 1
         await sync_to_async(stats.save)()
+        if stats.how_many_21 == 21:
+            await unlock_achievement(join_entry.player, "21_black_jacks", context)
+        if stats.how_many_21 >= 100:
+            await unlock_achievement(join_entry.player, "100_black_jacks", context)
         await safe_send_message_async(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
         await next_player_turn(update, context)
     elif hand_value > 21:
+        if hand_value >= 30:
+            await unlock_achievement(join_game.player, "30_or_more_deck", context)
         await asyncio.sleep(3)
         await safe_send_message_async(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\. ")
         await next_player_turn(update, context)
     else:
+        # Check for specific achievements (3 Aces or 3 Sixes)
+        ace_count = sum(1 for card in player_hand if card == 'A')
+        six_count = sum(1 for card in player_hand if card == '6')
+
+        if ace_count == 3:
+            await unlock_achievement(join_game.player, "3_A_in_one_deck", context)
+        
+        if six_count == 3:
+            await unlock_achievement(join_game.player, "thriple_6_in_one_deck", context)
+
         await asyncio.sleep(3)
         await safe_send_message_async(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
 
@@ -1144,23 +1306,10 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 print(f"Error tagging player {winner.name}: {str(e)}")
 
             await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
+            if calculate_hand_value(join_entry.hand) == 10:
+                await unlock_achievement(winner, "win_with_10", context)
+
             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
-    if not round_winners:
-        await asyncio.sleep(2)
-        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer won🥇 round {game.current_round}\\!")
-    else:
-        for winner in round_winners:
-            await asyncio.sleep(2)
-            try:
-                # Try to tag the winner using their name
-                mention = f"[{winner.name}](tg://user?id={winner.id})"
-            except Exception as e:
-                # Fallback to just using the player's name if tagging fails
-                mention = winner.name
-                print(f"Error tagging player {winner.name}: {str(e)}")
-
-            await safe_send_message_dealer(context.bot, chat_id, f"{mention} won🥇 round {game.current_round}\\!")
-
     # Proceed to the next round or end the game if all rounds are done
     game.current_round += 1
     await check_for_next_round(update, context, game, joined_players)
@@ -1219,6 +1368,19 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Determine the highest number of rounds won
     max_rounds_won = max(max(round_wins.values(), default=0), dealer_rounds_won)
 
+    # Check if any player won all 5 rounds
+    if max_rounds_won == 5:
+        # If dealer won all 5 rounds
+        if dealer_rounds_won == 5:
+            for round_win in player_rounds:
+                player = await sync_to_async(lambda: round_win.winner)()
+                await unlock_achievement(player, "Dealer_wins_5_rounds", context)
+            await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer won all 5 rounds!")
+        else:
+            # If any player won all 5 rounds
+            for winner, wins in round_wins.items():
+                if wins == 5:
+                    await unlock_achievement(winner, "win_5_rounds", context)
     # Find all winners (both dealer and players) who won the maximum number of rounds
     winners = [winner for winner, wins in round_wins.items() if wins == max_rounds_won]
     if dealer_rounds_won == max_rounds_won:
@@ -1704,12 +1866,13 @@ app.add_handler(CommandHandler("startblackjack", start_blackjack, block=False))
 app.add_handler(CommandHandler("join", join_blackjack))
 app.add_handler(CommandHandler("forcestart", force_start))
 app.add_handler(PollAnswerHandler(poll_answer_handler))  # PollAnswerHandler for poll answers
-app.add_handler(CommandHandler("my_tokens", get_player_chips))
+app.add_handler(CommandHandler("tokens", get_player_chips))
 app.add_handler(CommandHandler("stand", stand))
 app.add_handler(CommandHandler("flee", flee_game))
 app.add_handler(CommandHandler("nextgame", nextgame))
 app.add_handler(CommandHandler("hit", hit))
 app.add_handler(CommandHandler("dealer_stats", get_dealer_blackjack_stats))
+app.add_handler(CommandHandler("achievements", my_achievements))
 
 app.run_polling()
 

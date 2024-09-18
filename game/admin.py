@@ -1,6 +1,23 @@
 from django.contrib import admin
-from .models import Player, Stats, Game, JoinGame,Dealer,RoundWinner,Group,NextGameNotification
 
+from .models import Player, Stats, Game, JoinGame,Dealer,RoundWinner,Group,NextGameNotification, Achievement, PlayerAchievement
+
+
+# Customizing the admin display for the Achievement model
+class AchievementAdmin(admin.ModelAdmin):
+    list_display = ('name', 'description', 'condition', 'icon')
+    search_fields = ('name', 'condition')
+    list_filter = ('condition',)
+
+# Customizing the admin display for the PlayerAchievement model
+class PlayerAchievementAdmin(admin.ModelAdmin):
+    list_display = ('player', 'achievement', 'unlocked_at')
+    search_fields = ('player__name', 'achievement__name')
+    list_filter = ('unlocked_at',)
+
+# Register the models with their custom admin
+admin.site.register(Achievement, AchievementAdmin)
+admin.site.register(PlayerAchievement, PlayerAchievementAdmin)
 
 
 @admin.register(NextGameNotification)

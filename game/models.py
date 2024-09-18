@@ -8,12 +8,22 @@ class NextGameNotification(models.Model):
     def __str__(self):
         return f"User {self.user_id} in chat {self.chat_id}"
 
+class Achievement(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField()
+    condition = models.CharField(max_length=100)  # e.g., "win_10_games", "reach_21_five_times"
+    icon = models.CharField(max_length=100, null=True, blank=True)  # Optional, could be an emoji or icon
+
+
+
+
 
 class Game(models.Model):
     chat_id = models.CharField(max_length=100)
     betting = models.BooleanField(default=False)
     started = models.BooleanField(default=False)
     join_time = models.BooleanField(default=False)
+    forced = models.BooleanField(default=False)
     ended = models.BooleanField(default=False)
     hands_reset = models.BooleanField(default=False)
     bet_amount = models.IntegerField(default=5)
@@ -48,6 +58,12 @@ class Player(models.Model):
     tokens_claimed_today = models.IntegerField(default=0)  # Track how many times they claimed today
     real_tokens = models.IntegerField(default=0)
     admin = models.BooleanField(default=False)
+
+class PlayerAchievement(models.Model):
+    player = models.ForeignKey(Player, on_delete=models.CASCADE)
+    achievement = models.ForeignKey(Achievement, on_delete=models.CASCADE)
+    unlocked_at = models.DateTimeField(auto_now_add=True)
+
 
 class Stats(models.Model):
     wins = models.IntegerField(default=0)

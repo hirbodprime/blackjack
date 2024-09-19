@@ -2175,8 +2175,103 @@ async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou lose your bet of {bet_amount} chips.")
 
 
+from django.db.models import F, Sum, Count
+from asgiref.sync import sync_to_async
 
+# Utility function to truncate player names and ensure it doesn't exceed 8 characters
+def format_name(name, max_length=8):
+    truncated_name = (name[:max_length - 3] + '...') if len(name) > max_length else name
+    return f"{truncated_name:<{max_length}}"
 
+# Utility function to format the leaderboard row with monospaced text
+def format_leaderboard_row(index, name, wins, tokens):
+    # Adjust spacing to account for emojis and varying name lengths
+    return f"`{index:<2}. {name:<8} 🏆 Wins: {wins:<3}  💰 Chips: {tokens:<7}`"
+
+# Function to fetch the global leaderboard with top 5 players
+async def get_global_leaderboard():
+    # Fetching top players based on total wins
+    top_players = await sync_to_async(list)(
+        Stats.objects.select_related('player')
+        .annotate(total_wins=F('wins'))  # Total wins
+        .order_by('-total_wins')[:5]  # Fetch top 5 players
+    )
+
+    leaderboard = []
+    for index, stats in enumerate(top_players, 1):
+        formatted_name = format_name(stats.player.name)
+        leaderboard.append(
+            format_leaderboard_row(
+                index=index,
+                name=formatted_name,
+                wins=stats.wins,
+                tokens=stats.player.chips
+            )
+        )
+
+    return leaderboard
+
+# Function to fetch the user's position and show 2 players above and 2 below
+async def get_user_rank(user_id):
+    # Fetch all players ordered by wins
+    all_players = await sync_to_async(list)(
+        Stats.objects.select_related('player')
+        .annotate(total_wins=F('wins'))
+        .order_by('-total_wins')
+    )
+
+    # Find the user's position
+    user_rank = None
+    leaderboard = []
+    for index, stats in enumerate(all_players, 1):
+        if stats.player.id == user_id:
+            # Get two players above and two below
+            start = max(index - 3, 0)
+            end = min(index + 2, len(all_players))
+            nearby_players = all_players[start:end]
+
+            # Format the leaderboard for nearby players
+            for idx, player_stats in enumerate(nearby_players, start=start+1):
+                formatted_name = format_name(player_stats.player.name)
+                leaderboard.append(
+                    format_leaderboard_row(
+                        index=idx,
+                        name=formatted_name,
+                        wins=player_stats.wins,
+                        tokens=player_stats.player.real_tokens
+                    )
+                )
+
+            user_rank = index
+            break
+
+    return leaderboard, user_rank
+# Command to show the global leaderboard
+async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+
+    # Get top 5 players
+    top_5_leaderboard = await get_global_leaderboard()
+
+    # Get the user's rank and nearby players
+    user_leaderboard, user_rank = await get_user_rank(user_id)
+
+    # Build the leaderboard message
+    if top_5_leaderboard:
+        top_5_text = "\n".join(top_5_leaderboard)
+        message = f"🌍 *Global Leaderboard* 🌍\n\n{top_5_text}\n\n"
+    else:
+        message = "No players have ranked yet.\n\n"
+
+    # Add user's position to the message
+    if user_leaderboard:
+        user_leaderboard_text = "\n".join(user_leaderboard)
+        message += f"🏅 *Your Position* (Rank {user_rank}):\n{user_leaderboard_text}"
+    else:
+        message += "You haven't played enough games to be ranked yet."
+
+    # Send the formatted leaderboard message
+    await update.message.reply_text(message)
 
 
 
@@ -2196,6 +2291,7 @@ app.add_handler(CommandHandler("slot", slot_machine))
 app.add_handler(CommandHandler("coin", coinflip))
 app.add_handler(CommandHandler("draw", lucky_draw))
 app.add_handler(CommandHandler("rps", rps_game))
+app.add_handler(CommandHandler("leaderboard", leaderboard))
 
 
 app.add_handler(photo_handler)

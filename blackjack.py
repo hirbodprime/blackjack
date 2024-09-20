@@ -1090,9 +1090,9 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if hand_value > 21:
         await update.message.reply_text("You have already busted and cannot take any more actions.")
         return
-    elif hand_value == 21:
-        await update.message.reply_text("You have automaticly standing and cannot take any more actions.")
-        return
+    # elif hand_value == 21:
+    #     await update.message.reply_text("You are automaticly standing and cannot take any more actions.")
+    #     return
     # Add a card to the player's hand
     new_card = deal_card()
     join_game.hand.append(new_card)

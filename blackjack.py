@@ -791,7 +791,7 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
             stats.how_many_21 += 1
             await sync_to_async(stats.save)()
-            if stats.how_many_21 == 21:
+            if stats.how_many_21 >= 21:
                 await unlock_achievement(join_entry.player, "21_black_jacks", context)
             if stats.how_many_21 >= 100:
                 await unlock_achievement(join_entry.player, "100_black_jacks", context)
@@ -829,6 +829,13 @@ async def update_statistics(winners, dealer_wins, joined_players):
             stats, created = await sync_to_async(Stats.objects.get_or_create)(player=player)
             stats.wins += 1
             await sync_to_async(stats.save)()
+            total_games = stats.wins + stats.loses
+            if stats.wins >= 100:
+                await unlock_achievement(player, "100_wins", context)
+            if total_games >= 100:
+                await unlock_achievement(player, "100_games", context)
+            if total_games >= 500:
+                await unlock_achievement(player, "500_games", context)
 
     # Determine non-winners
     winners_ids = {winner.id for winner in winners if winner != 'dealer'}
@@ -842,6 +849,13 @@ async def update_statistics(winners, dealer_wins, joined_players):
         stats, created = await sync_to_async(Stats.objects.get_or_create)(player=player)
         stats.loses += 1
         await sync_to_async(stats.save)()
+        total_games = stats.wins + stats.loses
+        if stats.loses >= 100:
+            await unlock_achievement(player, "100_loses", context)
+        if total_games >= 100:
+            await unlock_achievement(player, "100_games", context)
+        if total_games >= 500:
+            await unlock_achievement(player, "500_games", context)
 
     # Update dealer's losses if dealer did not win
     if not dealer_wins:
@@ -1100,7 +1114,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats = await sync_to_async(Stats.objects.get)(player=join_game.player)
         stats.how_many_21 += 1
         await sync_to_async(stats.save)()
-        if stats.how_many_21 == 21:
+        if stats.how_many_21 >= 21:
             await unlock_achievement(join_entry.player, "21_black_jacks", context)
         if stats.how_many_21 >= 100:
             await unlock_achievement(join_entry.player, "100_black_jacks", context)
@@ -2238,7 +2252,7 @@ async def get_user_rank(user_id):
                         index=idx,
                         name=formatted_name,
                         wins=player_stats.wins,
-                        tokens=player_stats.player.real_tokens
+                        tokens=player_stats.player.chips
                     )
                 )
 

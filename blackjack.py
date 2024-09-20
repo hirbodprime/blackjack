@@ -2129,30 +2129,6 @@ async def determine_rps_winner(player_choice, bot_choice, player, message, bet_a
         await asyncio.sleep(1)
         await message.edit_text(f"😔 You lose! {choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}!\nYou lose your bet of {bet_amount} chips.")
 
-async def determine_rps_winner(player_choice, bot_choice, player, message, bet_amount):
-    # Rules of Rock-Paper-Scissors
-    win_conditions = {
-        'rock': 'scissors',
-        'scissors': 'paper',
-        'paper': 'rock'
-    }
-
-    # Win, lose, or tie
-    if player_choice == bot_choice:
-        player.chips += bet_amount  # Return bet for tie
-        await sync_to_async(player.save)()
-        await asyncio.sleep(1)
-        await message.edit_text(f"🤝 It's a tie! You get your bet of 50 chips back!")
-    elif win_conditions[player_choice] == bot_choice:
-        winnings = bet_amount * 2
-        player.chips += winnings
-        await sync_to_async(player.save)()
-        await asyncio.sleep(1)
-        await message.edit_text(f"🎉 You win! {choice_emojis[player_choice]} beats {choice_emojis[bot_choice]}!\nYou win {winnings} chips!")
-    else:
-        await asyncio.sleep(1)
-        await message.edit_text(f"😔 You lose! {choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}!\nYou lose your bet.")
-
 
 async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id

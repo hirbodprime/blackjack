@@ -1,42 +1,38 @@
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler
-from telegram.constants import ChatAction
-import asyncio
+from telethon import TelegramClient, events
+import time
 
-# List of commands for bot
-async def start(update: Update, context):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Hello! I'm a tagger bot. Use /tagall to mention everyone!")
+# Your API ID and Hash from https://my.telegram.org
+api_id = '1723719'
+api_hash = 'dce2a0e1a8376fec526b76bb99746238'
+phone_number = '+989032292777'
 
-async def tag_all(update: Update, context):
-    # Get chat members (you need admin privileges for the bot in the group)
-    chat_id = update.effective_chat.id
-    members = await context.bot.get_chat_administrators(chat_id)
+# Create the client
+client = TelegramClient('tagger_session', api_id, api_hash)
 
-    # Send a message tagging each user individually
-    for member in members:
-        if member.user.username:
-            user_tag = f"@{member.user.username}"
-        else:
-            user_tag = f"{member.user.first_name}"
+# Function to tag all users in a group
+async def tag_all_users(event):
+    chat = await event.get_chat()
+    
+    # Only allow this in groups and supergroups
+    if chat.broadcast or chat.megagroup:
+        async for user in client.iter_participants(chat):
+            if user.bot:
+                continue
 
-        # Send individual message for each user
-        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-        await context.bot.send_message(chat_id=chat_id, text=f"{user_tag}")
-        
-        # Optionally add a short delay between messages
-        await asyncio.sleep(1)
+            if user.username:
+                mention = f"@{user.username}"
+            else:
+                mention = user.first_name
 
+            # Send mention message
+            await client.send_message(chat, mention)
+            time.sleep(0.5)  # Adding a delay to avoid spamming
 
-if __name__ == '__main__':
-    # Add your bot token here
-    BOT_TOKEN = "7777229902:AAHeyjHFlPmgRB9qk-0iuBD93UTIihnWU_Y"
+# Event handler for "/tagall" command
+@client.on(events.NewMessage(pattern='Tag'))
+async def handler(event):
+    await tag_all_users(event)
 
-    # Build the application
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Add handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("tagall", tag_all))
-
-    # Run the bot
-    app.run_polling()
+# Start the client
+client.start(phone=phone_number)
+client.run_until_disconnected()

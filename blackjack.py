@@ -813,7 +813,7 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
 
 
-async def update_statistics(winners, dealer_wins, joined_players):
+async def update_statistics(winners, dealer_wins, joined_players,context):
     
     # Initialize a list for non-winners
     non_winners = []
@@ -915,7 +915,7 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
                     await context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2")
 
             # Update statistics for winners and losers
-            await update_statistics(overall_winners, dealer_wins, joined_players)
+            await update_statistics(overall_winners, dealer_wins, joined_players,context)
         else:
             await context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.")
 

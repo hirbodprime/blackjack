@@ -1088,7 +1088,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     new_card = deal_card()
     join_game.hand.append(new_card)
-    await sync_to_async(join_game.save)()
+    
 
     user_name_escaped = re.sub(r'([_*[\]()~>#+\-=|{}.!])', r'\\\1', user_name)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
@@ -1097,7 +1097,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
-
+    await sync_to_async(join_game.save)()
     await safe_send_message_async(context.bot, user_id, f"Your full hand: {player_hand}\\. Total value: {hand_value}")
 
     # Check for bust or 21

@@ -1085,15 +1085,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id != game.turn_order[0]:
         await update.message.reply_text("It's not your turn!")
         return
-    player_hand = join_game.hand
-    hand_value = calculate_hand_value(player_hand)
-    if hand_value > 21:
-        await update.message.reply_text("You have already busted and cannot take any more actions.")
-        return
-    # elif hand_value == 21:
-    #     await update.message.reply_text("You are automaticly standing and cannot take any more actions.")
-    #     return
-    # Add a card to the player's hand
+
     new_card = deal_card()
     join_game.hand.append(new_card)
     await sync_to_async(join_game.save)()

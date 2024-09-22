@@ -313,16 +313,15 @@ def calculate_hand_value(hand):
 
     return value
 game_start_reactions = [
-    "Welcome to the game! Let’s see who’s feeling lucky today. 🎲",
-    "A new game begins! Are you ready? 🃏",
-    "Place your bets and let the cards decide your fate! 💰",
-    "Good luck to all! Let’s have a great game. 🍀",
+    "A new round begins! Are you ready? 🃏",
+    "let the cards decide your fate! 💰",
+    "Good luck to all! Let’s have a great round. 🍀",
     "New round, new chances to win! Let’s get started. 🎯",
-    "Welcome! It’s time to deal the cards. Ready? 🃏",
-    "A fresh game begins! May the best hand win. 👑",
+    "It’s time to deal the cards Losers. Ready? 🃏",
+    "A fresh round begins! May the best hand win. 👑",
     "Let’s shuffle up and deal! Good luck! 🔄",
     "The cards are ready. Who’s going to win this one? 👀",
-    "Let the games begin! Who’s feeling lucky? 🔥"
+    "Let the round begin! Who’s feeling lucky? 🔥"
 ]
 
 # Dealer reactions for betting phase
@@ -1328,7 +1327,7 @@ async def safe_send_message_dealer(bot, chat_id, text, max_retries=5):
 bust_reactions = [
     "Oops\\! I went over\\! 😅",
     "Busted\\! Maybe next time\\! 😬",
-    "Uh-oh\\! I got too greedy\\. 😳",
+    "Uh\\-oh\\! I got too greedy\\. 😳",
     "Looks like I miscalculated\\. 😟",
     "That didn’t go as planned\\! 😵",
     "Oh no\\! I’m out\\! 😖",

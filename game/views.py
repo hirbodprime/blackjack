@@ -76,9 +76,6 @@ def process_game_results(request):
         # Update player's XP and check for level-up
         leveled_up = update_player_xp(player, total_xp)
 
-        if leveled_up:
-            # Send the reward message (can be done using context in a bot scenario)
-            print(f"Player {player.name} leveled up to {player.level} and received {player.level * 50} chips.")
 
         # Deduct XP for losses (25 XP per loss)
         loss_xp_deduction = stats.loses * 25

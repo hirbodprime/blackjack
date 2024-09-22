@@ -3,22 +3,18 @@ from .models import Player, Stats, PlayerAchievement
 from django.http import HttpResponse
 
 def calculate_xp_for_next_level(level):
-    print(f"level user {level}")
     return level * 50  # XP required for each level increases by 50
 
 def check_level_up(player):
     leveled_up = False
     while True:
         next_level_xp = calculate_xp_for_next_level(player.level)
-        print(f"next level check {next_level_xp} for level {player.level}")
         
         if player.xp >= next_level_xp:
-            print(f"player xp before level-up: {player.xp}, next level xp required: {next_level_xp}")
             player.xp -= next_level_xp
             player.level += 1
             player.save()
             leveled_up = True
-            print(f"player leveled up! New level: {player.level}, remaining xp: {player.xp}")
         else:
             break
 
@@ -67,19 +63,15 @@ def process_game_results(request):
         # Calculate XP for blackjack (30 XP for each blackjack)
         blackjack_xp = stats.how_many_21 * 30
         
-        print(f"Player: {player.name}, XP: {player.xp}, Wins XP: {win_xp}, Blackjack XP: {blackjack_xp}, Achievement XP: {achievement_xp}")
         total_xp = win_xp + blackjack_xp + achievement_xp
-        print(f"Total XP: {total_xp}")
         
         update_player_xp(player, total_xp)
 
         # Deduct XP for losses (25 XP per loss)
         loss_xp_deduction = stats.loses * 25
-        print(f"Losses: {stats.loses}, XP to deduct: {loss_xp_deduction}")
         deduct_player_xp(player, loss_xp_deduction)
 
         # Save updated stats
-        print("-----------------------------\n")
         stats.save()
 
     return HttpResponse("XP processing complete.")  # No rendering of templates

@@ -2496,6 +2496,18 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 
+async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.message.chat_id
+    text = (
+        "🎮 *Available Minigames* 🎮\n\n"
+        "🎲 /dice - Roll a dice and test your luck!\n"
+        "🎰 /slot - Try your luck at the slot machine. Will you hit the jackpot?\n"
+        "🪙 /coin - Flip a coin and see if it’s heads or tails.\n"
+        "🎟 /draw - Participate in a lucky draw. Will you be the lucky one?\n"
+        "✊🖐✌️ /rps - Play Rock, Paper, Scissors against the bot.\n"
+    )
+    
+    await context.bot.send_message(chat_id=chat_id, text=text)
 
 
 
@@ -2507,6 +2519,7 @@ elif DEBUG == "False":
     
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
+app.add_handler(CommandHandler("minigames", minigames))
 
 app.add_handler(CommandHandler("dice", roll_dice))
 app.add_handler(CommandHandler("slot", slot_machine))

@@ -1282,7 +1282,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 
         await safe_send_message_async(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
-        await add_xp(join_entry.player, 30, context)
+        await add_xp(join_game.player, 30, context)
         
         await next_player_turn(update, context)
     elif hand_value > 21:

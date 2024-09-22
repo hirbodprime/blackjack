@@ -44,7 +44,7 @@ load_dotenv()
 def xp_for_next_level(level):
     return level * 50  # XP increases by 50 per level
 
-# Function to add XP and check for level-up
+# Function to add XP, check for level-up, and give rewards
 async def add_xp(player, amount, context):
     player.xp += amount  # Add the XP amount to the player's total XP
     level_up = False  # Track if player leveled up
@@ -56,11 +56,14 @@ async def add_xp(player, amount, context):
         player.level += 1  # Increase the player's level
         level_up = True
 
-    # Send a level-up message if the player leveled up
-    if level_up:
+        # Reward player with 50 chips per level
+        chips_reward = player.level * 50
+        player.chips += chips_reward
+        
+        # Send level-up and reward message
         await context.bot.send_message(
             chat_id=player.id, 
-            text=f"🎉 Congratulations! You've reached level {player.level}!"
+            text=f"🎉 Congratulations! You've reached level {player.level}! You've been rewarded with {chips_reward} 💰 chips!"
         )
 
     await sync_to_async(player.save)()  # Save the player data

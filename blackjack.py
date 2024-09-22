@@ -470,7 +470,7 @@ async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         await asyncio.sleep(2)
         await context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!")
-        asyncio.sleep(1)
+        await asyncio.sleep(1)
         reaction = random.choice(betting_phase_reactions)
         await context.bot.send_message(chat_id=chat_id, text=reaction)
         return
@@ -1559,7 +1559,7 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await asyncio.sleep(2)
         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
         reaction = random.choice(bust_reactions)
-        asyncio.sleep(2)
+        await asyncio.sleep(2)
         await safe_send_message_dealer(context.bot, chat_id,reaction)
         dealer_busted = True
     elif dealer_value == 21:

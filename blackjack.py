@@ -66,6 +66,31 @@ async def add_xp(player, amount, context):
     await sync_to_async(player.save)()  # Save the player data
 
 
+# Function to deduct XP and check for level-down
+async def deduct_xp(player, amount, context):
+    player.xp -= amount  # Subtract the XP amount
+
+    level_down = False  # Track if player levels down
+
+    # Loop to handle level-down in case of large XP loss
+    while player.xp < 0 and player.level > 1:
+        previous_level_xp = xp_for_next_level(player.level - 1)  # XP required for the previous level
+        player.level -= 1  # Decrease the player's level
+        player.xp += previous_level_xp  # Add the XP required for the previous level
+        level_down = True
+
+    # Handle level-down to minimum level
+    if player.xp < 0 and player.level == 1:
+        player.xp = 0  # Ensure XP doesn't go negative at level 1
+
+    # Send a level-down message if the player leveled down
+    if level_down:
+        await context.bot.send_message(
+            chat_id=player.id,
+            text=f"⚠️ You lost {amount} XP and have been demoted to level {player.level}."
+        )
+
+    await sync_to_async(player.save)()  # Save the player data
 
 
 
@@ -862,6 +887,9 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
     await context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...")
     await asyncio.sleep(3)
+    reaction = random.choice(game_start_reactions)
+    await context.bot.send_message(chat_id=chat_id,text=reaction)
+    await asyncio.sleep(2)
 
     player_blackjacks = []
 
@@ -904,7 +932,7 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
         for join_entry in player_blackjacks:
             await unlock_achievement(join_entry.player, "first_natrual_blackjack", context)
             await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.")
-            await add_xp(join_entry.player, 10, context)  # Adds 10 XP to the player's total
+            await add_xp(join_entry.player, 35, context)
 
             stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
 
@@ -969,6 +997,8 @@ async def update_statistics(winners, dealer_wins, joined_players,context):
     for player in non_winners:
         stats, created = await sync_to_async(Stats.objects.get_or_create)(player=player)
         stats.loses += 1
+        await deduct_xp(player, 25, context)
+
         await sync_to_async(stats.save)()
         total_games = stats.wins + stats.loses
         if stats.loses >= 100:
@@ -1098,8 +1128,7 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
         await context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.")
 
     else:
-        reaction = random.choice(game_start_reactions)
-        await context.bot.send_message(chat_id=chat_id,text=reaction)
+
         # Reset has_stood for all players
         for player in joined_players:
             player.has_stood = False
@@ -1250,12 +1279,14 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 
         await safe_send_message_async(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
+        await add_xp(join_entry.player, 30, context)
         
         await next_player_turn(update, context)
     elif hand_value > 21:
         if hand_value >= 30:
             await unlock_achievement(join_game.player, "30_or_more_deck", context)
         await asyncio.sleep(3)
+        await deduct_xp(join_game.player, 20, context)
         await safe_send_message_async(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\. ")
         await next_player_turn(update, context)
     else:
@@ -1595,93 +1626,6 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game.current_round += 1
     await check_for_next_round(update, context, game, joined_players)
 
-# async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
-#     chat_id = update.message.chat_id
-
-#     try:
-#         game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
-#     except Game.DoesNotExist:
-#         await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
-#         return
-
-#     await asyncio.sleep(2)
-#     await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
-
-#     dealer_hand = game.dealer_hand
-#     dealer_value = calculate_hand_value(dealer_hand)
-
-#     # Dealer's logic: drawing until reaching at least 17
-#     while dealer_value < 17:
-#         new_card = deal_card()
-#         dealer_hand.append(new_card)
-#         dealer_value = calculate_hand_value(dealer_hand)
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
-
-#     # If dealer busts (> 21)
-#     if dealer_value > 21:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
-#         dealer_busted = True
-#     else:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
-#         dealer_busted = False
-
-#     # Save the updated dealer hand
-#     game.dealer_hand = dealer_hand
-#     await sync_to_async(game.save)()
-
-#     # Fetch all active players who have joined the game
-#     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
-
-#     # Track the player(s) who win this round
-#     highest_valid_score = 0
-#     round_winners = []
-
-#     for join_entry in joined_players:
-#         # Fetch the player asynchronously
-#         player = await sync_to_async(lambda: join_entry.player)()
-        
-#         player_hand_value = calculate_hand_value(join_entry.hand)
-        
-#         # If player busted, skip them
-#         if player_hand_value > 21:
-#             continue
-        
-#         # Track the highest valid hand that beats the dealer (if dealer didn't bust)
-#         if dealer_busted or player_hand_value > dealer_value:
-#             if player_hand_value > highest_valid_score:
-#                 highest_valid_score = player_hand_value
-#                 round_winners = [player]
-#             elif player_hand_value == highest_valid_score:
-#                 round_winners.append(player)
-
-#     if not round_winners:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
-        
-#         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
-#     else:
-#         for winner in round_winners:
-#             await asyncio.sleep(2)
-#             try:
-#                 # Try to tag the winner using their name
-#                 mention = f"[{winner.name}](tg://user?id={winner.id})"
-#             except Exception as e:
-#                 # Fallback to just using the player's name if tagging fails
-#                 mention = winner.name
-#                 print(f"Error tagging player {winner.name}: {str(e)}")
-
-#             await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
-#             if calculate_hand_value(join_entry.hand) == 10:
-#                 await unlock_achievement(winner, "win_with_10", context)
-
-#             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
-#     # Proceed to the next round or end the game if all rounds are done
-#     game.current_round += 1
-#     await check_for_next_round(update, context, game, joined_players)
-
 
 # Asynchronous version of reset_game
 async def reset_game(chat_id):
@@ -1937,52 +1881,68 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # Prepare the help message with correct escaping
     help_text = """
-🤖 *Blackjack Bot Help* 🃏
+    🤖 *Blackjack Bot Help* 🃏
 
-*General Commands*:
-/start \\- Start the bot and register as a player
-/stats \\- Show your player statistics
-/help \\- Display this help message
-/rules \\- Show detailed rules of the Blackjack game
-/nextgame \\- Receive a private message when the next game starts
+    *General Commands*:
+    /start - Start the bot and register as a player
+    /stats - Show your player statistics
+    /help - Display this help message
+    /rules - Show detailed rules of the Blackjack game
+    /nextgame - Receive a private message when the next game starts
 
-*Blackjack Game Commands*:
-/startblackjack \\- Start a new Blackjack game and make some money\\!
-/join \\- Join the current Blackjack game in the group
-/forcestart \\- Force start the game if you are an admin
-/hit \\- Request an additional card during your turn
-/stand \\- Keep your current hand and end your turn
-/flee \\- Leave the current Blackjack game before it ends
+    *Blackjack Game Commands*:
+    /startblackjack - Start a new Blackjack game and make some money!
+    /join - Join the current Blackjack game in the group
+    /forcestart - Force start the game if you are an admin
+    /hit - Request an additional card during your turn
+    /stand - Keep your current hand and end your turn
+    /flee - Leave the current Blackjack game before it ends
 
-*Minigames*:
-/dice \\- Roll the dice and test your luck \\(/dice [betamount]\\)
-/slot \\- a chance to win big \\(/slot [betamount]\\)
-/coin \\-  flip a coin and try your luck \\(/coin [heads/tails] [betamount]\\)
-/draw \\- draw a card against the bot \\(/draw [betamount]\\)
-/rps \\- Play RPS \\(/rps [rock/paper/scissors] [betamount]\\)
+    *Minigames*:
+    /dice - Roll the dice and test your luck (/dice [betamount])
+    /slot - a chance to win big (/slot [betamount])
+    /coin - flip a coin and try your luck (/coin [heads/tails] [betamount])
+    /draw - draw a card against the bot (/draw [betamount])
+    /rps - Play RPS (/rps [rock/paper/scissors] [betamount])
 
+    *Token & Dealer Commands*:
+    /my_tokens - Display your current chip count
+    /dealer_stats - Show the Blackjack dealer's statistics
+    /buy_tokens - Buy real tokens (100 real tokens for 10 Toman)
+    /claim_tokens - Claim free tokens twice a day
+    /set_status - Set the group's status to use either chips or real tokens
 
-*Token \\& Dealer Commands*:
-/my\\_tokens \\- Display your current chip count
-/dealer\\_stats \\- Show the Blackjack dealer's statistics
-/buy\\_tokens \\- Buy real tokens \\(100 real tokens for 10 Toman\\)
-/claim\\_tokens \\- Claim free tokens twice a day
-/set\\_status \\- Set the group's status to use either chips or real tokens
+    *Achievements*:
+    /achievements - View your current achievements and progress
+    /achievements_info - See how to unlock achievements
 
-*Achievements*:
-/achievements \\- View your current achievements and progress
-/achievements\\_info \\- See how to unlock achievements
+    *XP & Leveling*:
+    - Gain XP by playing games, winning rounds, and unlocking achievements:
+        - Play a game: ➕ +10 XP
+        - Win a round: ➕ +5 XP
+        - Win a whole game: ➕ +25 XP
+        - Get a Blackjack: ➕ +30 XP
+        - Unlock an achievement: ➕ +20 XP
+    - Lose XP for poor performance:
+        - Bust in a game: ➖ -20 XP
+        - Lose a whole game: ➖ -25 XP
+    - Level up when you earn enough XP! Level 1 requires 50 XP, and each level requires 50 more XP than the last.
+    - Check your progress using /stats.
 
-You can use these commands in any group where the bot is present\\. Happy playing 🃏\\!
-"""
+    *Loan System*:
+    /loan [amount] - Request a loan of chips! You lose 5 XP for every 100 chips loaned.
+        - If you don't have enough XP, you will lose levels!
+    /repay_loan - Repay your loan with a 3% interest.
+        - Example: A loan of 100 chips requires 103 chips for repayment.
+
+    You can use these commands in any group where the bot is present. Happy playing 🃏!
+    """
 
     # Send the help message to the user's private chat
     try:
         await context.bot.send_message(
             chat_id=user_id,
-            text=help_text,
-            parse_mode="MarkdownV2"
-        )
+            text=help_text)
     except Exception as e:
         print(f"Error sending help message to {user_name} (ID: {user_id}): {e}")
         await update.message.reply_text("There was an error sending the help message to your private chat. Please make sure you've started the bot privately.")

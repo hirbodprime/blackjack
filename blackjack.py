@@ -1163,6 +1163,8 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"join_game.hand {join_game.hand} player_hand {player_hand} hand_value {hand_value}")
     # Check for bust or 21
     if hand_value == 21:
+        join_game.has_stood = True
+        await sync_to_async(join_game.save)()
         print("im in the hand 21")
         await asyncio.sleep(3)
         stats = await sync_to_async(Stats.objects.get)(player=join_game.player)
@@ -1174,7 +1176,10 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if stats.how_many_21 >= 100:
             print("giving achv100")
             await unlock_achievement(join_game.player, "100_black_jacks", context)
+        
+
         await safe_send_message_async(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
+        
         await next_player_turn(update, context)
     elif hand_value > 21:
         if hand_value >= 30:

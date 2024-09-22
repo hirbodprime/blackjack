@@ -1459,8 +1459,8 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         dealer_busted = True
     elif dealer_value == 21:
         await asyncio.sleep(2)
-        reaction = random.choice(blackjack_reactions)
-        await safe_send_message_dealer(context.bot, chat_id, reaction)
+        # reaction = random.choice(blackjack_reactions)
+        # await safe_send_message_dealer(context.bot, chat_id, reaction)
         dealer_busted = False
     else:
         await asyncio.sleep(2)

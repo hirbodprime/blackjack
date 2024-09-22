@@ -96,14 +96,10 @@ async def my_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Fetch total achievements available in the system
     total_achievements = await sync_to_async(Achievement.objects.count)()
 
-    # Send notification in the group or chat where the command was used
-    if chat_id != user_id:  # If the command was used in a group
-        await update.message.reply_text(f"📩 A message with your achievements has been sent to your private chat.")
-
     # If no achievements found
     if not player_achievements:
         await context.bot.send_message(
-            chat_id=user_id,
+            chat_id=chat_id,
             text=f"{user_name}, you haven't unlocked any achievements yet.\n\n0/{total_achievements} achievements unlocked.",
             parse_mode="Markdown"
         )
@@ -117,8 +113,8 @@ async def my_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Send the message with the achievements list and progress to the player's private chat
     await context.bot.send_message(
-        chat_id=user_id,
-        text=f"🎉 *Your Achievements* 🎉\n\n"
+        chat_id=chat_id,
+        text=f"🎉 *{user_name}'s Achievements* 🎉\n\n"
              f"Progress: {unlocked_achievements_count}/{total_achievements} achievements unlocked.\n\n"
              f"{achievements_list}",
         parse_mode="Markdown"

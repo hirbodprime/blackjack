@@ -50,6 +50,7 @@ class Dealer(models.Model):
     real_tokens = models.IntegerField(default=0)
 
 
+
 class Player(models.Model):
     name = models.CharField(max_length=50)
     chips = models.IntegerField(default=0)
@@ -58,6 +59,9 @@ class Player(models.Model):
     tokens_claimed_today = models.IntegerField(default=0)  # Track how many times they claimed today
     real_tokens = models.IntegerField(default=0)
     admin = models.BooleanField(default=False)
+    xp = models.IntegerField(default=0)  # Add XP field
+    level = models.IntegerField(default=1)  # Add Level field
+    loan = models.IntegerField(default=0)  # New field to track player's loan
 
 class PlayerAchievement(models.Model):
     player = models.ForeignKey(Player, on_delete=models.CASCADE)

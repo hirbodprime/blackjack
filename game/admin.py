@@ -2,6 +2,13 @@ from django.contrib import admin
 from .models import Player, Stats, Game, JoinGame, Dealer, RoundWinner, Group, NextGameNotification, Achievement, PlayerAchievement
 
 
+
+
+
+
+
+
+
 # Customizing the admin display for the Achievement model
 class AchievementAdmin(admin.ModelAdmin):
     list_display = ('name', 'description', 'condition', 'icon')

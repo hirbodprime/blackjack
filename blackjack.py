@@ -35,7 +35,35 @@ load_dotenv()
 
 
 
+# xpppppppppppppp
 
+
+
+
+
+def xp_for_next_level(level):
+    return level * 50  # XP increases by 50 per level
+
+# Function to add XP and check for level-up
+async def add_xp(player, amount, context):
+    player.xp += amount  # Add the XP amount to the player's total XP
+    level_up = False  # Track if player leveled up
+
+    # Loop to handle multiple level-ups in case of large XP gain
+    while player.xp >= xp_for_next_level(player.level):
+        next_level_xp = xp_for_next_level(player.level)  # Calculate the XP needed for the next level
+        player.xp -= next_level_xp  # Subtract the XP required for the current level
+        player.level += 1  # Increase the player's level
+        level_up = True
+
+    # Send a level-up message if the player leveled up
+    if level_up:
+        await context.bot.send_message(
+            chat_id=player.id, 
+            text=f"🎉 Congratulations! You've reached level {player.level}!"
+        )
+
+    await sync_to_async(player.save)()  # Save the player data
 
 
 
@@ -60,6 +88,8 @@ async def unlock_achievement(player, condition_name, context):
             )
 
             # Notify the player
+            await add_xp(player, 20, context)
+
             await context.bot.send_message(
                 chat_id=player.id,
                 text=f"🎉 Congratulations! You've unlocked the '{achievement.name}' achievement: {achievement.description}"
@@ -274,14 +304,47 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Check if the player already exists
         player = await sync_to_async(Player.objects.get)(id=user_id)
         stats = await sync_to_async(Stats.objects.get)(player=player)
-        await update.message.reply_text(f"here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n💥Blackjacks: {stats.how_many_21}")
+
+        # XP and level come from the Player object
+        xp = player.xp
+        level = player.level
+
+        # Calculate XP needed for the next level
+        next_level_xp_threshold = level * 50  # Assuming each level requires 50 XP more than the previous level
+        xp_to_next_level = next_level_xp_threshold - xp
+
+        # Create an interesting message showing their progress
+        message = (
+            f"🎮 *Your Stats* 🎮\n\n"
+            f"🏆 *Wins*: {stats.wins}\n"
+            f"❌ *Losses*: {stats.loses}\n"
+            f"💥 *Blackjacks*: {stats.how_many_21}\n"
+            f"💪 *XP*: {xp}\n"
+            f"📈 *Level*: {level}\n"
+            f"🔜 *XP to next level*: {xp_to_next_level} XP\n"
+        )
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
 
     except ObjectDoesNotExist:
         # If the player does not exist, create the Player and Stats instance
-        player = await sync_to_async(Player.objects.create)(id=user_id, name=user_name, chips=20)
-        stats = await sync_to_async(Stats.objects.create)(wins=0, loses=0, how_many_21=0,player=player)
+        player = await sync_to_async(Player.objects.create)(id=user_id, name=user_name, chips=20, xp=0, level=1)
+        stats = await sync_to_async(Stats.objects.create)(wins=0, loses=0, how_many_21=0, player=player)
 
-        await update.message.reply_text(f"Welcome to Blackjack, {user_name}! You have been given 20 💰chips to start.\here is your stats: \nwins: {stats.wins}\nloses: {stats.loses}\n21: {stats.how_many_21}")
+        # Inform the new player about their stats and XP progression
+        message = (
+            f"Welcome to Blackjack, {user_name}! You have been given 20 💰 chips to start.\n\n"
+            f"🎮 *Your Stats* 🎮\n\n"
+            f"🏆 *Wins*: {stats.wins}\n"
+            f"❌ *Losses*: {stats.loses}\n"
+            f"💥 *Blackjacks*: {stats.how_many_21}\n"
+            f"💪 *XP*: 0\n"
+            f"📈 *Level*: 1\n"
+            f"🔜 *XP to next level*: 50 XP\n"
+            f"\nKeep playing to earn XP and level up!"
+        )
+
+        await update.message.reply_text(message, parse_mode="Markdown")
 
 
 # # Deck of cards
@@ -667,7 +730,11 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             player = await sync_to_async(lambda: join_entry.player)()
             await unlock_achievement(player, "5_or_more_player", context)
     for join_entry in joined_players:
-        # Fetch the player related to the join_entry asynchronously
+        player = await sync_to_async(lambda: join_entry.player)()
+        
+        # Now you can safely add XP
+        await add_xp(player, 10, context)
+
         player = await sync_to_async(lambda: join_entry.player)()
         if game.bet_amount >= 5000:
             await unlock_achievement(player, "5000_game_join", context)
@@ -837,6 +904,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
         for join_entry in player_blackjacks:
             await unlock_achievement(join_entry.player, "first_natrual_blackjack", context)
             await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.")
+            await add_xp(join_entry.player, 10, context)  # Adds 10 XP to the player's total
+
             stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
 
             stats.how_many_21 += 1
@@ -877,6 +946,8 @@ async def update_statistics(winners, dealer_wins, joined_players,context):
         else:
             player = await sync_to_async(Player.objects.get)(id=winner.id)
             stats, created = await sync_to_async(Stats.objects.get_or_create)(player=player)
+            await add_xp(player, 25, context)
+            
             stats.wins += 1
             await sync_to_async(stats.save)()
             total_games = stats.wins + stats.loses
@@ -1512,9 +1583,10 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Fallback to just using the player's name if tagging fails
                 mention = winner.name
                 print(f"Error tagging player {winner.name}: {str(e)}")
+            await add_xp(winner, 5, context)
 
             await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
-            if calculate_hand_value(join_entry.hand) == 10:
+            if highest_valid_score == 10:
                 await unlock_achievement(winner, "win_with_10", context)
 
             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
@@ -2534,6 +2606,87 @@ async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await context.bot.send_message(chat_id=chat_id, text=text)
 
 
+async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    loan_amount = int(context.args[0]) if context.args else 0
+
+    if loan_amount <= 0:
+        await update.message.reply_text("Please specify a valid loan amount.")
+        return
+
+    # Calculate XP cost
+    xp_cost = (loan_amount // 100) * 5
+
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        dealer = await sync_to_async(Dealer.objects.first)()  # Assuming there is only one dealer
+
+        # Check if dealer has enough chips for the loan
+        if dealer.chips < loan_amount:
+            await update.message.reply_text("The Casino doesn't have enough chips to give you this loan.")
+            return
+
+        # Check if player has enough XP to take the loan
+        if player.xp < xp_cost:
+            # Check if player can afford to lose a level
+            if player.level > 1:
+                # Deduct XP and de-level the player if necessary
+                remaining_xp = player.xp - xp_cost
+                while remaining_xp < 0 and player.level > 1:
+                    player.level -= 1
+                    remaining_xp += xp_for_next_level(player.level)
+                player.xp = remaining_xp
+            else:
+                await update.message.reply_text("You don't have enough XP to take this loan.")
+                return
+
+        # Deduct XP and take chips from the dealer
+        player.xp -= xp_cost
+        player.chips += loan_amount
+        player.loan += loan_amount
+        dealer.chips -= loan_amount
+
+        await sync_to_async(player.save)()
+        await sync_to_async(dealer.save)()
+
+        await update.message.reply_text(f"You've received a loan of {loan_amount} 💰 chips. XP cost: {xp_cost} XP. Don't forget to repay with 3% interest!")
+
+    except Player.DoesNotExist:
+        await update.message.reply_text("You need to register with /start first.")
+
+async def repay_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        dealer = await sync_to_async(Dealer.objects.first)()  # Assuming there is only one dealer
+
+        # Check if the player has an outstanding loan
+        if player.loan <= 0:
+            await update.message.reply_text("You don't have any outstanding loans to repay.")
+            return
+
+        # Calculate total repayment with 3% interest
+        total_repayment = int(player.loan * 1.03)
+
+        # Check if the player has enough chips to repay the loan
+        if player.chips < total_repayment:
+            await update.message.reply_text(f"You don't have enough chips to repay the loan. You need {total_repayment} 💰.")
+            return
+
+        # Deduct chips from player and repay the dealer
+        player.chips -= total_repayment
+        dealer.chips += total_repayment
+        player.loan = 0
+
+        await sync_to_async(player.save)()
+        await sync_to_async(dealer.save)()
+
+        await update.message.reply_text(f"Loan repaid successfully! You paid back {total_repayment} 💰 with interest.")
+
+    except Player.DoesNotExist:
+        await update.message.reply_text("You need to register with /start first.")
+
 
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
@@ -2543,6 +2696,8 @@ elif DEBUG == "False":
     
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
+app.add_handler(CommandHandler("repay_loan", repay_loan))
+app.add_handler(CommandHandler("loan", request_loan))
 app.add_handler(CommandHandler("minigames", minigames))
 
 app.add_handler(CommandHandler("dice", roll_dice))

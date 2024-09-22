@@ -2575,7 +2575,7 @@ async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Calculate XP cost
-    xp_cost = (loan_amount // 100) * 5
+    xp_cost = (loan_amount // 100) * 25
 
     try:
         player = await sync_to_async(Player.objects.get)(id=user_id)
@@ -2609,7 +2609,7 @@ async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sync_to_async(player.save)()
         await sync_to_async(dealer.save)()
 
-        await update.message.reply_text(f"You've received a loan of {loan_amount} 💰 chips. XP cost: {xp_cost} XP. Don't forget to repay with 3% interest!")
+        await update.message.reply_text(f"You've received a loan of {loan_amount} 💰 chips.\nXP cost: {xp_cost} XP. Don't forget to repay with 3% interest!")
 
     except Player.DoesNotExist:
         await update.message.reply_text("You need to register with /start first.")

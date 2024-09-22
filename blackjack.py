@@ -316,7 +316,32 @@ def calculate_hand_value(hand):
             value += 1  # If counting as 11 would bust, count as 1
 
     return value
+game_start_reactions = [
+    "Welcome to the game! Let’s see who’s feeling lucky today. 🎲",
+    "A new game begins! Are you ready? 🃏",
+    "Place your bets and let the cards decide your fate! 💰",
+    "Good luck to all! Let’s have a great game. 🍀",
+    "New round, new chances to win! Let’s get started. 🎯",
+    "Welcome! It’s time to deal the cards. Ready? 🃏",
+    "A fresh game begins! May the best hand win. 👑",
+    "Let’s shuffle up and deal! Good luck! 🔄",
+    "The cards are ready. Who’s going to win this one? 👀",
+    "Let the games begin! Who’s feeling lucky? 🔥"
+]
 
+# Dealer reactions for betting phase
+betting_phase_reactions = [
+    "Place your bets! It’s time to see who’s daring today. 💰",
+    "Bet wisely! The game is about to heat up. 🔥",
+    "Time to put your chips on the table! Who’s going big? 💸",
+    "Betting is open! Will you play it safe or take a risk? 🎲",
+    "Place your bets now! Will you go all in? 🤑",
+    "How much are you willing to risk? Place your bets! 💪",
+    "The pot is waiting! Let’s see who’s feeling bold. 💼",
+    "Bet smart! The cards don’t lie. 🃏",
+    "Who’s betting big this round? Let’s see! 💰",
+    "Betting is open! Choose your risk carefully. 🎯"
+]
 
 async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_player(update, context):
@@ -355,8 +380,13 @@ async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await context.bot.send_message(chat_id=chat_id, text="🃏 Set the bet amount for the blackjack game to start.")
 
         await create_poll(update, context)
+        
+
         await asyncio.sleep(2)
         await context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!")
+        asyncio.sleep(1)
+        reaction = random.choice(betting_phase_reactions)
+        await context.bot.send_message(chat_id=chat_id, text=reaction)
         return
 
 
@@ -542,6 +572,28 @@ async def join_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=player.id, 
             text=f"You have successfully joined a game in group {update.message.chat.title}, Good Luck😃"
         )
+
+
+
+scare_players_reactions = [
+    "I wouldn’t get too comfortable if I were you. 😈",
+    "Do you really think you can win this? Think again. 😏",
+    "I can already see the outcome, and it’s not in your favor. 👀",
+    "You might want to start preparing for a loss. 🎲",
+    "The cards don’t look good for you. Better luck next time. 😎",
+    "Feeling lucky? You might need more than that. 😏",
+    "Oh, I wouldn’t bet too much on this round if I were you. 🃏",
+    "Your fate is sealed. This won’t end well. 😈",
+    "I’ve seen better hands, and trust me, this isn’t one of them. 😅",
+    "Get ready to lose everything, because that’s where this is heading. 💥",
+    "I hope you didn’t go all in, because this might hurt. 💸",
+    "The house always wins, and today is no exception. 🤑",
+    "I wouldn’t count on winning this one. Better get used to losing. 🎯",
+    "This is where it all goes downhill for you. 😎",
+    "Enjoy your last moments of hope, because they’re fading fast. 🃏"
+]
+
+
 # Force start the Blackjack game
 async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_player(update, context):
@@ -607,6 +659,9 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         dealer.games += 1
         await sync_to_async(dealer.save)()
+        reaction = random.choice(scare_players_reactions)
+        await context.bot.send_message(chat_id=chat_id,text=reaction)
+        await asyncio.sleep(2)
         await context.bot.send_message(
             chat_id=chat_id, 
             text=f"🤖 Dealer is in the game with {game.bet_amount} {currency_type} on the table\\.",
@@ -977,6 +1032,8 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
         await context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.")
 
     else:
+        reaction = random.choice(game_start_reactions)
+        await context.bot.send_message(chat_id=chat_id,text=reaction)
         # Reset has_stood for all players
         for player in joined_players:
             player.has_stood = False
@@ -1086,9 +1143,18 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("It's not your turn!")
         return
 
+    player_hand = join_game.hand
+    hand_value = calculate_hand_value(player_hand)
+    if hand_value > 21:
+        await update.message.reply_text("You have already busted and cannot take any more actions.")
+        return
+    elif hand_value == 21:
+        await update.message.reply_text("You have automaticly standing and cannot take any more actions.")
+        return
+    # Add a card to the player's hand
     new_card = deal_card()
     join_game.hand.append(new_card)
-    
+    await sync_to_async(join_game.save)()
 
     user_name_escaped = re.sub(r'([_*[\]()~>#+\-=|{}.!])', r'\\\1', user_name)
     mention = f"[{user_name_escaped}](tg://user?id={user_id})"
@@ -1097,19 +1163,22 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
-    await sync_to_async(join_game.save)()
+    
     await safe_send_message_async(context.bot, user_id, f"Your full hand: {player_hand}\\. Total value: {hand_value}")
-
+    print(f"join_game.hand {join_game.hand} player_hand {player_hand} hand_value {hand_value}")
     # Check for bust or 21
     if hand_value == 21:
+        print("im in the hand 21")
         await asyncio.sleep(3)
         stats = await sync_to_async(Stats.objects.get)(player=join_game.player)
         stats.how_many_21 += 1
         await sync_to_async(stats.save)()
         if stats.how_many_21 >= 21:
-            await unlock_achievement(join_entry.player, "21_black_jacks", context)
+            print("giving achv21")
+            await unlock_achievement(join_game.player, "21_black_jacks", context)
         if stats.how_many_21 >= 100:
-            await unlock_achievement(join_entry.player, "100_black_jacks", context)
+            print("giving achv100")
+            await unlock_achievement(join_game.player, "100_black_jacks", context)
         await safe_send_message_async(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
         await next_player_turn(update, context)
     elif hand_value > 21:
@@ -1259,6 +1328,68 @@ async def safe_send_message_dealer(bot, chat_id, text, max_retries=5):
             await asyncio.sleep(retry_after)  # Non-blocking wait for the RetryAfter period before retrying
             retries += 1
     print("Failed to send the message after retries.")
+# Dealer bust reactions
+bust_reactions = [
+    "Oops\\! I went over\\! 😅",
+    "Busted\\! Maybe next time\\! 😬",
+    "Uh-oh\\! I got too greedy\\. 😳",
+    "Looks like I miscalculated\\. 😟",
+    "That didn’t go as planned\\! 😵",
+    "Oh no\\! I’m out\\! 😖",
+    "Well, that didn’t work\\. 😓",
+    "I guess I went too far\\. 😔",
+    "Oops, over the limit\\! You win this round\\. 🙈",
+    "I should’ve stopped sooner\\. 🤦"
+]
+
+# Dealer win reactions
+win_reactions = [
+    "Better luck next time\\! 😎",
+    "I win\\! Care to try again\\? 😏",
+    "The house always wins\\! 🤑",
+    "Nice try, but I’ve got this one\\. 😌",
+    "I told you, I’m unbeatable\\! 😈",
+    "Dealer takes the round\\! 💪",
+    "I got you this time\\! 😁",
+    "Victory is mine\\! 🎉",
+    "A win for the dealer\\! Ready for another\\? 🃏",
+    "I came out on top this time\\! 💥"
+]
+
+# Dealer blackjack (21) reactions
+blackjack_reactions = [
+    "Blackjack\\! I’m unbeatable\\! 😏",
+    "21\\! Looks like I’ve won this one\\. 🎯",
+    "Boom\\! A perfect 21\\! 💥",
+    "Blackjack\\! Can’t do better than that\\! 🃏",
+    "I hit 21\\! You didn’t stand a chance\\! 😎",
+    "Blackjack\\! The perfect hand\\. 🤑",
+    "21\\! That’s as good as it gets\\! 💣",
+    "A flawless 21\\! I win\\! 👑",
+    "Blackjack\\! I’m on fire today\\! 🔥",
+    "21\\! The perfect game\\! ✨"
+]
+
+# Dealer reactions when all players bust
+all_players_bust_reactions = [
+    "Looks like everyone’s out\\! I guess I’ll just stand here\\. 😎",
+    "Oh, you all busted\\? Easy win for me\\! 🃏",
+    "Everyone busted\\? Guess I’ll take this one\\. 😏",
+    "Well, that was quick\\! I didn’t even have to try\\. 😌",
+    "All players busted\\! I’ll stand and take the win\\. 👑",
+    "I didn’t even need to draw\\. You made it easy\\! 🎉",
+    "No cards left for me\\! You all busted\\! 🃏",
+    "Wow, everyone went over\\! I guess I’ll keep my cards\\. 💼",
+    "Everyone busted\\? I’ll just take the win, no problem\\! 😎",
+    "No need to play it out, I win by default\\! 😈",
+    "Well, well, well\\.\\.\\. looks like you couldn’t keep up\\! 💥",
+    "All of you busted\\? I guess the house wins again\\! 🏠",
+    "Looks like I didn't need to try\\! I'll take the win\\. 🎯",
+    "You all went over 21\\? I guess I’ll stand here as the winner\\. 👑",
+    "That’s a wrap\\! Easy win for me\\. 💥"
+]
+
+
 async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
 
@@ -1274,19 +1405,63 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dealer_hand = game.dealer_hand
     dealer_value = calculate_hand_value(dealer_hand)
 
-    # Dealer's logic: drawing until reaching at least 17
-    while dealer_value < 17:
+    # Fetch all active players who have joined the game
+    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
+
+    # Check if all players have busted
+    all_players_busted = True
+    highest_player_hand = 0
+
+    for join_entry in joined_players:
+        player_hand_value = calculate_hand_value(join_entry.hand)
+        if player_hand_value <= 21:  # If a player has a valid hand
+            all_players_busted = False  # At least one player hasn't busted
+            highest_player_hand = max(highest_player_hand, player_hand_value)  # Track the highest valid hand
+
+    # If all players are busted, dealer automatically wins and stands
+    if all_players_busted:
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, "🤖 All players have busted\\.")
+        await asyncio.sleep(2)
+
+        reaction = random.choice(all_players_bust_reactions)
+        await safe_send_message_dealer(context.bot, chat_id,reaction)
+        await asyncio.sleep(2)
+
+        await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
+        
+        await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
+        
+        # Move to next round or end game
+        game.current_round += 1
+        await sync_to_async(game.save)()
+        await check_for_next_round(update, context, game, joined_players)
+        return  # Exit early since no more actions are needed
+
+    # Dealer's logic: drawing until beating or matching the highest player hand
+    while dealer_value < highest_player_hand and dealer_value < 21:
         new_card = deal_card()
         dealer_hand.append(new_card)
         dealer_value = calculate_hand_value(dealer_hand)
         await asyncio.sleep(2)
         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
-
+        if dealer_value == 21:
+            reaction = random.choice(blackjack_reactions)
+            await safe_send_message_dealer(context.bot, chat_id, reaction)
+            break
     # If dealer busts (> 21)
     if dealer_value > 21:
         await asyncio.sleep(2)
         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
+        reaction = random.choice(bust_reactions)
+        asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id,reaction)
         dealer_busted = True
+    elif dealer_value == 21:
+        await asyncio.sleep(2)
+        reaction = random.choice(blackjack_reactions)
+        await safe_send_message_dealer(context.bot, chat_id, reaction)
+        dealer_busted = False
     else:
         await asyncio.sleep(2)
         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
@@ -1296,55 +1471,124 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game.dealer_hand = dealer_hand
     await sync_to_async(game.save)()
 
-    # Fetch all active players who have joined the game
-    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
-
     # Track the player(s) who win this round
-    highest_valid_score = 0
     round_winners = []
-
     for join_entry in joined_players:
-        # Fetch the player asynchronously
         player = await sync_to_async(lambda: join_entry.player)()
-        
         player_hand_value = calculate_hand_value(join_entry.hand)
-        
-        # If player busted, skip them
+
+        # If player busts, skip them
         if player_hand_value > 21:
             continue
-        
-        # Track the highest valid hand that beats the dealer (if dealer didn't bust)
-        if dealer_busted or player_hand_value > dealer_value:
-            if player_hand_value > highest_valid_score:
-                highest_valid_score = player_hand_value
-                round_winners = [player]
-            elif player_hand_value == highest_valid_score:
-                round_winners.append(player)
 
+        # If dealer busts, or player has a higher  hand
+        if dealer_busted or player_hand_value > dealer_value:
+            round_winners.append(player)
+
+    # Announce the winner(s)
     if not round_winners:
         await asyncio.sleep(2)
         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
-        
+        reaction = random.choice(win_reactions)
+        await safe_send_message_dealer(context.bot, chat_id,reaction)
         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
     else:
         for winner in round_winners:
             await asyncio.sleep(2)
-            try:
-                # Try to tag the winner using their name
-                mention = f"[{winner.name}](tg://user?id={winner.id})"
-            except Exception as e:
-                # Fallback to just using the player's name if tagging fails
-                mention = winner.name
-                print(f"Error tagging player {winner.name}: {str(e)}")
-
-            await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
-            if calculate_hand_value(join_entry.hand) == 10:
-                await unlock_achievement(winner, "win_with_10", context)
-
+            mention = f"[{winner.name}](tg://user?id={winner.id})"
+            await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {calculate_hand_value(join_entry.hand)}\\!")
             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
+
     # Proceed to the next round or end the game if all rounds are done
     game.current_round += 1
     await check_for_next_round(update, context, game, joined_players)
+
+# async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     chat_id = update.message.chat_id
+
+#     try:
+#         game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+#     except Game.DoesNotExist:
+#         await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
+#         return
+
+#     await asyncio.sleep(2)
+#     await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
+
+#     dealer_hand = game.dealer_hand
+#     dealer_value = calculate_hand_value(dealer_hand)
+
+#     # Dealer's logic: drawing until reaching at least 17
+#     while dealer_value < 17:
+#         new_card = deal_card()
+#         dealer_hand.append(new_card)
+#         dealer_value = calculate_hand_value(dealer_hand)
+#         await asyncio.sleep(2)
+#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
+
+#     # If dealer busts (> 21)
+#     if dealer_value > 21:
+#         await asyncio.sleep(2)
+#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
+#         dealer_busted = True
+#     else:
+#         await asyncio.sleep(2)
+#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
+#         dealer_busted = False
+
+#     # Save the updated dealer hand
+#     game.dealer_hand = dealer_hand
+#     await sync_to_async(game.save)()
+
+#     # Fetch all active players who have joined the game
+#     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
+
+#     # Track the player(s) who win this round
+#     highest_valid_score = 0
+#     round_winners = []
+
+#     for join_entry in joined_players:
+#         # Fetch the player asynchronously
+#         player = await sync_to_async(lambda: join_entry.player)()
+        
+#         player_hand_value = calculate_hand_value(join_entry.hand)
+        
+#         # If player busted, skip them
+#         if player_hand_value > 21:
+#             continue
+        
+#         # Track the highest valid hand that beats the dealer (if dealer didn't bust)
+#         if dealer_busted or player_hand_value > dealer_value:
+#             if player_hand_value > highest_valid_score:
+#                 highest_valid_score = player_hand_value
+#                 round_winners = [player]
+#             elif player_hand_value == highest_valid_score:
+#                 round_winners.append(player)
+
+#     if not round_winners:
+#         await asyncio.sleep(2)
+#         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
+        
+#         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
+#     else:
+#         for winner in round_winners:
+#             await asyncio.sleep(2)
+#             try:
+#                 # Try to tag the winner using their name
+#                 mention = f"[{winner.name}](tg://user?id={winner.id})"
+#             except Exception as e:
+#                 # Fallback to just using the player's name if tagging fails
+#                 mention = winner.name
+#                 print(f"Error tagging player {winner.name}: {str(e)}")
+
+#             await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
+#             if calculate_hand_value(join_entry.hand) == 10:
+#                 await unlock_achievement(winner, "win_with_10", context)
+
+#             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
+#     # Proceed to the next round or end the game if all rounds are done
+#     game.current_round += 1
+#     await check_for_next_round(update, context, game, joined_players)
 
 
 # Asynchronous version of reset_game
@@ -2019,7 +2263,7 @@ async def lucky_draw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = await update.message.reply_text("🃏 Drawing your card...")
 
     # Draw player's card
-    await asyncio.sleep(1)  # Wait to build suspense
+    await asyncio.sleep(2)  # Wait to build suspense
     player_card = random.choice(cards)
     await message.edit_text(f"🃏 You drew: {player_card}")
 
@@ -2037,7 +2281,7 @@ async def lucky_draw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_card_value = card_values[bot_card]
 
     # Determine the result after a short pause
-    await asyncio.sleep(1)
+    await asyncio.sleep(2)
 
     if player_card_value > bot_card_value:
         winnings = bet_amount * 2
@@ -2109,16 +2353,16 @@ async def determine_rps_winner(player_choice, bot_choice, player, message, bet_a
     if player_choice == bot_choice:
         player.chips += bet_amount  # Return bet for tie
         await sync_to_async(player.save)()
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
         await message.edit_text(f"🤝 It's a tie! You get your bet of {bet_amount} chips back!")
     elif win_conditions[player_choice] == bot_choice:
         winnings = bet_amount * 2
         player.chips += winnings
         await sync_to_async(player.save)()
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
         await message.edit_text(f"🎉 You win! {choice_emojis[player_choice]} beats {choice_emojis[bot_choice]}!\nYou win {winnings} chips!")
     else:
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
         await message.edit_text(f"😔 You lose! {choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}!\nYou lose your bet of {bet_amount} chips.")
 
 

@@ -1,6 +1,5 @@
 from django.contrib import admin
-
-from .models import Player, Stats, Game, JoinGame,Dealer,RoundWinner,Group,NextGameNotification, Achievement, PlayerAchievement
+from .models import Player, Stats, Game, JoinGame, Dealer, RoundWinner, Group, NextGameNotification, Achievement, PlayerAchievement
 
 
 # Customizing the admin display for the Achievement model
@@ -8,37 +7,65 @@ class AchievementAdmin(admin.ModelAdmin):
     list_display = ('name', 'description', 'condition', 'icon')
     search_fields = ('name', 'condition')
     list_filter = ('condition',)
-
-# Customizing the admin display for the PlayerAchievement model
-class PlayerAchievementAdmin(admin.ModelAdmin):
-    list_display = ('player', 'achievement', 'unlocked_at')
-    search_fields = ('player__name', 'achievement__name')
-    list_filter = ('unlocked_at',)
-
-# Register the models with their custom admin
-admin.site.register(Achievement, AchievementAdmin)
-admin.site.register(PlayerAchievement, PlayerAchievementAdmin)
+    ordering = ['name']
 
 
-@admin.register(NextGameNotification)
-class NextGameNotificationAdmin(admin.ModelAdmin):
-    list_display = ('user_id', 'chat_id')
-    search_fields = ('user_id', 'chat_id')
+# Inline admin for PlayerAchievements (to show achievements within the Player admin)
+class PlayerAchievementInline(admin.TabularInline):
+    model = PlayerAchievement
+    extra = 1
 
+
+# Customizing the admin display for the Player model
+@admin.register(Player)
+class PlayerAdmin(admin.ModelAdmin):
+    list_display = ('name', 'chips', 'games', 'admin')
+    search_fields = ('name',)
+    list_filter = ('admin',)
+    inlines = [PlayerAchievementInline]
+
+
+# Customizing the admin display for the Game model
+class JoinGameInline(admin.TabularInline):
+    model = JoinGame
+    extra = 0
+
+
+@admin.register(Game)
+class GameAdmin(admin.ModelAdmin):
+    list_display = ('chat_id', 'betting', 'started', 'ended', 'current_round', 'total_rounds')
+    list_filter = ('betting', 'started', 'ended')
+    search_fields = ('chat_id',)
+    ordering = ['-current_round']
+    fieldsets = (
+        (None, {
+            'fields': ('chat_id', 'betting', 'started', 'ended', 'total_rounds', 'pot', 'bet_amount')
+        }),
+        ('Round Details', {
+            'fields': ('current_round', 'dealer_hand', 'turn_order')
+        }),
+        ('Time Management', {
+            'fields': ('join_start_time', 'join_time')
+        }),
+    )
+    inlines = [JoinGameInline]
+
+
+# Customizing the admin display for the Group model
+@admin.register(Group)
 class GroupAdmin(admin.ModelAdmin):
-    list_display = ('group_name','group_chat_id', 'games')  # Fields to display in the list view
-    search_fields = ('group_chat_id',)  # Fields to search by in the admin interface
-    list_filter = ('games',)  # Add filters for better management
+    list_display = ('group_name', 'group_chat_id', 'games', 'vip', 'real_money')
+    search_fields = ('group_chat_id', 'group_name')
+    list_filter = ('vip', 'real_money')
 
-# Register the admin class with the Group model
-admin.site.register(Group, GroupAdmin)
 
+# Customizing the admin display for the RoundWinner model
+@admin.register(RoundWinner)
 class RoundWinnerAdmin(admin.ModelAdmin):
-    list_display = ('game', 'round_number', 'get_winner', 'is_dealer')
-    list_filter = ('game', 'is_dealer', 'round_number')
+    list_display = ('game', 'round_number', 'get_winner', 'is_dealer', 'rounds_ended')
+    list_filter = ('game', 'is_dealer', 'round_number', 'rounds_ended')
     search_fields = ('game__chat_id', 'winner__name')
 
-    # Custom method to display winner's name (handle null cases)
     def get_winner(self, obj):
         if obj.is_dealer:
             return "Dealer"
@@ -48,42 +75,64 @@ class RoundWinnerAdmin(admin.ModelAdmin):
     
     get_winner.short_description = 'Winner'
 
-# Register the model in the admin
-admin.site.register(RoundWinner, RoundWinnerAdmin)
 
+# Customizing the admin display for the Dealer model
 @admin.register(Dealer)
 class DealerAdmin(admin.ModelAdmin):
-    list_display = ('chips', 'wins', 'loses', 'blackjack_count')  # Fields to display in the admin list view
-    search_fields = ('wins', 'loses', 'blackjack_count')  # Fields to search in the admin interface
-    # list_editable = ('chips',)  # Allow chips to be editable directly in the list view
-
-    # Optional: Adding filters for the number of wins, loses, and Blackjack count
+    list_display = ('chips', 'wins', 'loses', 'blackjack_count')
+    search_fields = ('wins', 'loses', 'blackjack_count')
     list_filter = ('wins', 'loses', 'blackjack_count')
+    ordering = ['-wins']
 
-# Register the Stats model
+
+# Customizing the admin display for the Stats model
 @admin.register(Stats)
 class StatsAdmin(admin.ModelAdmin):
-    list_display = ('wins', 'loses', 'how_many_21')  # Display these fields in the list view
-    search_fields = ('wins', 'loses')  # Add search by wins and loses
+    list_display = ('get_player_name', 'wins', 'loses', 'how_many_21')
+    search_fields = ('player__name', 'wins', 'loses')
+    list_filter = ('wins', 'loses')
+
+    # Custom method to display player's name
+    def get_player_name(self, obj):
+        return obj.player.name
+
+    get_player_name.short_description = 'Player'
 
 
-# Register the Player model
-@admin.register(Player)
-class PlayerAdmin(admin.ModelAdmin):
-    list_display = ('name',)  # Display player's name and stats in the list view
-    search_fields = ('name',)  # Add search by player name
+# Customizing the admin display for the PlayerAchievement model
+@admin.register(PlayerAchievement)
+class PlayerAchievementAdmin(admin.ModelAdmin):
+    list_display = ('get_player_name', 'achievement', 'unlocked_at')
+    search_fields = ('player__name', 'achievement__name')
+    list_filter = ('unlocked_at',)
+    ordering = ['-unlocked_at']
+
+    # Custom method to display player's name
+    def get_player_name(self, obj):
+        return obj.player.name
+
+    get_player_name.short_description = 'Player'
 
 
-# Register the Game model
-@admin.register(Game)
-class GameAdmin(admin.ModelAdmin):
-    list_display = ('chat_id', 'betting', 'started', 'ended')  # Display these fields in the list view
-    list_filter = ('betting', 'started', 'ended')  # Add filter options for the boolean fields
-    search_fields = ('chat_id',)  # Add search by chat_id
+# Customizing the admin display for the NextGameNotification model
+@admin.register(NextGameNotification)
+class NextGameNotificationAdmin(admin.ModelAdmin):
+    list_display = ('user_id', 'chat_id')
+    search_fields = ('user_id', 'chat_id')
+    list_filter = ('chat_id',)
+    ordering = ['-user_id']
 
 
-# Register the JoinGame model
+# Registering JoinGame separately
 @admin.register(JoinGame)
 class JoinGameAdmin(admin.ModelAdmin):
-    list_display = ('player', 'game')  # Display player and game fields in the list view
-    search_fields = ('player__name', 'game__chat_id')  # Add search by player name and game chat_id
+    list_display = ('get_player_name', 'game', 'is_active')
+    search_fields = ('player__name', 'game__chat_id')
+    list_filter = ('is_active',)
+    ordering = ['-is_active']
+
+    # Custom method to display player's name
+    def get_player_name(self, obj):
+        return obj.player.name
+
+    get_player_name.short_description = 'Player'

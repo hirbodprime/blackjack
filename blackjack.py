@@ -1466,20 +1466,30 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game.dealer_hand = dealer_hand
     await sync_to_async(game.save)()
 
-    # Track the player(s) who win this round
-    round_winners = []
-    for join_entry in joined_players:
-        player = await sync_to_async(lambda: join_entry.player)()
-        player_hand_value = calculate_hand_value(join_entry.hand)
+    # Fetch all active players who have joined the game
+    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
 
-        # If player busts, skip them
+    # Track the player(s) who win this round
+    highest_valid_score = 0
+    round_winners = []
+
+    for join_entry in joined_players:
+        # Fetch the player asynchronously
+        player = await sync_to_async(lambda: join_entry.player)()
+        
+        player_hand_value = calculate_hand_value(join_entry.hand)
+        
+        # If player busted, skip them
         if player_hand_value > 21:
             continue
-
-        # If dealer busts, or player has a higher  hand
+        
+        # Track the highest valid hand that beats the dealer (if dealer didn't bust)
         if dealer_busted or player_hand_value > dealer_value:
-            round_winners.append(player)
-
+            if player_hand_value > highest_valid_score:
+                highest_valid_score = player_hand_value
+                round_winners = [player]
+            elif player_hand_value == highest_valid_score:
+                round_winners.append(player)
     # Announce the winner(s)
     if not round_winners:
         await asyncio.sleep(2)
@@ -1490,103 +1500,110 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         for winner in round_winners:
             await asyncio.sleep(2)
-            # Fetch the player's hand value directly using the winner reference
-            winner_hand_value = calculate_hand_value(await sync_to_async(lambda: JoinGame.objects.get(player=winner, game=game).hand)())
-            
-            mention = f"[{winner.name}](tg://user?id={winner.id})"
-            await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {winner_hand_value}\\!")
+            try:
+                # Try to tag the winner using their name
+                mention = f"[{winner.name}](tg://user?id={winner.id})"
+            except Exception as e:
+                # Fallback to just using the player's name if tagging fails
+                mention = winner.name
+                print(f"Error tagging player {winner.name}: {str(e)}")
+
+            await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
+            if calculate_hand_value(join_entry.hand) == 10:
+                await unlock_achievement(winner, "win_with_10", context)
+
             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
 
     # Proceed to the next round or end the game if all rounds are done
     game.current_round += 1
     await check_for_next_round(update, context, game, joined_players)
 
-# async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
-#     chat_id = update.message.chat_id
+async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
 
-#     try:
-#         game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
-#     except Game.DoesNotExist:
-#         await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
-#         return
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+    except Game.DoesNotExist:
+        await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
+        return
 
-#     await asyncio.sleep(2)
-#     await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
+    await asyncio.sleep(2)
+    await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
 
-#     dealer_hand = game.dealer_hand
-#     dealer_value = calculate_hand_value(dealer_hand)
+    dealer_hand = game.dealer_hand
+    dealer_value = calculate_hand_value(dealer_hand)
 
-#     # Dealer's logic: drawing until reaching at least 17
-#     while dealer_value < 17:
-#         new_card = deal_card()
-#         dealer_hand.append(new_card)
-#         dealer_value = calculate_hand_value(dealer_hand)
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
+    # Dealer's logic: drawing until reaching at least 17
+    while dealer_value < 17:
+        new_card = deal_card()
+        dealer_hand.append(new_card)
+        dealer_value = calculate_hand_value(dealer_hand)
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
 
-#     # If dealer busts (> 21)
-#     if dealer_value > 21:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
-#         dealer_busted = True
-#     else:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
-#         dealer_busted = False
+    # If dealer busts (> 21)
+    if dealer_value > 21:
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
+        dealer_busted = True
+    else:
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
+        dealer_busted = False
 
-#     # Save the updated dealer hand
-#     game.dealer_hand = dealer_hand
-#     await sync_to_async(game.save)()
+    # Save the updated dealer hand
+    game.dealer_hand = dealer_hand
+    await sync_to_async(game.save)()
 
-#     # Fetch all active players who have joined the game
-#     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
+    # Fetch all active players who have joined the game
+    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
 
-#     # Track the player(s) who win this round
-#     highest_valid_score = 0
-#     round_winners = []
+    # Track the player(s) who win this round
+    highest_valid_score = 0
+    round_winners = []
 
-#     for join_entry in joined_players:
-#         # Fetch the player asynchronously
-#         player = await sync_to_async(lambda: join_entry.player)()
+    for join_entry in joined_players:
+        # Fetch the player asynchronously
+        player = await sync_to_async(lambda: join_entry.player)()
         
-#         player_hand_value = calculate_hand_value(join_entry.hand)
+        player_hand_value = calculate_hand_value(join_entry.hand)
         
-#         # If player busted, skip them
-#         if player_hand_value > 21:
-#             continue
+        # If player busted, skip them
+        if player_hand_value > 21:
+            continue
         
-#         # Track the highest valid hand that beats the dealer (if dealer didn't bust)
-#         if dealer_busted or player_hand_value > dealer_value:
-#             if player_hand_value > highest_valid_score:
-#                 highest_valid_score = player_hand_value
-#                 round_winners = [player]
-#             elif player_hand_value == highest_valid_score:
-#                 round_winners.append(player)
+        # Track the highest valid hand that beats the dealer (if dealer didn't bust)
+        if dealer_busted or player_hand_value > dealer_value:
+            if player_hand_value > highest_valid_score:
+                highest_valid_score = player_hand_value
+                round_winners = [player]
+            elif player_hand_value == highest_valid_score:
+                round_winners.append(player)
 
-#     if not round_winners:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
+    if not round_winners:
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
         
-#         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
-#     else:
-#         for winner in round_winners:
-#             await asyncio.sleep(2)
-#             try:
-#                 # Try to tag the winner using their name
-#                 mention = f"[{winner.name}](tg://user?id={winner.id})"
-#             except Exception as e:
-#                 # Fallback to just using the player's name if tagging fails
-#                 mention = winner.name
-#                 print(f"Error tagging player {winner.name}: {str(e)}")
+        await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
+    else:
+        for winner in round_winners:
+            await asyncio.sleep(2)
+            try:
+                # Try to tag the winner using their name
+                mention = f"[{winner.name}](tg://user?id={winner.id})"
+            except Exception as e:
+                # Fallback to just using the player's name if tagging fails
+                mention = winner.name
+                print(f"Error tagging player {winner.name}: {str(e)}")
 
-#             await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
-#             if calculate_hand_value(join_entry.hand) == 10:
-#                 await unlock_achievement(winner, "win_with_10", context)
+            await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
+            if calculate_hand_value(join_entry.hand) == 10:
+                await unlock_achievement(winner, "win_with_10", context)
 
-#             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
-#     # Proceed to the next round or end the game if all rounds are done
-#     game.current_round += 1
-#     await check_for_next_round(update, context, game, joined_players)
+            await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
+    # Proceed to the next round or end the game if all rounds are done
+    game.current_round += 1
+    await check_for_next_round(update, context, game, joined_players)
 
 
 # Asynchronous version of reset_game

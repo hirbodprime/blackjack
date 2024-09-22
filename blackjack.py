@@ -1491,8 +1491,11 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         for winner in round_winners:
             await asyncio.sleep(2)
+            # Fetch the player's hand value directly using the winner reference
+            winner_hand_value = calculate_hand_value(await sync_to_async(lambda: JoinGame.objects.get(player=winner, game=game).hand)())
+            
             mention = f"[{winner.name}](tg://user?id={winner.id})"
-            await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {calculate_hand_value(join_entry.hand)}\\!")
+            await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {winner_hand_value}\\!")
             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
 
     # Proceed to the next round or end the game if all rounds are done

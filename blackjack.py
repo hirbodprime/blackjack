@@ -69,6 +69,28 @@ async def add_xp(player, amount, context):
     await sync_to_async(player.save)()  # Save the player data
 
 
+
+async def safe_send_reaction(bot, chat_id, reaction, max_retries=10):
+    retries = 0
+    while retries < max_retries:
+        try:
+            await bot.send_message(chat_id=chat_id, text=reaction)
+            return  # Exit the loop if successful
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
+            await asyncio.sleep(2)  # Non-blocking wait
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Rate limit exceeded. Retrying in {retry_after} seconds...")
+            await asyncio.sleep(retry_after)  # Wait for the retry after time
+            retries += 1
+        except Exception as e:
+            print(f"Failed to send message: {e}")
+            break  # Exit on other exceptions
+
+    print("Failed to send reaction after multiple retries.")
+
 # Function to deduct XP and check for level-down
 async def deduct_xp(player, amount, context):
     player.xp -= amount  # Subtract the XP amount
@@ -472,7 +494,7 @@ async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!")
         await asyncio.sleep(1)
         reaction = random.choice(betting_phase_reactions)
-        await context.bot.send_message(chat_id=chat_id, text=reaction)
+        await safe_send_reaction(context.bot, chat_id, reaction)
         return
 
 
@@ -779,7 +801,8 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         dealer.games += 1
         await sync_to_async(dealer.save)()
         reaction = random.choice(scare_players_reactions)
-        await context.bot.send_message(chat_id=chat_id,text=reaction)
+        await safe_send_reaction(context.bot, chat_id, reaction)
+
         await asyncio.sleep(2)
         await context.bot.send_message(
             chat_id=chat_id, 
@@ -924,7 +947,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     await context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...")
     await asyncio.sleep(3)
     reaction = random.choice(game_start_reactions)
-    await context.bot.send_message(chat_id=chat_id,text=reaction)
+    await safe_send_reaction(context.bot, chat_id, reaction)
+
     await asyncio.sleep(2)
 
     player_blackjacks = []
@@ -1713,7 +1737,7 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await asyncio.sleep(2)
 
         reaction = random.choice(all_players_bust_reactions)
-        await safe_send_message_dealer(context.bot, chat_id,reaction)
+        await safe_send_reaction(context.bot, chat_id, reaction)
         await asyncio.sleep(2)
 
         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
@@ -1735,7 +1759,7 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
         if dealer_value == 21:
             reaction = random.choice(blackjack_reactions)
-            await safe_send_message_dealer(context.bot, chat_id, reaction)
+            await safe_send_reaction(context.bot, chat_id, reaction)
             break
     # If dealer busts (> 21)
     if dealer_value > 21:
@@ -1743,7 +1767,7 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
         reaction = random.choice(bust_reactions)
         await asyncio.sleep(2)
-        await safe_send_message_dealer(context.bot, chat_id,reaction)
+        await safe_send_reaction(context.bot, chat_id, reaction)
         dealer_busted = True
     elif dealer_value == 21:
         await asyncio.sleep(2)
@@ -1788,7 +1812,7 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await asyncio.sleep(2)
         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
         reaction = random.choice(win_reactions)
-        await safe_send_message_dealer(context.bot, chat_id,reaction)
+        await safe_send_reaction(context.bot, chat_id, reaction)
         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
     else:
         for winner in round_winners:

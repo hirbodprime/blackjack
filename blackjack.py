@@ -996,6 +996,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
         'poll_id': poll_message.poll.id
     }
     game.poll_id = poll_id
+    context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'] = []  # Initialize if it doesn't exist
+    context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'] = []  # Initialize if it doesn't exist
     await sync_to_async(game.save)()
     game.dealer_bet_timer = 30
     await sync_to_async(game.save)()
@@ -1144,7 +1146,7 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
             (dealer_value == 21 and selected_option == 4) 
         )
         print(f"Correct guess: {correct_guess}")
-        context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'] = []  # Initialize if it doesn't exist
+
 
         if correct_guess:
             player_playerentry = await sync_to_async(lambda: join_entry.player)()
@@ -1164,7 +1166,6 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
             print(f"{player_name} receives a bonus of {bonus} chips!")
 
             # Store player ID in the poll data for later use
-            context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'] = []  # Initialize if it doesn't exist
             context.bot_data['poll_data'][poll_id]['chips'] = bonus  # Initialize if it doesn't exist
             context.bot_data['poll_data'][poll_id]['xp'] = 50  # Initialize if it doesn't exist
             
@@ -2013,6 +2014,8 @@ async def start_next_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'chat_id': chat_id,
         'poll_id': poll_message.poll.id
     }
+    context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'] = []  # Initialize if it doesn't exist
+    context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'] = []  # Initialize if it doesn't exist
     game.poll_id = poll_id
     await sync_to_async(game.save)()
     game.dealer_bet_timer = 30

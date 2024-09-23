@@ -1018,6 +1018,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     dealer_has_blackjack = dealer_value == 21
 
     if dealer_has_blackjack:
+        await send_vote_results(update, context,chat_id,game.poll_id)
+
         await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer has a natural Blackjack! 💥")
         dealer = await sync_to_async(Dealer.objects.get)(id=1)
         dealer.blackjack_count += 1
@@ -1034,6 +1036,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     if player_blackjacks:
         for join_entry in player_blackjacks:
             await unlock_achievement(join_entry.player, "first_natrual_blackjack", context)
+            await send_vote_results(update, context,chat_id,game.poll_id)
+
             await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.")
             await add_xp(join_entry.player, 35, context)
 
@@ -1640,63 +1644,62 @@ async def safe_send_message_dealer(bot, chat_id, text, max_retries=10):
     print("Failed to send the message after retries.")
 # Dealer bust reactions
 bust_reactions = [
-    "Oops\\! I went over\\! 😅",
-    "Busted\\! Maybe next time\\! 😬",
-    "Uh\\-oh\\! I got too greedy\\. 😳",
-    "Looks like I miscalculated\\. 😟",
-    "That didn’t go as planned\\! 😵",
-    "Oh no\\! I’m out\\! 😖",
-    "Well, that didn’t work\\. 😓",
-    "I guess I went too far\\. 😔",
-    "Oops, over the limit\\! You win this round\\. 🙈",
-    "I should’ve stopped sooner\\. 🤦"
+    "Oops! I went over! 😅",
+    "Busted! What a surprise! 😬",
+    "Uh-oh! I got too greedy. Who would’ve thought? 😳",
+    "Looks like I miscalculated. Shocking, right? 😟",
+    "Oh no! I’m out! Guess I should have seen that coming! 😖",
+    "Well, that didn’t work. Who knew? 😓",
+    "I guess I went too far. Wow, what a revelation! 😔",
+    "Oops, over the limit! You win this round. How original! 🙈",
+    "I should’ve stopped sooner. Classic me! 🤦"
 ]
+
 
 # Dealer win reactions
 win_reactions = [
-    "Better luck next time\\! 😎",
-    "I win\\! Care to try again\\? 😏",
-    "The house always wins\\! 🤑",
-    "Nice try, but I’ve got this one\\. 😌",
-    "I told you, I’m unbeatable\\! 😈",
-    "Dealer takes the round\\! 💪",
-    "I got you this time\\! 😁",
-    "Victory is mine\\! 🎉",
-    "A win for the dealer\\! Ready for another\\? 🃏",
-    "I came out on top this time\\! 💥"
+    "Better luck next time! Or, you know, maybe just give up! 😎",
+    "I win! Care to try again, or is this a one-time deal? 😏",
+    "The house always wins! Shocking, right? 🤑",
+    "Nice try, but I’ve got this one. How cute! 😌",
+    "I told you, I’m unbeatable! You really thought otherwise? 😈",
+    "Dealer takes the round! Guess I’ll be here all night! 💪",
+    "I got you this time! How unexpected! 😁",
+    "Victory is mine! Not that anyone’s surprised! 🎉",
+    "A win for the dealer! Ready for another round of disappointment? 🃏",
+    "I came out on top this time! Who could’ve seen that coming? 💥"
 ]
 
-# Dealer blackjack (21) reactions
+
 blackjack_reactions = [
-    "Blackjack\\! I’m unbeatable\\! 😏",
-    "21\\! Looks like I’ve won this one\\. 🎯",
-    "Boom\\! A perfect 21\\! 💥",
-    "Blackjack\\! Can’t do better than that\\! 🃏",
-    "I hit 21\\! You didn’t stand a chance\\! 😎",
-    "Blackjack\\! The perfect hand\\. 🤑",
-    "21\\! That’s as good as it gets\\! 💣",
-    "A flawless 21\\! I win\\! 👑",
-    "Blackjack\\! I’m on fire today\\! 🔥",
-    "21\\! The perfect game\\! ✨"
+    "Blackjack! I’m unbeatable! Shocking, right? 😏",
+    "21! Looks like I’ve won this one. What a twist! 🎯",
+    "Boom! A perfect 21! Who would’ve guessed? 💥",
+    "Blackjack! Can’t do better than that! But hey, keep trying! 🃏",
+    "I hit 21! You didn’t stand a chance! Surprise! 😎",
+    "Blackjack! The perfect hand. Who knew luck could be this one-sided? 🤑",
+    "21! That’s as good as it gets! Try not to cry! 💣",
+    "A flawless 21! I win! Again, who saw that coming? 👑",
+    "Blackjack! I’m on fire today! Bet you wish you were too! 🔥",
+    "21! The perfect game! You know, for me! ✨"
 ]
 
-# Dealer reactions when all players bust
 all_players_bust_reactions = [
-    "Looks like everyone’s out\\! I guess I’ll just stand here\\. 😎",
-    "Oh, you all busted\\? Easy win for me\\! 🃏",
-    "Everyone busted\\? Guess I’ll take this one\\. 😏",
-    "Well, that was quick\\! I didn’t even have to try\\. 😌",
-    "All players busted\\! I’ll stand and take the win\\. 👑",
-    "I didn’t even need to draw\\. You made it easy\\! 🎉",
-    "No cards left for me\\! You all busted\\! 🃏",
-    "Wow, everyone went over\\! I guess I’ll keep my cards\\. 💼",
-    "Everyone busted\\? I’ll just take the win, no problem\\! 😎",
-    "No need to play it out, I win by default\\! 😈",
-    "Well, well, well\\.\\.\\. looks like you couldn’t keep up\\! 💥",
-    "All of you busted\\? I guess the house wins again\\! 🏠",
-    "Looks like I didn't need to try\\! I'll take the win\\. 🎯",
-    "You all went over 21\\? I guess I’ll stand here as the winner\\. 👑",
-    "That’s a wrap\\! Easy win for me\\. 💥"
+    "Looks like everyone’s out! Guess I’ll just stand here. 😎",
+    "Oh, you all busted? Easy win for me! What a surprise! 🃏",
+    "Everyone busted? Guess I’ll take this one. How original! 😏",
+    "Well, that was quick! I didn’t even have to try. Shocking! 😌",
+    "All players busted! I’ll stand and take the win. How unexpected! 👑",
+    "I didn’t even need to draw. You made it easy! Thanks for that! 🎉",
+    "No cards left for me! You all busted! What a twist! 🃏",
+    "Wow, everyone went over! I guess I’ll keep my cards. What a surprise! 💼",
+    "Everyone busted? I’ll just take the win, no problem! Not even close! 😎",
+    "No need to play it out, I win by default! Shocking outcome! 😈",
+    "Well, well, well... looks like you couldn’t keep up! How surprising! 💥",
+    "All of you busted? I guess the house wins again! Not that anyone saw that coming! 🏠",
+    "Looks like I didn't need to try! I'll take the win. How original! 🎯",
+    "You all went over 21? I guess I’ll stand here as the winner. Shocking! 👑",
+    "That’s a wrap! Easy win for me. What a surprise! 💥"
 ]
 
 

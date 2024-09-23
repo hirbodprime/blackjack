@@ -919,7 +919,7 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
         standings_message = "📊 Current standings:\n"
 
         if dealer_wins > 0:
@@ -1074,8 +1074,14 @@ async def send_vote_results(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     correct_guess_player_ids = poll_data.get('correct_guess_player_ids', [])
     wrong_guess_player_ids = poll_data.get('wrong_guess_player_ids', [])
-    xp = poll_data.get('xp', [])
-    chips = poll_data.get('chips', [])
+    
+    # Set chips and xp based on correct guesses
+    if correct_guess_player_ids:
+        xp = poll_data.get('xp', [])
+        chips = poll_data.get('chips', [])
+    else:
+        xp = 0
+        chips = 0
 
     # Construct the results message based on correct guesses
     results_message_correct = "✅ Correct Guesses:\n"
@@ -1098,7 +1104,6 @@ async def send_vote_results(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     # Send the message
     await context.bot.send_message(chat_id=chat_id, text=f"{results_message_correct}\n\n{results_message_wrong}\n\n{rewards_message}")
-
 
 async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.poll_answer.user.id
@@ -1320,7 +1325,7 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
                 no_wins.append((player_name, player_id))
 
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         standings_message = "📊 Current standings:\n"
 
@@ -1358,7 +1363,7 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
         game.hands_reset = False
         await sync_to_async(game.save)()
 
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
         await start_round(update, context, game, joined_players)
 
 

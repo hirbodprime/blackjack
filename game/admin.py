@@ -46,7 +46,7 @@ class GameAdmin(admin.ModelAdmin):
     ordering = ['-current_round']
     fieldsets = (
         (None, {
-            'fields': ('chat_id', 'betting', 'started', 'ended', 'total_rounds', 'pot', 'bet_amount')
+            'fields': ('chat_id', 'betting', 'started', 'ended', 'total_rounds', 'pot', 'bet_amount','bet_phase')
         }),
         ('Round Details', {
             'fields': ('current_round', 'dealer_hand', 'turn_order')

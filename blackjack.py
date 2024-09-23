@@ -487,7 +487,7 @@ async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("An error occurred, please try again.")
 
 
-async def safe_send_poll(bot, chat_id, question, options, max_retries=5):
+async def safe_send_poll(bot, chat_id, question, options, max_retries=10):
     retries = 0
     while retries < max_retries:
         try:
@@ -535,6 +535,8 @@ async def create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     }
 
 async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # chat_id = update.message.chat_id
+
     poll_answer = update.poll_answer
     user_id = poll_answer.user.id
     user_name = poll_answer.user.first_name
@@ -544,11 +546,45 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     poll_data = context.bot_data.get('poll_data', {}).get(poll_answer.poll_id)
 
     if not poll_data:
-        print("Poll data not found.")
+        print("No poll data found.")
         return
+    else:
+        print("Poll data exists.")
+        try:
+            chat_id = poll_data['chat_id']
+            print(f"Chat ID: {chat_id}")
+
+            game = await sync_to_async(Game.objects.get)(
+                chat_id=chat_id, betting=False, started=True, ended=False
+            )
+            print("Game found with betting=False, started=True, ended=False.")
+        except Game.DoesNotExist:
+            print("No game found with betting=False, started=True, ended=False.")
+            try:
+                game = await sync_to_async(Game.objects.get)(
+                    chat_id=chat_id, betting=True, started=False, ended=False
+                )
+                print("Game found with betting=True, started=False, ended=False.")
+            except Game.DoesNotExist:
+                print("Game not found?")
+                return
+
+        if game.bet_phase != "total_pot":
+            print(f"Current bet phase: {game.bet_phase}")
+            if game.bet_phase == "dealer":
+                print("Handling dealer poll response.")
+                await handle_poll_response(update, context)
+            else:
+                print("Poll data not found.")
+                return
+
 
     chat_id = poll_data['chat_id']
-
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, betting=True, started=False, ended=False)
+    except Game.DoesNotExist:
+        print("Game not found?")
+        return
     # Retrieve the group using sync_to_async
     group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
 
@@ -562,16 +598,13 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     bet_amount = int(chosen_option.split()[0])
 
     # Retrieve the game using sync_to_async
-    try:
-        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, betting=True, started=False, ended=False)
-    except Game.DoesNotExist:
-        print("Game not found?")
-        return
+    
 
     # Update game state using sync_to_async
     game.bet_amount = bet_amount
     game.betting = False
     game.join_time = True
+    game.bet_phase = "dealer"
     await sync_to_async(game.save)()
 
     # Escape special characters in user_name
@@ -585,10 +618,10 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         text=f"{mention} has set the bet amount to {chosen_option}\nUse /join to join the game", 
         parse_mode="MarkdownV2"
     )
+    
 
 
-
-async def safe_send_message_join(bot, chat_id, text, max_retries=3):
+async def safe_send_message_join(bot, chat_id, text, max_retries=10):
     retries = 0
     while retries < max_retries:
         try:
@@ -597,7 +630,7 @@ async def safe_send_message_join(bot, chat_id, text, max_retries=3):
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(3)  # Non-blocking sleep
+            await asyncio.sleep(2)  # Non-blocking sleep
     print("Failed to send the message after retries.")
 
 
@@ -808,7 +841,7 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # # Function to start each round
-async def safe_pin_chat_message(bot, chat_id, message_id, max_retries=3):
+async def safe_pin_chat_message(bot, chat_id, message_id, max_retries=10):
     retries = 0
     while retries < max_retries:
         try:
@@ -817,7 +850,7 @@ async def safe_pin_chat_message(bot, chat_id, message_id, max_retries=3):
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while pinning message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(2 ** retries)  # Non-blocking exponential backoff
+            await asyncio.sleep(2)  # Non-blocking exponential backoff
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Rate limit exceeded. Retrying in {retry_after} seconds...")
@@ -912,7 +945,50 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     game.dealer_hand = dealer_hand
     await sync_to_async(game.save)()
 
-    await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible card: ♠️{dealer_hand[0]}")
+    await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible 🃏card: ♠️{dealer_hand[0]}")
+    # Create a poll with options for users to bet on the dealer's total hand value
+    poll_options = [
+            "Under 10",
+            "10-15",
+            "15-18",
+            "19-20",
+            "21!",
+            
+        ]
+
+    poll_message = await context.bot.send_poll(
+        chat_id=chat_id,
+        question="What do you think the dealer's total hand value will be?",
+        options=poll_options,
+        is_anonymous=False,  # Allows users to see who voted for what
+        allows_multiple_answers=False  # Only one answer allowed
+    )
+
+    # Optionally, you could track poll responses
+    poll_id = poll_message.poll.id
+    print(f"adsfasdfsadfa sdpoll_id: {poll_id}")
+    context.bot_data['poll_data'][poll_message.poll.id] = {
+        'chat_id': chat_id,
+        'poll_id': poll_message.poll.id
+    }
+    game.poll_id = poll_id
+    await sync_to_async(game.save)()
+    game.dealer_bet_timer = 30
+    await sync_to_async(game.save)()
+    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    await asyncio.sleep(10)
+    game.dealer_bet_timer -= 10
+    await sync_to_async(game.save)()
+    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    await asyncio.sleep(10)
+    game.dealer_bet_timer -= 10
+    await sync_to_async(game.save)()
+    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    await asyncio.sleep(10)
+    game.dealer_bet_timer = 1 
+    await sync_to_async(game.save)()
+    await context.bot.send_message(chat_id=chat_id, text="Times Up!")
+    
 
     dealer_value = calculate_hand_value(dealer_hand)
     dealer_has_blackjack = dealer_value == 21
@@ -959,6 +1035,111 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
     await player_turn(update, context)
 
+async def send_vote_results(update: Update, context: ContextTypes.DEFAULT_TYPE,chat_id=None,poll_id=None,game=None):
+    poll_data = context.bot_data.get('poll_data', {}).get(poll_id)
+
+    if not poll_data:
+        print("Poll data not found.")
+        return
+
+    correct_guess_player_ids = poll_data.get('correct_guess_player_ids', [])
+    wrong_guess_player_ids = poll_data.get('wrong_guess_player_ids', [])
+    xp = poll_data.get('xp', [])
+    chips = poll_data.get('chips', [])
+
+    # Construct the results message based on correct guesses
+    results_message_correct = "✅ Correct Guesses:\n"
+    results_message_wrong = "❌ Wrong Guesses:\n"
+
+    if correct_guess_player_ids:
+        for player_id in correct_guess_player_ids:
+            results_message_correct += f"- Player ID: {player_id}\n"
+    if wrong_guess_player_ids: 
+        for player_id in wrong_guess_player_ids:
+            results_message_wrong += f"- Player ID: {player_id}\n"
+    await context.bot.send_message(chat_id=chat_id, text=f"{results_message_correct}\n\n{results_message_wrong}\n\nPlayers who guessed correctly received\n{chips}Chips,{xp}XP ")
+
+
+async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.poll_answer.user.id
+    print(f"User ID: {user_id}")
+
+    poll_answer = update.poll_answer
+    poll_data = context.bot_data.get('poll_data', {}).get(poll_answer.poll_id)
+    
+    if not poll_data:
+        print("Poll data not found.")
+        return
+
+    chat_id = poll_data['chat_id']
+    print(f"Chat ID: {chat_id}")
+
+    try:
+        join_entry = await sync_to_async(JoinGame.objects.get)(player__id=user_id, game__chat_id=chat_id)
+        print(f"Join entry found for user {user_id} in chat {chat_id}.")
+    except JoinGame.DoesNotExist:
+        print(f"Join entry not found for user {user_id} in chat {chat_id}.")
+        return
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id)
+        print(f"Game found for user {game.chat_id}")
+    except JoinGame.DoesNotExist:
+        print(f"Game not found for user {game.chat_id}")
+        return
+    if game.dealer_bet_timer == 1:
+        return
+    poll_id = poll_data['poll_id']
+    print(f"Current Poll ID: {poll_id}")
+
+    if update.poll_answer.poll_id == poll_id:
+        selected_option = update.poll_answer.option_ids[0]
+        print(f"Selected option: {selected_option}")
+
+        dealer_value = calculate_hand_value(game.dealer_hand)
+        print(f"Dealer's hand value: {dealer_value}")
+
+        correct_guess = (
+            (dealer_value < 10 and selected_option == 0) or
+            (10 <= dealer_value <= 15 and selected_option == 1) or
+            (15 <= dealer_value <= 18 and selected_option == 2) or
+            (19 <= dealer_value <= 20 and selected_option == 3) or
+            (dealer_value == 21 and selected_option == 4) 
+        )
+        print(f"Correct guess: {correct_guess}")
+
+        if correct_guess:
+            player_playerentry = await sync_to_async(lambda: join_entry.player)()
+            player_stats = await sync_to_async(Stats.objects.get)(player=player_playerentry)
+            player_stats.correct_dealer_guesses += 1
+            await sync_to_async(player_stats.save)()
+            player_name = await sync_to_async(lambda: join_entry.player.name)()
+            player_id = await sync_to_async(lambda: join_entry.player.id)()
+            print(f"Player stats updated for {player_name}.")
+
+            pot_amount = game.pot  # Ensure you have access to the pot
+            print(f"Pot amount: {pot_amount}")
+
+            bonus = pot_amount // 3  # Calculate 1/3 of the pot
+            
+            await add_xp(player_playerentry, 50, context)
+            print(f"{player_name} receives a bonus of {bonus} chips!")
+
+            # Store player ID in the poll data for later use
+            context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'] = []  # Initialize if it doesn't exist
+            context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'] = []  # Initialize if it doesn't exist
+            context.bot_data['poll_data'][poll_id]['chips'] = bonus  # Initialize if it doesn't exist
+            context.bot_data['poll_data'][poll_id]['xp'] = 50  # Initialize if it doesn't exist
+            
+            context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'].append(player_name)
+
+        else:
+            player_name = await sync_to_async(lambda: join_entry.player.name)()
+            player_id = await sync_to_async(lambda: join_entry.player.id)()
+            context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'].append(player_name)
+
+            print(f"{player_name} guessed incorrectly.")
+    else:
+        print("Poll ID does not match.")
 
 async def update_statistics(winners, dealer_wins, joined_players, context):
     # Initialize a list for non-winners
@@ -1193,7 +1374,7 @@ async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # # Escape special characters in the player's name
 
 # Asynchronous version of safe_send_message
-async def safe_send_message_async(bot, chat_id, text, parse_mode="MarkdownV2", max_retries=5):
+async def safe_send_message_async(bot, chat_id, text, parse_mode="MarkdownV2", max_retries=10):
     retries = 0
     while retries < max_retries:
         try:
@@ -1202,7 +1383,7 @@ async def safe_send_message_async(bot, chat_id, text, parse_mode="MarkdownV2", m
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(2 ** retries)  # Non-blocking exponential backoff
+            await asyncio.sleep(2)  # Non-blocking exponential backoff
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
@@ -1372,7 +1553,7 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # # Function to move to the next player's turn
 # # Move to the next player's turn by removing the current player from the turn order
-async def safe_send_message_next_player_turn(bot, chat_id, text, max_retries=5):  # Increased timeout
+async def safe_send_message_next_player_turn(bot, chat_id, text, max_retries=10):  # Increased timeout
     retries = 0
     while retries < max_retries:
         try:
@@ -1381,7 +1562,7 @@ async def safe_send_message_next_player_turn(bot, chat_id, text, max_retries=5):
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(3)  # Non-blocking sleep before retrying
+            await asyncio.sleep(2)  # Non-blocking sleep before retrying
     print("Failed to send the message after retries.")
 
 # Asynchronous version of next_player_turn
@@ -1417,7 +1598,7 @@ async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await dealer_turn(update, context)
 
 # Asynchronous version of safe_send_message_dealer
-async def safe_send_message_dealer(bot, chat_id, text, max_retries=5):
+async def safe_send_message_dealer(bot, chat_id, text, max_retries=10):
     retries = 0
     while retries < max_retries:
         try:
@@ -1426,7 +1607,7 @@ async def safe_send_message_dealer(bot, chat_id, text, max_retries=5):
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(3)  # Non-blocking sleep before retrying
+            await asyncio.sleep(2)  # Non-blocking sleep before retrying
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
@@ -1496,6 +1677,7 @@ all_players_bust_reactions = [
 
 
 async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     chat_id = update.message.chat_id
 
     try:
@@ -1503,6 +1685,7 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Game.DoesNotExist:
         await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
         return
+    await send_vote_results(update, context,chat_id,game.poll_id)
 
     await asyncio.sleep(2)
     await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
@@ -1766,9 +1949,50 @@ async def start_next_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game.dealer_hand = dealer_hand
     await sync_to_async(game.save)()
 
-    # Send the dealer's visible card
     await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible 🃏card: {dealer_hand[0]}")
+    poll_options = [
+            "Under 10",
+            "10-15",
+            "15-18",
+            "19-20",
+            "21!",
+            
+        ]
 
+    poll_message = await context.bot.send_poll(
+        chat_id=chat_id,
+        question="What do you think the dealer's total hand value will be?",
+        options=poll_options,
+        is_anonymous=False,  # Allows users to see who voted for what
+        allows_multiple_answers=False  # Only one answer allowed
+    )
+
+    # Optionally, you could track poll responses
+    poll_id = poll_message.poll.id
+    if 'poll_data' not in context.bot_data:
+        context.bot_data['poll_data'] = {}
+    print(f"adsfasdfsadfa sdpoll_id: {poll_id}")
+    context.bot_data['poll_data'][poll_message.poll.id] = {
+        'chat_id': chat_id,
+        'poll_id': poll_message.poll.id
+    }
+    game.poll_id = poll_id
+    await sync_to_async(game.save)()
+    game.dealer_bet_timer = 30
+    await sync_to_async(game.save)()
+    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    await asyncio.sleep(10)
+    game.dealer_bet_timer -= 10
+    await sync_to_async(game.save)()
+    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    await asyncio.sleep(10)
+    game.dealer_bet_timer -= 10
+    await sync_to_async(game.save)()
+    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    await asyncio.sleep(10)
+    game.dealer_bet_timer = 1 
+    await sync_to_async(game.save)()
+    await context.bot.send_message(chat_id=chat_id, text="Times Up!")
     # Continue to the first player's turn for the next round
     await player_turn(update, context)
 
@@ -2651,6 +2875,11 @@ async def repay_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("You need to register with /start first.")
 
 
+
+
+
+
+
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
@@ -2659,6 +2888,9 @@ elif DEBUG == "False":
     
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
+
+
+
 app.add_handler(CommandHandler("repay_loan", repay_loan))
 app.add_handler(CommandHandler("loan", request_loan))
 app.add_handler(CommandHandler("minigames", minigames))
@@ -2684,7 +2916,10 @@ app.add_handler(CommandHandler("stats", stats))
 app.add_handler(CommandHandler("startblackjack", start_blackjack, block=False))
 app.add_handler(CommandHandler("join", join_blackjack))
 app.add_handler(CommandHandler("forcestart", force_start))
+
 app.add_handler(PollAnswerHandler(poll_answer_handler))  # PollAnswerHandler for poll answers
+app.add_handler(PollAnswerHandler(handle_poll_response))
+
 app.add_handler(CommandHandler("my_tokens", get_player_chips))
 app.add_handler(CommandHandler("stand", stand))
 app.add_handler(CommandHandler("flee", flee_game))

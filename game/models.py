@@ -15,7 +15,10 @@ class Achievement(models.Model):
     icon = models.CharField(max_length=100, null=True, blank=True)  # Optional, could be an emoji or icon
 
 
-
+BET_PHASE_CHOICES = (
+    ("total_pot","total_pot"),
+    ("dealer","dealer")
+    )
 
 
 class Game(models.Model):
@@ -33,6 +36,11 @@ class Game(models.Model):
     total_rounds = models.IntegerField(default=5)  # Total number of rounds in the game
     pot = models.IntegerField(default=0)  # Total pot amount
     join_start_time = models.DateTimeField(null=True, blank=True)  # Time when join period starts
+    bet_phase = models.CharField(choices=BET_PHASE_CHOICES, max_length=50,default="total_pot")  # Time when join period starts
+    dealer_bet_timer = models.IntegerField(default=30)
+    poll_id = models.CharField(max_length=100, null=True, blank=True)
+
+
 
 class Group(models.Model):
     group_chat_id = models.CharField(max_length=100)
@@ -74,6 +82,7 @@ class Stats(models.Model):
     loses = models.IntegerField(default=0)
     how_many_21 = models.IntegerField(default=0)
     player = models.ForeignKey(Player, on_delete=models.CASCADE)
+    correct_dealer_guesses = models.IntegerField(default=0)  # New field for tracking correct guesses
 
 
 class JoinGame(models.Model):

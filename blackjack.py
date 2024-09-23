@@ -960,11 +960,7 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     await player_turn(update, context)
 
 
-
-
-
-async def update_statistics(winners, dealer_wins, joined_players,context):
-    
+async def update_statistics(winners, dealer_wins, joined_players, context):
     # Initialize a list for non-winners
     non_winners = []
 
@@ -976,7 +972,7 @@ async def update_statistics(winners, dealer_wins, joined_players,context):
             await sync_to_async(dealer.save)()
         else:
             player = await sync_to_async(Player.objects.get)(id=winner.id)
-            stats, created = await sync_to_async(Stats.objects.get_or_create)(player=player)
+            stats, _ = await sync_to_async(Stats.objects.get_or_create)(player=player)
             await add_xp(player, 25, context)
             
             stats.wins += 1
@@ -991,17 +987,17 @@ async def update_statistics(winners, dealer_wins, joined_players,context):
 
     # Determine non-winners
     winners_ids = {winner.id for winner in winners if winner != 'dealer'}
-    non_winners = [player.player for player in joined_players if player.player.id not in winners_ids and player.player != 'dealer']
+    non_winners = [await sync_to_async(lambda: join_entry.player)() for join_entry in joined_players 
+                   if await sync_to_async(lambda: join_entry.player.id)() not in winners_ids and join_entry.player != 'dealer']
 
-    # Remove duplicates in non_winners list
+    # Remove duplicates in non-winners list
     non_winners = list(set(non_winners))
 
     # Update losses for each non-winner
     for player in non_winners:
-        stats, created = await sync_to_async(Stats.objects.get_or_create)(player=player)
+        stats, _ = await sync_to_async(Stats.objects.get_or_create)(player=player)
         stats.loses += 1
         await deduct_xp(player, 25, context)
-
         await sync_to_async(stats.save)()
         total_games = stats.wins + stats.loses
         if stats.loses >= 100:
@@ -1014,8 +1010,9 @@ async def update_statistics(winners, dealer_wins, joined_players,context):
     # Update dealer's losses if dealer did not win
     if not dealer_wins:
         dealer = await sync_to_async(Dealer.objects.first)()  # Assuming only one dealer
-        dealer.loses += 1  # Ensure you have a `loses` field in your Dealer model
+        dealer.loses += 1
         await sync_to_async(dealer.save)()
+
 
 
 async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, joined_players):
@@ -1237,10 +1234,13 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Check if it's the player's turn
-    if user_id != game.turn_order[0]:
+    try:
+        if user_id != game.turn_order[0]:
+            await update.message.reply_text("It's not your turn!")
+            return
+    except:
         await update.message.reply_text("It's not your turn!")
         return
-
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
     if hand_value > 21:

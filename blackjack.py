@@ -968,59 +968,60 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     dealer_hand = [deal_card(), deal_card()]
     game.dealer_hand = dealer_hand
     await sync_to_async(game.save)()
-
     await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible 🃏card: ♠️{dealer_hand[0]}")
-    # Create a poll with options for users to bet on the dealer's total hand value
-    poll_options = [
-            "Under 10",
-            "10-15",
-            "15-18",
-            "19-20",
-            "21!",
-            
-        ]
+    if game.current_round == 1:
+        # Create a poll with options for users to bet on the dealer's total hand value
+        poll_options = [
+                "Under 10",
+                "10-15",
+                "15-18",
+                "19-20",
+                "21!",
+                
+            ]
 
-    poll_message = await context.bot.send_poll(
-        chat_id=chat_id,
-        question="What do you think the dealer's total hand value will be?",
-        options=poll_options,
-        is_anonymous=False,  # Allows users to see who voted for what
-        allows_multiple_answers=False  # Only one answer allowed
-    )
+        poll_message = await context.bot.send_poll(
+            chat_id=chat_id,
+            question="What do you think the dealer's total hand value will be?",
+            options=poll_options,
+            is_anonymous=False,  # Allows users to see who voted for what
+            allows_multiple_answers=False  # Only one answer allowed
+        )
 
-    # Optionally, you could track poll responses
-    poll_id = poll_message.poll.id
-    print(f"adsfasdfsadfa sdpoll_id: {poll_id}")
-    context.bot_data['poll_data'][poll_message.poll.id] = {
-        'chat_id': chat_id,
-        'poll_id': poll_message.poll.id
-    }
-    game.poll_id = poll_id
-    context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'] = []  # Initialize if it doesn't exist
-    context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'] = []  # Initialize if it doesn't exist
-    await sync_to_async(game.save)()
-    game.dealer_bet_timer = 30
-    await sync_to_async(game.save)()
-    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
-    await asyncio.sleep(10)
-    game.dealer_bet_timer -= 10
-    await sync_to_async(game.save)()
-    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
-    await asyncio.sleep(10)
-    game.dealer_bet_timer -= 10
-    await sync_to_async(game.save)()
-    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
-    await asyncio.sleep(10)
-    game.dealer_bet_timer = 1 
-    await sync_to_async(game.save)()
-    await context.bot.send_message(chat_id=chat_id, text="Times Up!")
+        # Optionally, you could track poll responses
+        poll_id = poll_message.poll.id
+        print(f"adsfasdfsadfa sdpoll_id: {poll_id}")
+        context.bot_data['poll_data'][poll_message.poll.id] = {
+            'chat_id': chat_id,
+            'poll_id': poll_message.poll.id
+        }
+        game.poll_id = poll_id
+        context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'] = []  # Initialize if it doesn't exist
+        context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'] = []  # Initialize if it doesn't exist
+        await sync_to_async(game.save)()
+        game.dealer_bet_timer = 30
+        await sync_to_async(game.save)()
+        await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+        await asyncio.sleep(10)
+        game.dealer_bet_timer -= 10
+        await sync_to_async(game.save)()
+        await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+        await asyncio.sleep(10)
+        game.dealer_bet_timer -= 10
+        await sync_to_async(game.save)()
+        await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+        await asyncio.sleep(10)
+        game.dealer_bet_timer = 1 
+        await sync_to_async(game.save)()
+        await context.bot.send_message(chat_id=chat_id, text="Times Up!")
     
 
     dealer_value = calculate_hand_value(dealer_hand)
     dealer_has_blackjack = dealer_value == 21
 
     if dealer_has_blackjack:
-        await send_vote_results(update, context,chat_id,game.poll_id)
+        if game.current_round == 1:
+            await send_vote_results(update, context,chat_id,game.poll_id)
 
         await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer has a natural Blackjack! 💥")
         dealer = await sync_to_async(Dealer.objects.get)(id=1)
@@ -1038,7 +1039,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     if player_blackjacks:
         for join_entry in player_blackjacks:
             await unlock_achievement(join_entry.player, "first_natrual_blackjack", context)
-            await send_vote_results(update, context,chat_id,game.poll_id)
+            if game.current_round == 1:
+                await send_vote_results(update, context,chat_id,game.poll_id)
 
             await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.")
             await add_xp(join_entry.player, 35, context)
@@ -1104,7 +1106,6 @@ async def send_vote_results(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     # Send the message
     await context.bot.send_message(chat_id=chat_id, text=f"{results_message_correct}\n\n{results_message_wrong}\n\n{rewards_message}")
-
 async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.poll_answer.user.id
     print(f"User ID: {user_id}")
@@ -1125,16 +1126,30 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
     except JoinGame.DoesNotExist:
         print(f"Join entry not found for user {user_id} in chat {chat_id}.")
         return
+
     try:
         game = await sync_to_async(Game.objects.get)(chat_id=chat_id)
         print(f"Game found for user {game.chat_id}")
-    except JoinGame.DoesNotExist:
+    except Game.DoesNotExist:
         print(f"Game not found for user {game.chat_id}")
         return
+
     if game.dealer_bet_timer == 1:
         return
+
     poll_id = poll_data['poll_id']
     print(f"Current Poll ID: {poll_id}")
+
+    # Check if the player has already voted
+    if user_id in poll_data.get('voted_player_ids', []):
+        print(f"Player {user_id} has already voted. Ignoring duplicate vote.")
+        return  # Ignore if they've already voted
+
+    # Add user ID to the list of voters
+    if 'voted_player_ids' not in poll_data:
+        poll_data['voted_player_ids'] = []
+    
+    poll_data['voted_player_ids'].append(user_id)
 
     if update.poll_answer.poll_id == poll_id:
         selected_option = update.poll_answer.option_ids[0]
@@ -1152,14 +1167,12 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         print(f"Correct guess: {correct_guess}")
 
-
         if correct_guess:
             player_playerentry = await sync_to_async(lambda: join_entry.player)()
             player_stats = await sync_to_async(Stats.objects.get)(player=player_playerentry)
             player_stats.correct_dealer_guesses += 1
             await sync_to_async(player_stats.save)()
             player_name = await sync_to_async(lambda: join_entry.player.name)()
-            player_id = await sync_to_async(lambda: join_entry.player.id)()
             print(f"Player stats updated for {player_name}.")
 
             pot_amount = game.pot  # Ensure you have access to the pot
@@ -1171,19 +1184,18 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
             print(f"{player_name} receives a bonus of {bonus} chips!")
 
             # Store player ID in the poll data for later use
-            context.bot_data['poll_data'][poll_id]['chips'] = bonus  # Initialize if it doesn't exist
-            context.bot_data['poll_data'][poll_id]['xp'] = 50  # Initialize if it doesn't exist
+            context.bot_data['poll_data'][poll_id]['chips'] = bonus
+            context.bot_data['poll_data'][poll_id]['xp'] = 50
             
             context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'].append(player_name)
 
         else:
             player_name = await sync_to_async(lambda: join_entry.player.name)()
-            player_id = await sync_to_async(lambda: join_entry.player.id)()
             context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'].append(player_name)
-
             print(f"{player_name} guessed incorrectly.")
     else:
         print("Poll ID does not match.")
+
 
 async def update_statistics(winners, dealer_wins, joined_players, context):
     # Initialize a list for non-winners
@@ -1728,7 +1740,8 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Game.DoesNotExist:
         await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
         return
-    await send_vote_results(update, context,chat_id,game.poll_id)
+    if game.current_round == 1:
+        await send_vote_results(update, context,chat_id,game.poll_id)
 
     await asyncio.sleep(2)
     await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")

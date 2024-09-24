@@ -968,8 +968,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     dealer_hand = [deal_card(), deal_card()]
     game.dealer_hand = dealer_hand
     await sync_to_async(game.save)()
-    await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible 🃏card: ♠️{dealer_hand[0]}")
     if game.current_round == 1:
+        await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible 🃏card: ♠️{dealer_hand[0]}")
         # Create a poll with options for users to bet on the dealer's total hand value
         poll_options = [
                 "Under 10",
@@ -1781,17 +1781,24 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await check_for_next_round(update, context, game, joined_players)
         return  # Exit early since no more actions are needed
 
-    # Dealer's logic: drawing until beating or matching the highest player hand
-    while dealer_value < 18:
+    if any(calculate_hand_value(join_entry.hand) == 21 for join_entry in joined_players):
+        target_value = 21  # Dealer should aim for 21 if any player has it
+    else:
+        target_value = 18  # Default target for the dealer
+
+    while dealer_value < target_value:
+        # Draw a new card
         new_card = deal_card()
         dealer_hand.append(new_card)
         dealer_value = calculate_hand_value(dealer_hand)
         await asyncio.sleep(2)
-        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}. 🤖 Dealer's hand: {dealer_hand}")
+        
         if dealer_value == 21:
             reaction = random.choice(blackjack_reactions)
             await safe_send_reaction(context.bot, chat_id, reaction)
             break
+
     # If dealer busts (> 21)
     if dealer_value > 21:
         await asyncio.sleep(2)
@@ -2115,78 +2122,7 @@ async def reset_round_state(game):
     game.dealer_hand = []
     await sync_to_async(game.save)()
 
-# Asynchronous version of start_next_round
-async def start_next_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await asyncio.sleep(2)
-    chat_id = update.message.chat_id
-    game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
 
-    # Deal new hands to players and start the next round
-    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
-
-    for join_entry in joined_players:
-        player_hand = [deal_card(), deal_card()]
-        join_entry.hand = player_hand
-        await sync_to_async(join_entry.save)()
-
-        # Inform the player about their new hand
-        player = join_entry.player
-        hand_value = calculate_hand_value(player_hand)
-        await context.bot.send_message(chat_id=chat_id, text=f"Your new 🃏hand: {player_hand}. Total value: {hand_value}")
-
-    # Deal cards to the dealer for the next round
-    dealer_hand = [deal_card(), deal_card()]
-    game.dealer_hand = dealer_hand
-    await sync_to_async(game.save)()
-
-    await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible 🃏card: {dealer_hand[0]}")
-    poll_options = [
-            "Under 10",
-            "10-15",
-            "15-18",
-            "19-20",
-            "21!",
-            
-        ]
-
-    poll_message = await context.bot.send_poll(
-        chat_id=chat_id,
-        question="What do you think the dealer's total hand value will be?",
-        options=poll_options,
-        is_anonymous=False,  # Allows users to see who voted for what
-        allows_multiple_answers=False  # Only one answer allowed
-    )
-
-    # Optionally, you could track poll responses
-    poll_id = poll_message.poll.id
-    if 'poll_data' not in context.bot_data:
-        context.bot_data['poll_data'] = {}
-    print(f"adsfasdfsadfa sdpoll_id: {poll_id}")
-    context.bot_data['poll_data'][poll_message.poll.id] = {
-        'chat_id': chat_id,
-        'poll_id': poll_message.poll.id
-    }
-    context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'] = []  # Initialize if it doesn't exist
-    context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'] = []  # Initialize if it doesn't exist
-    game.poll_id = poll_id
-    await sync_to_async(game.save)()
-    game.dealer_bet_timer = 30
-    await sync_to_async(game.save)()
-    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
-    await asyncio.sleep(10)
-    game.dealer_bet_timer -= 10
-    await sync_to_async(game.save)()
-    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
-    await asyncio.sleep(10)
-    game.dealer_bet_timer -= 10
-    await sync_to_async(game.save)()
-    await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
-    await asyncio.sleep(10)
-    game.dealer_bet_timer = 1 
-    await sync_to_async(game.save)()
-    await context.bot.send_message(chat_id=chat_id, text="Times Up!")
-    # Continue to the first player's turn for the next round
-    await player_turn(update, context)
 
 # Asynchronous version of get_player_instance
 async def get_player_instance(user_id):

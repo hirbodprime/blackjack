@@ -79,7 +79,7 @@ async def safe_send_reaction(bot, chat_id, reaction, max_retries=10):
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(2)  # Non-blocking wait
+            await asyncio.sleep(4)  # Non-blocking wait
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Rate limit exceeded. Retrying in {retry_after} seconds...")
@@ -517,7 +517,7 @@ async def safe_send_poll(bot, chat_id, question, options, max_retries=10):
             return message  # Exit if successful
         except TimedOut:
             retries += 1
-            await asyncio.sleep(3)  # Use async sleep
+            await asyncio.sleep(4)  # Use async sleep
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             await asyncio.sleep(retry_after)  # Use async sleep
@@ -652,7 +652,7 @@ async def safe_send_message_join(bot, chat_id, text, max_retries=10):
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(2)  # Non-blocking sleep
+            await asyncio.sleep(4)  # Non-blocking sleep
     print("Failed to send the message after retries.")
 
 
@@ -873,7 +873,7 @@ async def safe_pin_chat_message(bot, chat_id, message_id, max_retries=10):
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while pinning message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(2)  # Non-blocking exponential backoff
+            await asyncio.sleep(4)  # Non-blocking exponential backoff
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Rate limit exceeded. Retrying in {retry_after} seconds...")
@@ -1439,7 +1439,7 @@ async def safe_send_message_async(bot, chat_id, text, parse_mode="MarkdownV2", m
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(2)  # Non-blocking exponential backoff
+            await asyncio.sleep(4)  # Non-blocking exponential backoff
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Flood control triggered. Retrying in {retry_after} seconds...")
@@ -1618,7 +1618,7 @@ async def safe_send_message_next_player_turn(bot, chat_id, text, max_retries=10)
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(2)  # Non-blocking sleep before retrying
+            await asyncio.sleep(4)  # Non-blocking sleep before retrying
     print("Failed to send the message after retries.")
 
 # Asynchronous version of next_player_turn
@@ -1663,7 +1663,7 @@ async def safe_send_message_dealer(bot, chat_id, text, max_retries=10):
         except TimedOut:
             retries += 1
             print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
-            await asyncio.sleep(2)  # Non-blocking sleep before retrying
+            await asyncio.sleep(4)  # Non-blocking sleep before retrying
         except RetryAfter as e:
             retry_after = int(e.retry_after)
             print(f"Flood control triggered. Retrying in {retry_after} seconds...")

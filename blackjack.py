@@ -1792,7 +1792,7 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         dealer_hand.append(new_card)
         dealer_value = calculate_hand_value(dealer_hand)
         await asyncio.sleep(2)
-        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}. 🤖 Dealer's hand: {dealer_hand}")
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
         
         if dealer_value == 21:
             reaction = random.choice(blackjack_reactions)

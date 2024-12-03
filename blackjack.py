@@ -968,52 +968,52 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     dealer_hand = [deal_card(), deal_card()]
     game.dealer_hand = dealer_hand
     await sync_to_async(game.save)()
-    if game.current_round == 1:
-        await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible 🃏card: ♠️{dealer_hand[0]}")
-        # Create a poll with options for users to bet on the dealer's total hand value
-        poll_options = [
-                "Under 10",
-                "10-15",
-                "15-18",
-                "19-20",
-                "21!",
+    # if game.current_round == 1:
+    #     await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible 🃏card: ♠️{dealer_hand[0]}")
+    #     # Create a poll with options for users to bet on the dealer's total hand value
+    #     poll_options = [
+    #             "Under 10",
+    #             "10-15",
+    #             "15-18",
+    #             "19-20",
+    #             "21!",
                 
-            ]
+    #         ]
 
-        poll_message = await context.bot.send_poll(
-            chat_id=chat_id,
-            question="What do you think the dealer's total hand value will be?",
-            options=poll_options,
-            is_anonymous=False,  # Allows users to see who voted for what
-            allows_multiple_answers=False  # Only one answer allowed
-        )
+    #     poll_message = await context.bot.send_poll(
+    #         chat_id=chat_id,
+    #         question="What do you think the dealer's total hand value will be?",
+    #         options=poll_options,
+    #         is_anonymous=False,  # Allows users to see who voted for what
+    #         allows_multiple_answers=False  # Only one answer allowed
+    #     )
 
-        # Optionally, you could track poll responses
-        poll_id = poll_message.poll.id
-        print(f"adsfasdfsadfa sdpoll_id: {poll_id}")
-        context.bot_data['poll_data'][poll_message.poll.id] = {
-            'chat_id': chat_id,
-            'poll_id': poll_message.poll.id
-        }
-        game.poll_id = poll_id
-        context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'] = []  # Initialize if it doesn't exist
-        context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'] = []  # Initialize if it doesn't exist
-        await sync_to_async(game.save)()
-        game.dealer_bet_timer = 30
-        await sync_to_async(game.save)()
-        await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
-        await asyncio.sleep(10)
-        game.dealer_bet_timer -= 10
-        await sync_to_async(game.save)()
-        await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
-        await asyncio.sleep(10)
-        game.dealer_bet_timer -= 10
-        await sync_to_async(game.save)()
-        await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
-        await asyncio.sleep(10)
-        game.dealer_bet_timer = 1 
-        await sync_to_async(game.save)()
-        await context.bot.send_message(chat_id=chat_id, text="Times Up!")
+    #     # Optionally, you could track poll responses
+    #     poll_id = poll_message.poll.id
+    #     print(f"adsfasdfsadfa sdpoll_id: {poll_id}")
+    #     context.bot_data['poll_data'][poll_message.poll.id] = {
+    #         'chat_id': chat_id,
+    #         'poll_id': poll_message.poll.id
+    #     }
+    #     game.poll_id = poll_id
+    #     context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'] = []  # Initialize if it doesn't exist
+    #     context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'] = []  # Initialize if it doesn't exist
+    #     await sync_to_async(game.save)()
+    #     game.dealer_bet_timer = 30
+    #     await sync_to_async(game.save)()
+    #     await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    #     await asyncio.sleep(10)
+    #     game.dealer_bet_timer -= 10
+    #     await sync_to_async(game.save)()
+    #     await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    #     await asyncio.sleep(10)
+    #     game.dealer_bet_timer -= 10
+    #     await sync_to_async(game.save)()
+    #     await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    #     await asyncio.sleep(10)
+    #     game.dealer_bet_timer = 1 
+    #     await sync_to_async(game.save)()
+    #     await context.bot.send_message(chat_id=chat_id, text="Times Up!")
     
 
     dealer_value = calculate_hand_value(dealer_hand)

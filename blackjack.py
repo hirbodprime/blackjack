@@ -2544,16 +2544,16 @@ async def get_user_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(f"User ID for {player_name} is {user_id}.")
     else:
         await update.message.reply_text(f"Player with the name {player_name} was not found.")
+from django.db import transaction
 
 # games------------------------------
-
 async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     bet_amount = int(context.args[0]) if context.args else 50  # Default bet amount is 50 chips
-    
+
     if not await check_player(update, context):
         return
-    
+
     player = await sync_to_async(Player.objects.get)(id=user_id)
 
     if player.chips < bet_amount:
@@ -2562,15 +2562,15 @@ async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Deduct the bet amount
     player.chips -= bet_amount
-    await sync_to_async(player.save)()
+    await save_player(player)  # Ensure it's saved properly
 
-    # Possible symbols for the slot machine
+    # Possible slot symbols
     slot_symbols = ['🍒', '🍋', '💰', '🍀', '🔔', '⭐']
 
     # Send the initial message
     message = await update.message.reply_text('🎰 Spinning...')
 
-    # Simulate spinning effect by editing the same message
+    # Simulate spinning effect
     spinning_texts = [
         '🎰 Spinning... 🍒 | 🍋 | 💰',
         '🎰 Spinning... 🍀 | 💰 | 🔔',
@@ -2578,28 +2578,39 @@ async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         '🎰 Spinning... 🔔 | ⭐ | 🍀',
         '🎰 Spinning... 🍒 | 💰 | ⭐'
     ]
-    
+
     for text in spinning_texts:
         await message.edit_text(text)
-        await asyncio.sleep(1)  # Add delay to simulate the spinning
+        await asyncio.sleep(1)
 
     # Final result
     slot_result = [random.choice(slot_symbols) for _ in range(3)]
     result_text = ' | '.join(slot_result)
 
-    # Define winning combinations
-    if len(set(slot_result)) == 1:  # All three symbols match
+    winnings = 0  # Initialize winnings
+
+    # Check winning conditions
+    if len(set(slot_result)) == 1:  # Jackpot (all symbols match)
         winnings = bet_amount * 10
-        player.chips += winnings
-        await sync_to_async(player.save)()
-        await message.edit_text(f"🎰 {result_text} 🎰\nJackpot! You win {winnings} chips!")
-    elif slot_result[0] == slot_result[1] or slot_result[1] == slot_result[2]:
+    elif slot_result[0] == slot_result[1] or slot_result[1] == slot_result[2]:  # Two match
         winnings = bet_amount * 3
+
+    # Update player chips if won
+    if winnings > 0:
         player.chips += winnings
-        await sync_to_async(player.save)()
-        await message.edit_text(f"🎰 {result_text} 🎰\nYou win {winnings} chips!")
+        await save_player(player)  # Save after updating winnings
+        await message.edit_text(f"🎰 {result_text} 🎰\nYou win {winnings} chips! 🎉")
     else:
-        await message.edit_text(f"🎰 {result_text} 🎰\nNo match! You lose your bet.")
+        await message.edit_text(f"🎰 {result_text} 🎰\nNo match! You lose your bet. 😢")
+
+
+
+
+
+
+async def save_player(player):
+    """Ensures player data is saved asynchronously."""
+    await sync_to_async(player.save)()
 
 
 

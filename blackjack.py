@@ -3018,48 +3018,44 @@ async def repay_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 ADMIN_ID = 1553620403
-BOT_USERNAME = "YourBotUsername"  # without the @
 
-
-# compile once: match "/chips 200" or "/chips@YourBotUsername 200"
-CHIPS_RE = re.compile(r"^/chips(?:@%s)?\s+(\d+)$" % BOT_USERNAME, re.IGNORECASE)
-
-async def chips_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    msg = update.message
-    if not msg or not msg.text:
+async def give_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # only allow your admin user to run this
+    if update.effective_user.id != ADMIN_ID:
         return
 
-    # only when REPLY and from YOUR admin ID
-    if msg.from_user.id != ADMIN_ID or not msg.reply_to_message:
-        return
+    # must reply to someone
+    if not update.message.reply_to_message:
+        return await update.message.reply_text(
+            "❗️ Reply to a user's message and type `/chips <amount>`.",
+            parse_mode="Markdown"
+        )
 
-    text = msg.text.strip()
+    # parse amount
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        return await update.message.reply_text(
+            "Usage: `/chips <amount>`",
+            parse_mode="Markdown"
+        )
+    amount = int(context.args[0])
 
-    m = CHIPS_RE.match(text)
-    if not m:
-        return  # ignore other messages
-
-    amount = int(m.group(1))
-    target = msg.reply_to_message.from_user
-    target_id = target.id
-
-    # fetch or bail
+    # find the target player record
+    target = update.message.reply_to_message.from_user
     try:
-        player = await sync_to_async(Player.objects.get)(id=target_id)
+        player = await sync_to_async(Player.objects.get)(id=target.id)
     except ObjectDoesNotExist:
-        return await msg.reply_text(f"❌ Player {target_id} not found.")
+        return await update.message.reply_text(f"❌ No player with ID {target.id}.")
 
-    # do the give
+    # give chips and save
     player.chips += amount
     await sync_to_async(player.save)()
 
-    # confirm
-    await msg.reply_text(f"✅ {amount} 💰 given to {player.name or target.full_name}.")
+    # confirmations
+    await update.message.reply_text(f"✅ {amount} 💰 given to {player.name or target.full_name}.")
     await context.bot.send_message(
-        chat_id=target_id,
+        chat_id=target.id,
         text=f"You've received {amount} 💰 from the admin!"
     )
-
 
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
@@ -3110,7 +3106,7 @@ app.add_handler(CommandHandler("dealer_stats", get_dealer_blackjack_stats))
 app.add_handler(CommandHandler("achievements", my_achievements))
 app.add_handler(CommandHandler("achievements_info", achievement_info))
 
-app.add_handler(MessageHandler(filters.TEXT, chips_message))
+app.add_handler(CommandHandler("chips", give_chips))
 
 app.run_polling()
 

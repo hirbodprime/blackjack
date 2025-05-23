@@ -3020,42 +3020,80 @@ async def repay_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ADMIN_ID = 1553620403
 
 async def give_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # only allow your admin user to run this
+    # Debug entry
+    print(f"[DEBUG] give_chips triggered by user {update.effective_user.id} in chat {update.effective_chat.id}")
+    print(f"[DEBUG] Message text: {update.message.text!r}")
+
+    # Admin check
     if update.effective_user.id != ADMIN_ID:
+        print(f"[DEBUG] User {update.effective_user.id} is not ADMIN_ID={ADMIN_ID}, exiting.")
         return
 
-    # must reply to someone
+    # Reply check
     if not update.message.reply_to_message:
-        return await update.message.reply_text(
+        print("[DEBUG] No reply_to_message found, prompting usage.")
+        await update.message.reply_text(
             "❗️ Reply to a user's message and type `/chips <amount>`.",
             parse_mode="Markdown"
         )
+        return
 
-    # parse amount
-    if len(context.args) != 1 or not context.args[0].isdigit():
-        return await update.message.reply_text(
+    # Args parsing
+    args = context.args
+    print(f"[DEBUG] context.args = {args}")
+    if len(args) != 1:
+        print("[DEBUG] Wrong number of args, sending usage.")
+        await update.message.reply_text(
             "Usage: `/chips <amount>`",
             parse_mode="Markdown"
         )
-    amount = int(context.args[0])
+        return
 
-    # find the target player record
-    target = update.message.reply_to_message.from_user
+    # Amount check
+    amount_str = args[0]
+    if not amount_str.isdigit():
+        print(f"[DEBUG] args[0]={amount_str!r} is not a digit.")
+        await update.message.reply_text(
+            "❗️ Amount must be a number.",
+            parse_mode="Markdown"
+        )
+        return
+
+    amount = int(amount_str)
+    print(f"[DEBUG] Parsed amount = {amount}")
+
+    # Identify target
+    target_user = update.message.reply_to_message.from_user
+    target_id = target_user.id
+    print(f"[DEBUG] Target user is {target_user.full_name} with ID {target_id}")
+
+    # Fetch Player
     try:
-        player = await sync_to_async(Player.objects.get)(id=target.id)
+        player = await sync_to_async(Player.objects.get)(id=target_id)
+        print(f"[DEBUG] Found Player record: {player}")
     except ObjectDoesNotExist:
-        return await update.message.reply_text(f"❌ No player with ID {target.id}.")
+        print(f"[DEBUG] No Player found with id={target_id}")
+        await update.message.reply_text(f"❌ No player with ID {target_id}.")
+        return
 
-    # give chips and save
+    # Update and save
+    original = player.chips
     player.chips += amount
+    print(f"[DEBUG] Updating chips: {original} -> {player.chips}")
     await sync_to_async(player.save)()
+    print("[DEBUG] Player.save() completed")
 
-    # confirmations
-    await update.message.reply_text(f"✅ {amount} 💰 given to {player.name or target.full_name}.")
-    await context.bot.send_message(
-        chat_id=target.id,
-        text=f"You've received {amount} 💰 from the admin!"
-    )
+    # Confirm to admin
+    resp_admin = f"✅ {amount} 💰 given to {player.name or target_user.full_name}."
+    print(f"[DEBUG] Replying to admin: {resp_admin}")
+    await update.message.reply_text(resp_admin)
+
+    # Notify the target
+    notify_text = f"You've received {amount} 💰 from the admin!"
+    print(f"[DEBUG] Sending message to target {target_id}: {notify_text}")
+    await context.bot.send_message(chat_id=target_id, text=notify_text)
+    print("[DEBUG] Notification sent to target")
+
 
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":

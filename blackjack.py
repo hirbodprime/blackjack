@@ -3018,65 +3018,56 @@ async def repay_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 ADMIN_ID = 1553620403
+async def give_chips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # only admin can use this
+    if update.effective_user.id != ADMIN_ID:
+        return
 
-async def reply_give_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # only proceed if this message is a reply
+    # must be a reply
     if not update.message.reply_to_message:
-        return
-
-    # only allow your admin
-    if update.message.from_user.id != ADMIN_ID:
-        return
-
-    text = update.message.text.strip()
-    parts = text.split()
-
-    # expect exactly: <token_type> <amount>
-    if len(parts) != 2 or parts[0] not in ("real_token", "chips") or not parts[1].isdigit():
-        await update.message.reply_text(
-            "Usage (reply to a user):\n"
-            "`chips 300`\n"
-            "`real_token 5`",
+        return await update.message.reply_text(
+            "❗️ Please reply to a user's message and use `/chips <amount>`.",
             parse_mode="Markdown"
         )
-        return
 
-    token_type, amount_str = parts
-    amount = int(amount_str)
+    # parse amount
+    if len(context.args) != 1:
+        return await update.message.reply_text(
+            "Usage: `/chips <amount>`",
+            parse_mode="Markdown"
+        )
+
+    try:
+        amount = int(context.args[0])
+    except ValueError:
+        return await update.message.reply_text(
+            "❗️ Amount must be a number.",
+            parse_mode="Markdown"
+        )
 
     target_user = update.message.reply_to_message.from_user
     target_id = target_user.id
 
-    # fetch player record
+    # fetch and update player
     try:
         player = await sync_to_async(Player.objects.get)(id=target_id)
     except ObjectDoesNotExist:
-        await update.message.reply_text(f"❌ Player with ID {target_id} not found.")
-        return
+        return await update.message.reply_text(f"❌ Player with ID {target_id} not found.")
 
-    # apply tokens
-    if token_type == "chips":
-        player.chips += amount
-        token_emoji = "💰"
-        name = player.name or target_user.full_name
-    else:
-        player.real_tokens += amount
-        token_emoji = "💵"
-        name = player.name or target_user.full_name
-
-    # save
+    player.chips += amount
     await sync_to_async(player.save)()
 
     # confirm to admin
     await update.message.reply_text(
-        f"✅ {amount} {token_emoji} given to {name} (ID {target_id})."
+        f"✅ {amount} 💰 given to {player.name or target_user.full_name}."
     )
 
-    # notify the target user
+    # notify the user
     await context.bot.send_message(
         chat_id=target_id,
-        text=f"You have received {amount} {token_emoji} from the admin!"
+        text=f"You've received {amount} 💰 from the admin!"
     )
+
 
 
 DEBUG = os.getenv("DEBUG")
@@ -3127,11 +3118,8 @@ app.add_handler(CommandHandler("hit", hit))
 app.add_handler(CommandHandler("dealer_stats", get_dealer_blackjack_stats))
 app.add_handler(CommandHandler("achievements", my_achievements))
 app.add_handler(CommandHandler("achievements_info", achievement_info))
-give_token_reply_handler = MessageHandler(
-    filters.TEXT & filters.User(user_id=ADMIN_ID),
-    reply_give_token
-)
-app.add_handler(give_token_reply_handler)
+
+app.add_handler(CommandHandler("chips", give_chips))
 
 app.run_polling()
 

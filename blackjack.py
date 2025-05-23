@@ -3017,6 +3017,66 @@ async def repay_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+ADMIN_ID = 1553620403
+
+async def reply_give_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # only proceed if this message is a reply
+    if not update.message.reply_to_message:
+        return
+
+    # only allow your admin
+    if update.message.from_user.id != ADMIN_ID:
+        return
+
+    text = update.message.text.strip()
+    parts = text.split()
+
+    # expect exactly: <token_type> <amount>
+    if len(parts) != 2 or parts[0] not in ("real_token", "chips") or not parts[1].isdigit():
+        await update.message.reply_text(
+            "Usage (reply to a user):\n"
+            "`chips 300`\n"
+            "`real_token 5`",
+            parse_mode="Markdown"
+        )
+        return
+
+    token_type, amount_str = parts
+    amount = int(amount_str)
+
+    target_user = update.message.reply_to_message.from_user
+    target_id = target_user.id
+
+    # fetch player record
+    try:
+        player = await sync_to_async(Player.objects.get)(id=target_id)
+    except ObjectDoesNotExist:
+        await update.message.reply_text(f"❌ Player with ID {target_id} not found.")
+        return
+
+    # apply tokens
+    if token_type == "chips":
+        player.chips += amount
+        token_emoji = "💰"
+        name = player.name or target_user.full_name
+    else:
+        player.real_tokens += amount
+        token_emoji = "💵"
+        name = player.name or target_user.full_name
+
+    # save
+    await sync_to_async(player.save)()
+
+    # confirm to admin
+    await update.message.reply_text(
+        f"✅ {amount} {token_emoji} given to {name} (ID {target_id})."
+    )
+
+    # notify the target user
+    await context.bot.send_message(
+        chat_id=target_id,
+        text=f"You have received {amount} {token_emoji} from the admin!"
+    )
 
 
 DEBUG = os.getenv("DEBUG")
@@ -3067,6 +3127,11 @@ app.add_handler(CommandHandler("hit", hit))
 app.add_handler(CommandHandler("dealer_stats", get_dealer_blackjack_stats))
 app.add_handler(CommandHandler("achievements", my_achievements))
 app.add_handler(CommandHandler("achievements_info", achievement_info))
+give_token_reply_handler = MessageHandler(
+    filters.TEXT & filters.User(user_id=ADMIN_ID),
+    reply_give_token
+)
+app.add_handler(give_token_reply_handler)
 
 app.run_polling()
 

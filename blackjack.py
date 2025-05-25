@@ -939,8 +939,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
         message = await context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
 
-        if bot_member.status in ['administrator', 'creator']:
-            await safe_pin_chat_message(context.bot, chat_id, message.message_id)
+        # if bot_member.status in ['administrator', 'creator']:
+        #     await safe_pin_chat_message(context.bot, chat_id, message.message_id)
 
     await asyncio.sleep(2)
 
@@ -1358,8 +1358,8 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
 
         message = await context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
 
-        if bot_member.status in ['administrator', 'creator']:
-            await safe_pin_chat_message(context.bot, chat_id, message.message_id)
+        # if bot_member.status in ['administrator', 'creator']:
+        #     await safe_pin_chat_message(context.bot, chat_id, message.message_id)
 
         await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
         await context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.")
@@ -2259,6 +2259,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     /coin - flip a coin and try your luck (/coin [heads/tails] [betamount])
     /draw - draw a card against the bot (/draw [betamount])
     /rps - Play RPS (/rps [rock/paper/scissors] [betamount])
+    /dart - Play dart to earn 200 twice a day
 
     *Token & Dealer Commands*:
     /my_tokens - Display your current chip count
@@ -2334,7 +2335,7 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     *Dealer Rules*:
     
-    - The dealer will also draw cards but must stand if their total is 17 or higher.
+    - The dealer will also draw cards but must stand if their total is 18 or higher.
     - The dealer must hit if their total is 16 or lower.
     
     *Betting*:
@@ -2922,11 +2923,12 @@ async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.message.chat_id
     text = (
         "🎮 *Available Minigames* 🎮\n\n"
-        "🎲 /dice - Roll a dice and test your luck!\n"
-        "🎰 /slot - Try your luck at the slot machine. Will you hit the jackpot?\n"
-        "🪙 /coin - Flip a coin and see if it’s heads or tails.\n"
-        "🎟 /draw - Participate in a lucky draw. Will you be the lucky one?\n"
-        "✊🖐✌️ /rps - Play Rock, Paper, Scissors against the bot.\n"
+        "🎲 /dice - Roll a dice and test your luck! (/dice [chips amount])\n"
+        "🎰 /slot - Try your luck at the slot machine. Will you hit the jackpot? (/slot [chipsamount])\n"
+        "🪙 /coin - Flip a coin and see if it’s heads or tails. (/coin [heads/tails] [chips amount])\n"
+        "🎟 /draw - Participate in a lucky draw. Will you be the lucky one? (/draw [chips amount])\n"
+        "🎯 /dart - Play dart twice a day to win 200 chips.\n"
+        "✊🖐✌️ /rps - Play Rock, Paper, Scissors against the bot. (/rps [rock/paper/scissors] [chips amound])\n"
     )
     
     await context.bot.send_message(chat_id=chat_id, text=text)
@@ -3094,6 +3096,32 @@ async def give_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=target_id, text=notify_text)
     print("[DEBUG] Notification sent to target")
 
+async def claim_daily_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    now = timezone.now()
+
+    # If already claimed today, bail out
+    if player.last_claimed_tokens and player.last_claimed_tokens.date() == now.date():
+        await update.message.reply_text("🎁 You’ve already claimed your daily 200 chips! Come back tomorrow.")
+        return
+
+    # Grant daily 200 chips
+    player.chips += 200
+    player.last_claimed_tokens = now
+    await sync_to_async(player.save)()
+
+    await update.message.reply_text(f"🎉 Here are your 200 daily chips! You now have 💰{player.chips} chips.")
+async def group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    group_link = "https://t.me/YourBlackjackMainGroup"  # ← replace with your real link
+    await update.message.reply_text(
+        f"🎲 Join our main Blackjack group here:\n{group_link}"
+    )
+
 
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
@@ -3115,15 +3143,17 @@ app.add_handler(CommandHandler("slot", slot_machine))
 app.add_handler(CommandHandler("coin", coinflip))
 app.add_handler(CommandHandler("draw", lucky_draw))
 app.add_handler(CommandHandler("rps", rps_game))
+app.add_handler(CommandHandler("dart", claim_tokens))
+app.add_handler(CommandHandler("daily_token", claim_daily_tokens))
 app.add_handler(CommandHandler("leaderboard", leaderboard))
+app.add_handler(CommandHandler("group", group))
 
 
 app.add_handler(photo_handler)
 app.add_handler(CommandHandler("user_id", get_user_id_command))
 app.add_handler(CommandHandler("give_token", give_token))
-app.add_handler(CommandHandler("buy_tokens", buy_tokens))
-app.add_handler(CommandHandler("set_status", set_status))
-app.add_handler(CommandHandler("claim_tokens", claim_tokens))
+# app.add_handler(CommandHandler("buy_tokens", buy_tokens))
+# app.add_handler(CommandHandler("set_status", set_status))
 app.add_handler(CommandHandler("help", help_command))
 app.add_handler(CommandHandler("rules", rules_command))
 app.add_handler(CommandHandler("start", start))

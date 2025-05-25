@@ -3123,6 +3123,41 @@ async def group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+
+
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # only allow admin to run
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    # require a message
+    if not context.args:
+        await update.message.reply_text("Usage: /broadcast <your message here>")
+        return
+
+    text = " ".join(context.args)
+
+    # get all player IDs (which are the chat_ids for private chats)
+    player_ids = await sync_to_async(
+        lambda: list(Player.objects.values_list("id", flat=True))
+    )()
+
+    sent = 0
+    for uid in player_ids:
+        try:
+            await context.bot.send_message(chat_id=uid, text=text)
+            sent += 1
+            # small pause to respect flood limits
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            # log or ignore users who blocked the bot, etc.
+            print(f"Failed to send to {uid}: {e}")
+
+    await update.message.reply_text(f"Broadcast sent to {sent} players.")
+
+
+
+
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
@@ -3133,7 +3168,7 @@ elif DEBUG == "False":
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
 
 
-
+app.add_handler(CommandHandler("broadcast", broadcast))
 app.add_handler(CommandHandler("repay_loan", repay_loan))
 app.add_handler(CommandHandler("loan", request_loan))
 app.add_handler(CommandHandler("minigames", minigames))

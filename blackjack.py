@@ -3117,7 +3117,7 @@ async def claim_daily_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     await update.message.reply_text(f"🎉 Here are your 200 daily chips! You now have 💰{player.chips} chips.")
 async def group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    group_link = "https://t.me/YourBlackjackMainGroup"  # ← replace with your real link
+    group_link = "https://t.me/+JLQINcmYLZg3NDM0"  # ← replace with your real link
     await update.message.reply_text(
         f"🎲 Join our main Blackjack group here:\n{group_link}"
     )

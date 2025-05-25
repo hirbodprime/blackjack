@@ -2932,8 +2932,6 @@ async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     
     await context.bot.send_message(chat_id=chat_id, text=text)
-
-
 async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     loan_amount = int(context.args[0]) if context.args else 0
@@ -2942,23 +2940,21 @@ async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Please specify a valid loan amount.")
         return
 
-    # Calculate XP cost
-    xp_cost = (loan_amount // 100) * 25
+    # Charge 25 XP per *started* 100 chips,
+    # so even loan_amount=1..100 costs 25 XP.
+    xp_cost = math.ceil(loan_amount / 100) * 25
 
     try:
         player = await sync_to_async(Player.objects.get)(id=user_id)
-        dealer = await sync_to_async(Dealer.objects.first)()  # Assuming there is only one dealer
+        dealer = await sync_to_async(Dealer.objects.first)()
 
-        # Check if dealer has enough chips for the loan
         if dealer.chips < loan_amount:
             await update.message.reply_text("The Casino doesn't have enough chips to give you this loan.")
             return
 
-        # Check if player has enough XP to take the loan
         if player.xp < xp_cost:
-            # Check if player can afford to lose a level
             if player.level > 1:
-                # Deduct XP and de-level the player if necessary
+                # de-level until you can pay
                 remaining_xp = player.xp - xp_cost
                 while remaining_xp < 0 and player.level > 1:
                     player.level -= 1
@@ -2968,16 +2964,19 @@ async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("You don't have enough XP to take this loan.")
                 return
 
-        # Deduct XP and take chips from the dealer
-        player.xp -= xp_cost
+        # Deduct XP and transfer chips
+        player.xp    -= xp_cost
         player.chips += loan_amount
-        player.loan += loan_amount
+        player.loan  += loan_amount
         dealer.chips -= loan_amount
 
         await sync_to_async(player.save)()
         await sync_to_async(dealer.save)()
 
-        await update.message.reply_text(f"You've received a loan of {loan_amount} 💰 chips.\nXP cost: {xp_cost} XP. Don't forget to repay with 3% interest!")
+        await update.message.reply_text(
+            f"You've received a loan of {loan_amount} 💰 chips.\n"
+            f"XP cost: {xp_cost} XP. Don't forget to repay with 3% interest!"
+        )
 
     except Player.DoesNotExist:
         await update.message.reply_text("You need to register with /start first.")

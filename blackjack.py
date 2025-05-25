@@ -2923,12 +2923,12 @@ async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.message.chat_id
     text = (
         "🎮 *Available Minigames* 🎮\n\n"
-        "🎲 /dice - Roll a dice and test your luck! (/dice [chips amount])\n"
-        "🎰 /slot - Try your luck at the slot machine. Will you hit the jackpot? (/slot [chipsamount])\n"
-        "🪙 /coin - Flip a coin and see if it’s heads or tails. (/coin [heads/tails] [chips amount])\n"
-        "🎟 /draw - Participate in a lucky draw. Will you be the lucky one? (/draw [chips amount])\n"
-        "🎯 /dart - Play dart twice a day to win 200 chips.\n"
-        "✊🖐✌️ /rps - Play Rock, Paper, Scissors against the bot. (/rps [rock/paper/scissors] [chips amound])\n"
+        "🎲 /dice - Roll a dice and test your luck! (/dice [chips amount])\n\n"
+        "🎰 /slot - Try your luck at the slot machine. Will you hit the jackpot? (/slot [chipsamount])\n\n"
+        "🪙 /coin - Flip a coin and see if it’s heads or tails. (/coin [heads/tails] [chips amount])\n\n"
+        "🎟 /draw - Participate in a lucky draw. Will you be the lucky one? (/draw [chips amount])\n\n"
+        "🎯 /dart - Play dart twice a day to win 200 chips.\n\n"
+        "✊🖐✌️ /rps - Play Rock, Paper, Scissors against the bot. (/rps [rock/paper/scissors] [chips amound])\n\n"
     )
     
     await context.bot.send_message(chat_id=chat_id, text=text)

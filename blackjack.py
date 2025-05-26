@@ -3154,7 +3154,6 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             print(f"Failed to send to {uid}: {e}")
 
     await update.message.reply_text(f"Broadcast sent to {sent} players.")
-
 SPIN_SLICES = [
     ("💰 +50 000 chips",  50_000, +1_000,  0),
     ("🎉 +25 000 chips",  25_000,   +500,  0),
@@ -3162,10 +3161,7 @@ SPIN_SLICES = [
     ("👍  +5 000 chips",   5_000,    +50,  0),
     ("🤔  +1 000 chips",   1_000,    +20,  0),
 
-    # replaced all negative-chip outcomes with “Nothing happens”
-    ("😐  Nothing happens",      0,     0,  0),
-    ("😐  Nothing happens",      0,     0,  0),
-    ("😐  Nothing happens",      0,     0,  0),
+    # only two neutral slots now
     ("😐  Nothing happens",      0,     0,  0),
     ("😐  Nothing happens",      0,     0,  0),
 
@@ -3174,192 +3170,140 @@ SPIN_SLICES = [
     ("🌟  +500 XP",              0,   +500,  0),
     ("🧟  –500 XP",              0,   -500,  0),
 ]
-async def _spin_sequence(message, context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    # spin animation
+
+async def _spin_sequence(bot, chat_id, message_id, user_id):
+    # animate
     for _ in range(15):
-        label, *_ = random.choice(SPIN_SLICES)
-        await message.edit_text(f"🎡 Spinning… {label}")
+        label, chips_d, xp_d, lvl_d = random.choice(SPIN_SLICES)
+        await bot.edit_message_text(
+            f"🎡 Spinning… {label}",
+            chat_id=chat_id,
+            message_id=message_id
+        )
         await asyncio.sleep(0.2)
 
     # final outcome
-    label, chips_delta, xp_delta, level_delta = random.choice(SPIN_SLICES)
+    label, chips_d, xp_d, lvl_d = random.choice(SPIN_SLICES)
 
-    # fetch & update player
+    # update player
     player = await sync_to_async(Player.objects.get)(id=user_id)
-    player.chips += chips_delta
-    player.xp    += xp_delta
-    player.level += level_delta
-
-    # ensure XP & level stay >= 1
-    if player.level < 1:
-        player.level = 1
-    if player.xp < 0:
-        player.xp = 0
-
+    player.chips += chips_d
+    player.xp    += xp_d
+    player.level += lvl_d
+    # ensure no negatives
+    player.level = max(player.level, 1)
+    player.xp    = max(player.xp, 0)
+    # record daily usage
+    player.last_spin = timezone.now().date()
     await sync_to_async(player.save)()
 
-    # send result
-    text = (
-        f"🛑 You landed on **{label}**!\n\n"
-        f"Chips: {'+' if chips_delta>=0 else ''}{chips_delta}\n"
-        f"XP:    {'+' if xp_delta>=0 else ''}{xp_delta}\n"
-        f"Level: {'+' if level_delta>=0 else ''}{level_delta}"
+    # report
+    await bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"🛑 You landed on **{label}**!\n"
+            f"Chips: {'+' if chips_d>=0 else ''}{chips_d}\n"
+            f"XP:    {'+' if xp_d>=0 else ''}{xp_d}\n"
+            f"Level: {'+' if lvl_d>=0 else ''}{lvl_d}"
+        ),
+        parse_mode="Markdown"
     )
-    await message.reply_text(text, parse_mode="Markdown")
 
 async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler for /spin"""
-    user_id = update.effective_user.id
+    """ /spin — once per day """
+    user = update.effective_user
+    user_id = user.id
+    # load player
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    # check daily cooldown
+    today = timezone.now().date()
+    if getattr(player, "last_spin", None) == today:
+        return await update.message.reply_text("⚠️ You’ve already spun once today. Try again tomorrow.")
+
+    # initial reply
     msg = await update.message.reply_text("🎡 Spinning…")
-    # launch in background so dispatcher stays free
-    asyncio.create_task(_spin_sequence(msg, context, user_id))
-
-
-
-
-
-
-
-
-
-CARD_VALUES = {
-    **{str(n): n for n in range(2, 11)},
-    "J": 11, "Q": 12, "K": 13, "A": 14
-}
-CARD_SUITS = ["♠️","♥️","♦️","♣️"]
-DECK = [f"{r}{s}" for r in CARD_VALUES for s in CARD_SUITS]
-
-async def _highcard_sequence(message, context: ContextTypes.DEFAULT_TYPE, user_id: int, bet: int):
-    # draw and compare
-    player_card = random.choice(DECK)
-    dealer_card = random.choice([c for c in DECK if c != player_card])
-    pv, dv = CARD_VALUES[player_card[:-2] if player_card[:-2].isdigit() else player_card[0]], CARD_VALUES[dealer_card[:-2] if dealer_card[:-2].isdigit() else dealer_card[0]]
-
-    text = f"🃏 You drew **{player_card}**\n🤖 Dealer drew **{dealer_card}**\n\n"
-    player = await sync_to_async(Player.objects.get)(id=user_id)
-
-    if pv > dv:
-        player.chips += bet
-        result = f"🎉 You win {bet} chips!"
-        player.wins = getattr(player, "wins", 0) + 1
-    elif pv < dv:
-        player.chips -= bet
-        result = f"😢 You lose {bet} chips."
-        player.losses = getattr(player, "losses", 0) + 1
-    else:
-        # tie: offer double-or-nothing
-        await message.reply_text(
-            text + "🔄 It's a tie! Double or nothing?",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔁 Double", callback_data=f"highcard_double:{bet}"),
-                InlineKeyboardButton("✋ Keep tie", callback_data="highcard_keep")
-            ]])
+    # kick off animation & payout
+    asyncio.create_task(
+        _spin_sequence(
+            context.bot,
+            update.effective_chat.id,
+            msg.message_id,
+            user_id
         )
-        return  # stop here
-
-    await sync_to_async(player.save)()
-    await message.reply_text(text + result, parse_mode="Markdown")
-
-async def highcard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    bet = int(context.args[0]) if context.args else 100
-    player = await sync_to_async(Player.objects.get)(id=user_id)
-    if player.chips < bet:
-        return await update.message.reply_text("❌ You don't have enough chips.")
-    msg = await update.message.reply_text("🃏 Drawing cards…")
-    asyncio.create_task(_highcard_sequence(msg, context, user_id, bet))
-
-async def highcard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    data = query.data.split(":")
-    player = await sync_to_async(Player.objects.get)(id=user_id)
-
-    if data[0] == "highcard_keep":
-        return await query.edit_message_text("👌 Tie preserved—no chips won or lost.")
-
-    # double case
-    bet = int(data[1])
-    # redraw:
-    player_card = random.choice(DECK)
-    dealer_card = random.choice([c for c in DECK if c != player_card])
-    pv = CARD_VALUES[player_card[:-2] if player_card[:-2].isdigit() else player_card[0]]
-    dv = CARD_VALUES[dealer_card[:-2] if dealer_card[:-2].isdigit() else dealer_card[0]]
-
-    text = f"🃏 Double draw: You **{player_card}**, Dealer **{dealer_card}**\n\n"
-    if pv > dv:
-        player.chips += bet
-        result = f"🎉 Double win {bet} chips!"
-    else:
-        player.chips -= bet
-        result = f"😢 Double loss {bet} chips."
-
-    await sync_to_async(player.save)()
-    await query.edit_message_text(text + result, parse_mode="Markdown")
+    )
 
 
-# ─── ROULETTE WHEEL 🎲 ─────────────────────────────────────────────────────────────
 
-# European roulette: 0–36, reds and blacks
+
+
+
 RED_NUMS = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
 
-async def _roulette_sequence(message, context: ContextTypes.DEFAULT_TYPE, user_id: int, bet_type: str, bet_amt: int):
+async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_amt):
     # animation
     for _ in range(12):
         spun = random.randint(0,36)
-        await message.edit_text(f"🎰 Spinning… {spun}")
+        await bot.edit_message_text(
+            f"🎲 Spinning… {spun}",
+            chat_id=chat_id,
+            message_id=message_id
+        )
         await asyncio.sleep(0.15)
 
-    # final spin
+    # final outcome
     number = random.randint(0,36)
     win = False
     payout = 0
 
-    # evaluate bet
     if bet_type.lower() in ("red","black"):
-        color = "red" if number in RED_NUMS else "black" if number!=0 else "green"
+        color = "red" if number in RED_NUMS else "black" if number != 0 else "green"
         win = (color == bet_type.lower())
         payout = bet_amt * 2 if win else 0
     else:
-        # specific number
         try:
             guess = int(bet_type)
             if 0 <= guess <= 36 and guess == number:
                 win = True
                 payout = bet_amt * 35
-        except:
+        except ValueError:
             pass
 
     player = await sync_to_async(Player.objects.get)(id=user_id)
-    player.chips += (payout - bet_amt)  # subtract stake, add winnings
+    player.chips += (payout - bet_amt)
     await sync_to_async(player.save)()
 
-    txt = f"🛑 Landed on **{number}** ({ '🔴' if number in RED_NUMS else '⚫️' if number!=0 else '0️⃣' })\n"
+    result_text = (
+        f"🛑 Landed on **{number}** "
+        f"({'🔴' if number in RED_NUMS else '⚫️' if number!=0 else '0️⃣'})\n"
+    )
     if win:
-        txt += f"🎉 You win {payout - bet_amt} chips!"
+        result_text += f"🎉 You win {payout - bet_amt} chips!"
     else:
-        txt += f"😢 You lose {bet_amt} chips."
-    await message.reply_text(txt, parse_mode="Markdown")
+        result_text += f"😢 You lose {bet_amt} chips."
+    await bot.send_message(chat_id=chat_id, text=result_text, parse_mode="Markdown")
 
 async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if len(args) != 2:
-        return await update.message.reply_text("Usage: /roulette <red|black|0–36> <bet>")
+        return await update.message.reply_text("Usage: /roulette <red|black|0-36> <bet>")
     bet_type, bet_amt = args[0], int(args[1])
     user_id = update.effective_user.id
     player = await sync_to_async(Player.objects.get)(id=user_id)
     if player.chips < bet_amt:
         return await update.message.reply_text("❌ Not enough chips.")
-    msg = await update.message.reply_text("🎰 Starting roulette…")
-    asyncio.create_task(_roulette_sequence(msg, context, user_id, bet_type, bet_amt))
 
-
-
-
-
-
-
+    msg = await update.message.reply_text("🎲 Starting roulette…")
+    asyncio.create_task(
+        _roulette_sequence(
+            context.bot,
+            update.effective_chat.id,
+            msg.message_id,
+            user_id,
+            bet_type,
+            bet_amt
+        )
+    )
 
 
 
@@ -3378,8 +3322,6 @@ elif DEBUG == "False":
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
 
 
-app.add_handler(CommandHandler("highcard", highcard))
-app.add_handler(CallbackQueryHandler(highcard_callback, pattern="^highcard_"))
 app.add_handler(CommandHandler("roulette", roulette))
 
 app.add_handler(CommandHandler("spin", spin))

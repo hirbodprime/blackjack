@@ -70,6 +70,7 @@ class Player(models.Model):
     xp = models.IntegerField(default=0)  # Add XP field
     level = models.IntegerField(default=1)  # Add Level field
     loan = models.IntegerField(default=0)  # New field to track player's loan
+    last_spin = models.DateField(null=True, blank=True)
 
 class PlayerAchievement(models.Model):
     player = models.ForeignKey(Player, on_delete=models.CASCADE)

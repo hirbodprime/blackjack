@@ -2979,7 +2979,7 @@ async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🎟 /draw - Participate in a lucky draw. Will you be the lucky one? (/draw [chips amount])\n\n"
         "🎯 /dart - Play dart twice a day to win 200 chips.\n\n"
         "✊🖐✌️ /rps - Play Rock, Paper, Scissors against the bot. (/rps [rock/paper/scissors] [chips amount])\n\n"
-        "🎡 /spin - Spin the wheel once a day for a chance to win chips, XP, or levels! Type /spin and let the wheel decide your fate.\n\n"
+        "🎡 /spin - Spin the wheel once a day for a chance to win chips, XP, or levels! Type /spin <low/mid/high> and let the wheel decide your fate.\n\n"
         "🎲 /roulette - Bet on red, black, or a number (0-36). Usage: /roulette <red|black|0-36> <bet amount>. "
         "If you guess the color, you win double; if you guess the number, you win 35 times your bet! Good luck!\n\n"
     )

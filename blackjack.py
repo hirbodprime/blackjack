@@ -3397,29 +3397,37 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ─── New /spinrewards command: list each tier, its cost, and possible outcomes ───
-
 async def spinrewards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /spinrewards
-    Shows the cost of each tier and all possible rewards/penalties.
+    Lists each tier’s cost and all possible outcomes (including negative-chip penalties).
     """
     lines = ["*Available spin tiers & their costs/rewards:*"]
+    
     for tier_name, info in SPIN_TIERS.items():
         cost = info["cost"]
         lines.append(f"\n• *{tier_name.upper()}* (Cost: {cost} chips):")
+        
         for label, chips_d, xp_d, lvl_d in info["slices"]:
             parts = [label]
+            
+            # If there is a chip delta (positive or negative), show it
             if chips_d != 0:
                 parts.append(f"{chips_d:+} chips")
+            
+            # If there is an XP delta (positive or negative), show it
             if xp_d != 0:
                 parts.append(f"{xp_d:+} XP")
+            
+            # If there is a level delta (positive or negative), show it
             if lvl_d != 0:
                 parts.append(f"{lvl_d:+} level")
+            
+            # Join the pieces with " | " and indent under the tier name
             lines.append("    – " + " | ".join(parts))
+    
     text = "\n".join(lines)
-
     await update.message.reply_text(text, parse_mode="Markdown")
-
 
 
 

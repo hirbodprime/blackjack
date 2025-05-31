@@ -3210,67 +3210,73 @@ SPIN_TIERS = {
     "low": {
         "cost": 200,
         "slices": [
-            # Positive-chip rewards
-            ("💰 +5 000 chips",   5000,    0,   0),
-            ("🎉 +2 500 chips",   2500,    0,   0),
-            ("✨ +1 000 chips",   1000,    0,   0),
-            ("👍  +500 chips",      500,    0,   0),
+            # Positive‐chip rewards
+            ("💰 +5 000 chips",  5000,   0,   0),
+            ("🎉 +2 500 chips",  2500,   0,   0),
+            ("✨ +1 000 chips",  1000,   0,   0),
+            ("👍  +500 chips",    500,   0,   0),
 
-            # Negative-chip penalties (NOTE: we use ASCII minus “-” here)
-            ("💸 -2 500 chips",  -2500,    0,   0),
-            ("🛑 -1 000 chips",  -1000,    0,   0),
-            ("🛑 -500 chips",     -500,    0,   0),
+            # Exact negative “mirrors” of the above
+            ("💸 -5 000 chips", -5000,   0,   0),
+            ("💸 -2 500 chips", -2500,   0,   0),
+            ("🛑 -1 000 chips", -1000,   0,   0),
+            ("🛑 -500 chips",    -500,   0,   0),
 
-            # Neutral and XP / level slots
-            ("😐 Nothing happens",   0,      0,   0),
-            ("😐 Nothing happens",   0,      0,   0),
-            ("🌟 +50 XP",           0,     50,   0),
-            ("🧟 -50 XP",           0,    -50,   0),
-            ("⭐ +1 level",         0,      0,  +1),
-            ("⬇️ -1 level",         0,      0,  -1),
+            # Neutral / XP / level slots
+            ("😐 Nothing happens",   0,    0,   0),
+            ("😐 Nothing happens",   0,    0,   0),
+            ("🌟 +50 XP",            0,   50,   0),
+            ("🧟 -50 XP",            0,  -50,   0),
+            ("⭐ +1 level",          0,    0,  +1),
+            ("⬇️ -1 level",          0,    0,  -1),
         ],
     },
 
     "mid": {
         "cost": 2000,
         "slices": [
-            ("💰 +25 000 chips",  25000,    0,   0),
-            ("🎉 +10 000 chips",  10000,    0,   0),
-            ("✨ +5 000 chips",    5000,    0,   0),
-            ("👍  +1 000 chips",   1000,    0,   0),
+            ("💰 +25 000 chips",  25000,   0,   0),
+            ("🎉 +10 000 chips",  10000,   0,   0),
+            ("✨ +5 000 chips",    5000,   0,   0),
+            ("👍  +1 000 chips",   1000,   0,   0),
 
-            ("💸 -10 000 chips", -10000,    0,   0),
-            ("🛑 -5 000 chips",   -5000,    0,   0),
-            ("🛑 -1 000 chips",   -1000,    0,   0),
+            # Exact negative “mirrors”
+            ("💸 -25 000 chips", -25000,   0,   0),
+            ("💸 -10 000 chips", -10000,   0,   0),
+            ("🛑 -5 000 chips",   -5000,   0,   0),
+            ("🛑 -1 000 chips",   -1000,   0,   0),
 
-            ("😐 Nothing happens",   0,      0,   0),
-            ("🌟 +200 XP",            0,    200,  0),
-            ("🧟 -200 XP",            0,   -200,  0),
-            ("⭐ +1 level",           0,      0,  +1),
-            ("⬇️ -1 level",           0,      0,  -1),
+            ("😐 Nothing happens",   0,    0,   0),
+            ("🌟 +200 XP",           0,   200,  0),
+            ("🧟 -200 XP",           0,  -200,  0),
+            ("⭐ +1 level",          0,    0,  +1),
+            ("⬇️ -1 level",          0,    0,  -1),
         ],
     },
 
     "high": {
         "cost": 20000,
         "slices": [
-            ("💰 +100 000 chips", 100000,    0,   0),
-            ("🎉 +50 000 chips",   50000,    0,   0),
-            ("✨ +25 000 chips",   25000,    0,   0),
-            ("👍  +5 000 chips",    5000,    0,   0),
+            ("💰 +100 000 chips", 100000,   0,   0),
+            ("🎉 +50 000 chips",   50000,   0,   0),
+            ("✨ +25 000 chips",   25000,   0,   0),
+            ("👍  +5 000 chips",    5000,   0,   0),
 
-            ("💸 -50 000 chips",   -50000,    0,   0),
-            ("🛑 -25 000 chips",   -25000,    0,   0),
-            ("🛑 -5 000 chips",     -5000,    0,   0),
+            # Exact negative “mirrors”
+            ("💸 -100 000 chips", -100000,   0,   0),
+            ("💸 -50 000 chips",  -50000,   0,   0),
+            ("🛑 -25 000 chips",  -25000,   0,   0),
+            ("🛑 -5 000 chips",    -5000,   0,   0),
 
-            ("😐 Nothing happens",    0,      0,   0),
-            ("🌟 +500 XP",             0,    500,  0),
-            ("🧟 -500 XP",             0,   -500,  0),
-            ("⭐ +2 levels",           0,      0,  +2),
-            ("⬇️ -2 levels",           0,      0,  -2),
+            ("😐 Nothing happens",    0,     0,   0),
+            ("🌟 +500 XP",            0,   500,  0),
+            ("🧟 -500 XP",            0,  -500,  0),
+            ("⭐ +2 levels",          0,     0,  +2),
+            ("⬇️ -2 levels",          0,     0,  -2),
         ],
     },
 }
+
 
 async def _spin_sequence_longer(bot, chat_id, message_id, user_id, slices):
     """

@@ -20,6 +20,10 @@ venv/
 # Static files
 staticfiles/
 
+botenv/
+buildozer.spec
+android_monitor/
+
 # Database
 db.sqlite3
 .\db.sqlite3
@@ -56,3 +60,119 @@ sdist/
 var/
 wheels/
 pip-wheel-metadata/
+
+
+
+
+
+
+
+
+
+
+
+
+# ----------------------------------------
+# Buildozer / python-for-android artifacts
+# ----------------------------------------
+# Ignore the entire .buildozer folder (all downloaded SDK/NDK, recipes, build-outputs)
+.buildozer/
+
+# Ignore any bin/ folder where Buildozer places the APK
+bin/
+
+# Buildozer’s state database
+state.db
+
+# Android APKs or debug/release outputs
+*.apk
+*.ap_
+
+# ----------------------------------------
+# Python / Virtualenv
+# ----------------------------------------
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment folders
+venv/
+botenv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Pipenv / poetry
+Pipfile.lock
+poetry.lock
+
+# ----------------------------------------
+# IDE / Editor
+# ----------------------------------------
+# VSCode workspace settings
+.vscode/
+*.code-workspace
+
+# PyCharm / JetBrains
+.idea/
+*.iml
+
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# ----------------------------------------
+# Miscellaneous
+# ----------------------------------------
+# Log files
+*.log
+
+# Temporary files
+*.swp
+*.swo
+*.tmp
+
+# Node
+node_modules/
+
+# If you add any other temporary or user‐specific files, list them here.
+
+# Buildozer artifacts
+.buildozer/
+bin/
+state.db
+*.apk
+*.ap_
+
+# Python/venv
+__pycache__/
+*.py[cod]
+venv/
+botenv/
+env/
+*.egg-info/
+
+# IDE/editor
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# etc…

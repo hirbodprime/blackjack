@@ -2280,6 +2280,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     full_help = """
 Blackjack Bot Help & Command Reference
 
+How to Play a Group Blackjack Game:
+  1. Any member types /startblackjack → bot opens a join window.  
+  2. Players type /join (in that group) to reserve their seat and lock in their bet.  
+  3. Once enough players have joined, use /forcestart to begin.  
+  4. The bot deals two cards to each player privately, and two to itself (one face-down).  
+  5. In turn order, each player privately chooses /hit or /stand.  
+      – If a player’s hand > 21, they bust and lose immediately.  
+  6. After all players finish, the dealer reveals the hidden card and draws until ≥ 17.  
+  7. Settlement:
+      – Dealer higher or tie → player loses.   
+  8. XP is awarded/lost accordingly (see “XP & Leveling”).  
+      – Winners gain XP, losers lose XP.
+
 ────────────────────────────────────────
 Getting Started:
   • /start  
@@ -2307,7 +2320,7 @@ Blackjack Game Flow:
    – As soon as you tap /join, the bot will deduct the required amount from your chips.
 
 3) /forcestart  
-   – If you’re an admin or the starter, you can force the game to begin early. Once forced, no new players can join.  
+   –  Use this command to start the game. Once forced, no new players can join.  
    – The dealer (bot) also contributes the same bet amount. Cards are dealt to each player.
 
 4) During your turn:
@@ -2324,7 +2337,7 @@ Blackjack Game Flow:
 
 ────────────────────────────────────────
 Minigames & Side Games:
-  These can be played anytime in private chat or group. Use /command [betamount] where indicated.
+  These can be played anytime in private chat or group. Use /minigames to see a detailed list of them.
   • /dice [betamount]  
     – Roll two dice and guess the outcome. Win up to 6× your bet.
 
@@ -2342,7 +2355,11 @@ Minigames & Side Games:
 
   • /dart  
     – Throw a dart and earn up to 200 XP. Available twice per day.
-
+  
+  • /spin - Spin the wheel once a day for a chance to win chips, XP, or levels! Type /spin <low/mid/high> and let the wheel decide your fate
+    
+  • /roulette - Bet on red, black, or a number (0-36). Usage: /roulette <red|black|0-36> <bet amount>
+       If you guess the color, you win double; if you guess the number, you win 35 times your bet! Good luck!
 ────────────────────────────────────────
 Economy & Token Commands:
   • /my_tokens  
@@ -2390,19 +2407,6 @@ Loan System:
     – Repay your outstanding loan plus 3% interest.  
       • E.g., if you borrowed 100 chips, you must repay 103 chips.
 
-────────────────────────────────────────
-How to Play a Group Blackjack Game:
-  1. Any member types /startblackjack → bot opens a join window.  
-  2. Players type /join (in that group) to reserve their seat and lock in their bet.  
-  3. Once enough players have joined, an admin (or the starter) uses /forcestart to begin.  
-  4. The bot deals two cards to each player privately, and two to itself (one face-down).  
-  5. In turn order, each player privately chooses /hit or /stand.  
-      – If a player’s hand > 21, they bust and lose immediately.  
-  6. After all players finish, the dealer reveals the hidden card and draws until ≥ 17.  
-  7. Settlement:
-      – Dealer higher or tie → player loses.   
-  8. XP is awarded/lost accordingly (see “XP & Leveling”).  
-      – Winners gain XP, losers lose XP.
 
 ────────────────────────────────────────
 Use these commands any time the bot is in a chat. If you need more help, type /help again.

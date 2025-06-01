@@ -3777,6 +3777,158 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
             break
 
 
+
+
+async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /listgroups
+    Only list groups where the bot is still present. Do NOT delete stale rows.
+    """
+    user_id = update.effective_user.id
+
+    # (Optional) restrict usage to your own ID:
+    if user_id != ADMIN_ID:
+        return await update.message.reply_text("🚫 You’re not authorized to run this command.")
+
+    # Fetch all stored Group rows
+    all_groups = await sync_to_async(lambda: list(Group.objects.all()))()
+    if not all_groups:
+        return await update.message.reply_text("ℹ️ No groups recorded in the database.")
+
+    valid_lines = []
+
+    for g in all_groups:
+        chat_id = g.group_chat_id
+        try:
+            # Try to fetch the chat. If the bot was removed, this will raise.
+            await context.bot.get_chat(chat_id)
+        except Exception:
+            # Skip this group (bot is not in it), but do not delete from DB
+            continue
+
+        # If we got here, the bot is still in that chat
+        name = g.group_name or "(no name)"
+        valid_lines.append(f" • `{chat_id}` → {name}")
+
+        # Small pause to avoid rate limits
+        await asyncio.sleep(0.05)
+
+    if not valid_lines:
+        return await update.message.reply_text("ℹ️ I’m not currently in any of the stored groups.")
+
+    # Build the response in Markdown
+    header = "*I’m currently in the following groups:*"
+    message_text = "\n".join([header] + valid_lines)
+
+    # Send in one or more chunks (≤4000 chars each)
+    max_length = 4000
+    text = message_text
+    while text:
+        if len(text) <= max_length:
+            await update.message.reply_text(text, parse_mode="Markdown")
+            break
+        # Find a safe newline split
+        split_pos = text.rfind("\n", 0, max_length)
+        if split_pos == -1:
+            split_pos = max_length
+        await update.message.reply_text(text[:split_pos], parse_mode="Markdown")
+        text = text[split_pos:].lstrip()
+async def broadcastgroups(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /broadcast <message>
+    Send <message> only to groups where the bot is still a member.
+    Do NOT delete stale rows from the database.
+    """
+    user_id = update.effective_user.id
+
+    # (Optional) restrict to your ID:
+    if user_id != ADMIN_ID:
+        return await update.message.reply_text("🚫 You’re not authorized to run this command.")
+
+    if not context.args:
+        return await update.message.reply_text("❗️ Usage: /broadcast <message text>")
+
+    text_to_send = " ".join(context.args)
+
+    all_groups = await sync_to_async(lambda: list(Group.objects.all()))()
+    if not all_groups:
+        return await update.message.reply_text("ℹ️ No groups recorded to broadcast to.")
+
+    success = 0
+    failures = 0
+
+    for g in all_groups:
+        chat_id = g.group_chat_id
+        try:
+            # Verify bot is still in chat
+            await context.bot.get_chat(chat_id)
+
+            # Send the broadcast
+            await context.bot.send_message(chat_id=chat_id, text=text_to_send)
+            success += 1
+
+        except Exception:
+            # Skip (bot not in chat or sending failed), but do NOT delete the row
+            failures += 1
+
+        await asyncio.sleep(0.05)
+
+    await update.message.reply_text(
+        f"✅ Message sent to {success} groups, skipped {failures} invalid groups."
+    )
+
+
+async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /admin
+    Sends brief descriptions of all admin commands to your private chat.
+    """
+    user_id = update.effective_user.id
+    chat_id = update.message.chat_id
+    if user_id != ADMIN_ID:
+        return await update.message.reply_text("🚫 You’re not authorized to run this command.")
+    # Notify in group that details are in private chat
+    # if chat_id != user_id:
+    #     await update.message.reply_text(
+    #         "📩 Sent you a summary of admin commands in private chat."
+    #     )
+
+    help_text = """
+*Admin Commands* (use in private chat unless noted):
+
+• `/sync_groups`  
+  Sync stored group IDs → names from Telegram.  
+  _Example:_ `/sync_groups`
+
+• `/listgroups`  
+  List all groups the bot is still in.  
+  _Example:_ `/listgroups`
+
+• `/broadcastgroup <text>`  
+  Send `<text>` to every group.  
+  _Example:_ `/broadcastgroup Hello everyone!`
+
+• `/broadcastplayers <text>`  
+  DM `<text>` to every registered player.  
+  _Example:_ `/broadcastplayers Maintenance in 5 min.`
+
+• `/give_token <user_id> <amount>`  
+  Add `<amount>` chips to that user.  
+  _Example:_ `/give_token 1553620403 1000`
+
+• `/user_id`  
+  Show your Telegram user ID (works anywhere).  
+  _Example:_ `/user_id`
+"""
+
+    # Send as plain text (fits under 4096 chars)
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=help_text,
+        parse_mode="Markdown"
+    )
+
+
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
@@ -3785,6 +3937,9 @@ elif DEBUG == "False":
     
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
+app.add_handler(CommandHandler("admin", admin_help))
+app.add_handler(CommandHandler("listgroups", list_groups))
+app.add_handler(CommandHandler("broadcastgroup", broadcastgroups))
 
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_chat_members))
 app.add_handler(CommandHandler("roulette", roulette))

@@ -726,7 +726,7 @@ async def join_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         # Deduct real tokens **when joining**
-        # player.real_tokens -= game.bet_amount
+        player.real_tokens -= game.bet_amount
     else:
         # Chips game
         if player.chips < game.bet_amount:
@@ -735,7 +735,7 @@ async def join_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         # Deduct chips **when joining**
-        # player.chips -= game.bet_amount
+        player.chips -= game.bet_amount
 
     await sync_to_async(player.save)()
     await sync_to_async(JoinGame.objects.create)(player=player, game=game, is_active=True)
@@ -861,17 +861,17 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if game.bet_amount >= 5000:
             await unlock_achievement(player, "5000_game_join", context)
         # Deduct bet amount based on whether it's a real token or chips game
-        if is_real_token_game:
-            player.real_tokens -= game.bet_amount  # Deduct the bet amount once
+        # if is_real_token_game:
+        #     player.real_tokens -= game.bet_amount  # Deduct the bet amount once
 
-            remaining_tokens = player.real_tokens
+        #     remaining_tokens = player.real_tokens
 
-        else:
-            player.chips -= game.bet_amount  # Deduct the chips once
-            if player.chips == 0:
-                await unlock_achievement(player, "all_in", context)
+        # else:
+        #     player.chips -= game.bet_amount  # Deduct the chips once
+        if player.chips == 0:
+            await unlock_achievement(player, "all_in", context)
 
-            remaining_tokens = player.chips
+        remaining_tokens = player.chips
         
         player.games += 1  # Update the games count
         await sync_to_async(player.save)()  # Save the player after deduction

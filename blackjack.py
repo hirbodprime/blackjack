@@ -726,7 +726,7 @@ async def join_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         # Deduct real tokens **when joining**
-        player.real_tokens -= game.bet_amount
+        # player.real_tokens -= game.bet_amount
     else:
         # Chips game
         if player.chips < game.bet_amount:
@@ -735,7 +735,7 @@ async def join_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         # Deduct chips **when joining**
-        player.chips -= game.bet_amount
+        # player.chips -= game.bet_amount
 
     await sync_to_async(player.save)()
     await sync_to_async(JoinGame.objects.create)(player=player, game=game, is_active=True)

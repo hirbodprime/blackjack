@@ -2262,7 +2262,6 @@ async def nextgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("You will be notified when the next game starts!")
     else:
         await update.message.reply_text("You're already signed up to be notified when the next game starts.")
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_player(update, context):
         return
@@ -2271,78 +2270,171 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user_name = update.message.from_user.first_name
     chat_id = update.message.chat_id
 
-    # Inform the user in the group chat if the message is sent in a group
+    # Notify in group that help is in private chat
     if chat_id != user_id:
-        await update.message.reply_text("📩 A message with the available commands has been sent to your private chat.")
+        await update.message.reply_text(
+            "📩 A message with all available commands and instructions has been sent to your private chat."
+        )
 
-    # Prepare the help message with correct escaping
-    help_text = """
-    🤖 *Blackjack Bot Help* 🃏
+    # Full help text (plain text, no Markdown formatting)
+    full_help = """
+Blackjack Bot Help & Command Reference
 
-    *General Commands*:
-    /start - Start the bot and register as a player
-    /stats - Show your player statistics
-    /help - Display this help message
-    /rules - Show detailed rules of the Blackjack game
-    /nextgame - Receive a private message when the next game starts
+────────────────────────────────────────
+Getting Started:
+  • /start  
+    – Register yourself with the bot. You’ll receive 20 chips to begin.
 
-    *Blackjack Game Commands*:
-    /startblackjack - Start a new Blackjack game and make some money!
-    /join - Join the current Blackjack game in the group
-    /forcestart - Force start the game if you are an admin
-    /hit - Request an additional card during your turn
-    /stand - Keep your current hand and end your turn
-    /flee - Leave the current Blackjack game before it ends
+  • /help  
+    – Show this help message again (sent to your private chat).
 
-    *Minigames*:
-    /dice - Roll the dice and test your luck (/dice [betamount])
-    /slot - a chance to win big (/slot [betamount])
-    /coin - flip a coin and try your luck (/coin [heads/tails] [betamount])
-    /draw - draw a card against the bot (/draw [betamount])
-    /rps - Play RPS (/rps [rock/paper/scissors] [betamount])
-    /dart - Play dart to earn 200 twice a day
+  • /rules  
+    – Display detailed rules of the Blackjack game.
 
-    *Token & Dealer Commands*:
-    /my_tokens - Display your current chip count
-    /dealer_stats - Show the Blackjack dealer's statistics
-    /buy_tokens - Buy real tokens (100 real tokens for 10 Toman)
-    /claim_tokens - Claim free tokens twice a day
-    /set_status - Set the group's status to use either chips or real tokens
+  • /stats  
+    – View your personal statistics (wins, losses, XP, level, etc.).
 
-    *Achievements*:
-    /achievements - View your current achievements and progress
-    /achievements_info - See how to unlock achievements
+  • /nextgame  
+    – Ask the bot to send you a private reminder when the next game starts.
 
-    *XP & Leveling*:
-    - Gain XP by playing games, winning rounds, and unlocking achievements:
-        - Play a game: ➕ +10 XP
-        - Win a round: ➕ +5 XP
-        - Win a whole game: ➕ +25 XP
-        - Get a Blackjack: ➕ +30 XP
-        - Unlock an achievement: ➕ +20 XP
-    - Lose XP for poor performance:
-        - Bust in a game: ➖ -20 XP
-        - Lose a whole game: ➖ -25 XP
-    - Level up when you earn enough XP! Level 1 requires 50 XP, and each level requires 50 more XP than the last.
-    - Check your progress using /stats.
+────────────────────────────────────────
+Blackjack Game Flow:
+1) /startblackjack  
+   – Initiate a new Blackjack game in the group. The bot will open a “join” period during which players can enter.
 
-    *Loan System*:
-    /loan [amount] - Request a loan of chips! You lose 5 XP for every 100 chips loaned.
-        - If you don't have enough XP, you will lose levels!
-    /repay_loan - Repay your loan with a 3% interest.
-        - Example: A loan of 100 chips requires 103 chips for repayment.
+2) /join  
+   – Join the current game (during the join window). You must have at least the minimum bet in your chips to enter.  
+   – As soon as you tap /join, the bot will deduct the required amount from your chips.
 
-    You can use these commands in any group where the bot is present. Happy playing 🃏!
-    """
+3) /forcestart  
+   – If you’re an admin or the starter, you can force the game to begin early. Once forced, no new players can join.  
+   – The dealer (bot) also contributes the same bet amount. Cards are dealt to each player.
 
-    # Send the help message to the user's private chat
-    try:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=help_text)
-    except Exception as e:
-        print(f"Error sending help message to {user_name} (ID: {user_id}): {e}")
-        await update.message.reply_text("There was an error sending the help message to your private chat. Please make sure you've started the bot privately.")
+4) During your turn:
+   • /hit  
+     – Draw one more card. If your hand exceeds 21, you bust and lose immediately.
+
+   • /stand  
+     – Keep your current hand and end your turn. The next player goes, and eventually the dealer completes their hand.
+
+   • /flee  
+     – Leave the current Blackjack game (forfeit your bet).
+
+
+
+────────────────────────────────────────
+Minigames & Side Games:
+  These can be played anytime in private chat or group. Use /command [betamount] where indicated.
+  • /dice [betamount]  
+    – Roll two dice and guess the outcome. Win up to 6× your bet.
+
+  • /slot [betamount]  
+    – Pull the slot machine lever. Match symbols to win big.
+
+  • /coin [heads/tails] [betamount]  
+    – Flip a coin. Guess heads or tails; double or lose your bet.
+
+  • /draw [betamount]  
+    – Draw a random card. Higher card wins against the bot’s draw.
+
+  • /rps [rock/paper/scissors] [betamount]  
+    – Play Rock-Paper-Scissors against the bot. Win or tie.
+
+  • /dart  
+    – Throw a dart and earn up to 200 XP. Available twice per day.
+
+────────────────────────────────────────
+Economy & Token Commands:
+  • /my_tokens  
+    – Show your current chip balance.
+
+  • /claim_tokens  
+    – Claim free chips twice per day (if available).
+
+────────────────────────────────────────
+Achievements & Rewards:
+  • /achievements  
+    – View your unlocked achievements and progress toward new ones.
+
+  • /achievements_info  
+    – Display how to unlock each achievement (conditions and icons).
+
+  – Achievements grant bonus XP when unlocked (+20 XP each).
+
+────────────────────────────────────────
+XP & Leveling System:
+  – You earn XP by playing and winning:
+      • Play any game: +10 XP  
+      • Win a Blackjack round: +5 XP  
+      • Win a full Blackjack game: +25 XP  
+      • Get Blackjack: +30 XP  
+      • Unlock an achievement: +20 XP  
+
+  – You lose XP for poor performance:
+      • Bust in a hand: –20 XP  
+      • Lose a full Blackjack game: –25 XP  
+
+  – Each level requires 50 XP × current level. Example:
+      • Level 1 → need 50 XP to reach Level 2  
+      • Level 2 → need 100 XP to reach Level 3 (and so on)
+
+  – Check your progress with /stats (shows “XP to next level”).
+
+────────────────────────────────────────
+Loan System:
+  • /loan [amount]  
+    – Borrow chips. For every 100 chips borrowed, you lose 5 XP.  
+      • If you don’t have enough XP, you may lose levels instead.
+
+  • /repay_loan  
+    – Repay your outstanding loan plus 3% interest.  
+      • E.g., if you borrowed 100 chips, you must repay 103 chips.
+
+────────────────────────────────────────
+How to Play a Group Blackjack Game:
+  1. Any member types /startblackjack → bot opens a join window.  
+  2. Players type /join (in that group) to reserve their seat and lock in their bet.  
+  3. Once enough players have joined, an admin (or the starter) uses /forcestart to begin.  
+  4. The bot deals two cards to each player privately, and two to itself (one face-down).  
+  5. In turn order, each player privately chooses /hit or /stand.  
+      – If a player’s hand > 21, they bust and lose immediately.  
+  6. After all players finish, the dealer reveals the hidden card and draws until ≥ 17.  
+  7. Settlement:
+      – Dealer higher or tie → player loses.   
+  8. XP is awarded/lost accordingly (see “XP & Leveling”).  
+      – Winners gain XP, losers lose XP.
+
+────────────────────────────────────────
+Use these commands any time the bot is in a chat. If you need more help, type /help again.
+
+Good luck and have fun! 🃏🎉
+"""
+
+    # Split into 4000-character chunks
+    max_length = 4000
+    chunks = []
+    text = full_help.strip()
+    while text:
+        if len(text) <= max_length:
+            chunks.append(text)
+            break
+        # Find last newline before max_length to avoid splitting mid-line
+        split_pos = text.rfind("\n", 0, max_length)
+        if split_pos == -1:
+            split_pos = max_length
+        chunks.append(text[:split_pos].rstrip())
+        text = text[split_pos:].lstrip()
+
+    # Send each chunk as plain text
+    for chunk in chunks:
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=chunk
+            )
+        except Exception as e:
+            print(f"Error sending help message to {user_name} (ID: {user_id}): {e}")
+            break
 
 
 async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3575,6 +3667,114 @@ async def give_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="MarkdownV2"
     )
 
+async def sync_group_names(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /sync_groups  →  For every Group in our database, call get_chat(group_chat_id),
+    pull out the chat.title (or username), and save it into group_name.
+    Only the superuser (you) should run this command; it will DM back a summary.
+    """
+    user_id = update.effective_user.id
+
+    # OPTIONAL: Only allow a specific user ID (e.g. your own Telegram ID) to run this.
+    # Replace YOUR_TELEGRAM_ID with your actual numeric user ID.
+    if user_id != ADMIN_ID:
+        return await update.message.reply_text("🚫 You are not authorized to run this command.")
+
+    all_groups = await sync_to_async(lambda: list(Group.objects.all()))()
+    if not all_groups:
+        return await update.message.reply_text("⚠️ No groups found in the database.")
+
+    updated = 0
+    skipped = 0
+    errors = []
+
+    for group in all_groups:
+        chat_id = group.group_chat_id
+
+        try:
+            # get_chat is async in python-telegram-bot v13.5
+            chat = await context.bot.get_chat(chat_id)
+        except Exception as e:
+            errors.append(f" • Failed to fetch {chat_id!r}: {e}")
+            skipped += 1
+            # Optional: wait a tiny bit to avoid spamming Telegram
+            await asyncio.sleep(0.1)
+            continue
+
+        # Telegram’s Chat object might have:
+        #   - title (for group/supergroup/channel)
+        #   - first_name/last_name (for a private chat)
+        #   - username (if it’s a public channel or bot)
+        new_title = ""
+        if hasattr(chat, "title") and chat.title:
+            new_title = chat.title
+        elif hasattr(chat, "first_name") and chat.first_name:
+            new_title = chat.first_name
+            if getattr(chat, "last_name", None):
+                new_title += " " + chat.last_name
+        elif getattr(chat, "username", None):
+            new_title = chat.username
+        else:
+            new_title = str(chat_id)
+
+        # If we got a valid title, update group_name
+        if new_title and new_title != group.group_name:
+            group.group_name = new_title
+            await sync_to_async(group.save)()
+            updated += 1
+        else:
+            skipped += 1
+
+        # Small pause in case you have many groups, to avoid hitting rate limits
+        await asyncio.sleep(0.1)
+
+    # Build a summary message
+    summary = [
+        f"✅ Synced {len(all_groups)} groups.",
+        f"🔄 Updated: {updated}",
+        f"⏭️ Skipped (already up‐to‐date or failed): {skipped}",
+    ]
+    if errors:
+        summary.append("\nSome errors:")
+        summary.extend(errors[:10])  # show up to 10 errors
+        if len(errors) > 10:
+            summary.append(f"…and {len(errors)-10} more errors.")
+
+    await update.message.reply_text("\n".join(summary))
+
+
+
+async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Triggered whenever someone joins (or a bot is added to) a chat.
+    If the bot itself is among new_chat_members, register that group.
+    """
+    bot_id = context.bot.id
+    chat = update.effective_chat  # the group where this happened
+
+    # Loop through update.message.new_chat_members to see if the bot was added
+    for new_member in update.message.new_chat_members:
+        if new_member.id == bot_id:
+            # The bot was just added to this chat. Save it in your Group model.
+            group_chat_id = str(chat.id)
+            group_title   = chat.title or ""  # e.g. “My Cool Group”
+
+            # Use get_or_create so we don’t overwrite an existing Group
+            group_obj, created = await sync_to_async(Group.objects.get_or_create)(
+                group_chat_id=group_chat_id,
+                defaults={"group_name": group_title},
+            )
+            # If it already existed but the title changed, update it
+            if not created and group_obj.group_name != group_title:
+                group_obj.group_name = group_title
+                await sync_to_async(group_obj.save)()
+
+            # (Optionally) announce in the group that you're now watching it:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text="👋 Thanks for adding me! Use /help to see how to play "
+            )
+            break
 
 
 DEBUG = os.getenv("DEBUG")
@@ -3586,8 +3786,9 @@ elif DEBUG == "False":
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
 
-
+app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_chat_members))
 app.add_handler(CommandHandler("roulette", roulette))
+app.add_handler(CommandHandler("sync_groups", sync_group_names))
 
 app.add_handler(CommandHandler("spin", spin))
 app.add_handler(CommandHandler("givechips", give_chips))

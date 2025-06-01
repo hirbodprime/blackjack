@@ -3912,9 +3912,9 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
   Send `<text>` to every group.  
   _Example:_ `/broadcastgroup Hello everyone!`
 
-• `/broadcastplayers <text>`  
+• `/broadcast <text>`  
   DM `<text>` to every registered player.  
-  _Example:_ `/broadcastplayers Maintenance in 5 min.`
+  _Example:_ `/broadcast Maintenance in 5 min.`
 
 • `/give_token <user_id> <amount>`  
   Add `<amount>` chips to that user.  

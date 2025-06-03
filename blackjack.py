@@ -4035,24 +4035,27 @@ async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username=username
     )
     await update.message.reply_text(f"✅ Bet placed on horse {horse_number} for {bet_amount} chips!")
-
-# ─── /startrace: Animate the race and handle payouts ───
 async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+
+    # Find active race
     race = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, race_started=False)
     race = await sync_to_async(race.first)()
     if not race:
         await update.message.reply_text("❌ No active race!")
         return
 
+    # Get all bets
     bets = await sync_to_async(list)(HorseBet.objects.filter(race=race))
     if not bets:
         await update.message.reply_text("❌ No bets placed!")
         return
 
+    # Mark race as started
     race.race_started = True
     await sync_to_async(race.save)()
 
+    # Build final horses list
     dealer_horse = 1
     random_horses = random.sample(range(2, 8), 4)
     player_horses = list(set(bet.horse_number for bet in bets if bet.horse_number != 1))
@@ -4064,6 +4067,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     distance = race.race_distance
     positions = {horse: distance for horse in all_horses}
 
+    # Send initial race message
     msg = await update.message.reply_text("🏁 The race begins! 🐎")
     winner = None
 
@@ -4072,13 +4076,17 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for horse in sorted(all_horses):
             if positions[horse] > 0 and random.random() < 0.7:
                 positions[horse] -= 1
+
             # Scale down the number of dashes for flood control
-            leading_dashes = "-" * (positions[horse] // 2)
-            trailing_dashes = "-" * ((distance - positions[horse]) // 2)
+            max_dashes = 5
+            scaled_leading = min(positions[horse] // 3, max_dashes)
+            scaled_trailing = min((distance - positions[horse]) // 3, max_dashes)
+
             if positions[horse] == 0:
                 race_display += f"🏆 | 🏁🐎 {horse}\n"
             else:
-                race_display += f"🏆 | {leading_dashes}🐎{trailing_dashes} {horse}\n"
+                race_display += f"🏆 | {'-' * scaled_leading}🐎{'-' * scaled_trailing} {horse}\n"
+
             if positions[horse] == 0 and not winner:
                 winner = horse
 
@@ -4088,13 +4096,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(int(e.retry_after) + 1)
             continue
 
-        await asyncio.sleep(0.8)
-
-
-    # Determine payout
-    if winner == dealer_horse:
-        await update.message.reply_text("🏆 Dealer's horse wins! All players lose their bets.")
-        return
+        await asyncio.sleep(0.8)  # extra delay to reduce flood control
 
     # Determine payout
     winning_bets = [bet for bet in bets if bet.horse_number == winner]
@@ -4133,6 +4135,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🏆 Race finished! Winner: Horse {winner} 🏆\n"
             f"🎉 First winner’s payout: {first_winner_payout} chips!"
         )
+
 
 
 DEBUG = os.getenv("DEBUG")

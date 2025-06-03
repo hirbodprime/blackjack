@@ -3991,6 +3991,10 @@ async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) != 2:
         await update.message.reply_text("Usage: /joinrace <horse_number> <bet_amount>")
         return
+    existing_bet = await sync_to_async(HorseBet.objects.filter)(race=race, user_id=user_id)
+    if await sync_to_async(existing_bet.exists)():
+        await update.message.reply_text("❌ You have already placed a bet in this race!")
+        return
 
     horse_number = int(args[0])
     bet_amount = int(args[1])
@@ -4065,10 +4069,13 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for horse in sorted(all_horses):
             if positions[horse] > 0 and random.random() < 0.7:
                 positions[horse] -= 1
+            # Scale down the number of dashes for flood control
+            leading_dashes = "-" * (positions[horse] // 2)
+            trailing_dashes = "-" * ((distance - positions[horse]) // 2)
             if positions[horse] == 0:
                 race_display += f"🏆 | 🏁🐎 {horse}\n"
             else:
-                race_display += f"🏆 | {'-' * positions[horse]}🐎{'-' * (distance - positions[horse])} {horse}\n"
+                race_display += f"🏆 | {leading_dashes}🐎{trailing_dashes} {horse}\n"
             if positions[horse] == 0 and not winner:
                 winner = horse
 
@@ -4076,9 +4083,10 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(race_display)
         except RetryAfter as e:
             await asyncio.sleep(int(e.retry_after) + 1)
-            continue  # keep going after flood control
+            continue
 
-        await asyncio.sleep(0.8)  # more delay to avoid flooding
+        await asyncio.sleep(0.8)
+
 
     # Determine payout
     if winner == dealer_horse:

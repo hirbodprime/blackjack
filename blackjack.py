@@ -4072,13 +4072,10 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for horse in sorted(all_horses):
             if positions[horse] > 0 and random.random() < 0.7:
                 positions[horse] -= 1
-            # Scale down the number of dashes for flood control
-            leading_dashes = "-" * (positions[horse] // 2)
-            trailing_dashes = "-" * ((distance - positions[horse]) // 2)
             if positions[horse] == 0:
                 race_display += f"🏆 | 🏁🐎 {horse}\n"
             else:
-                race_display += f"🏆 | {leading_dashes}🐎{trailing_dashes} {horse}\n"
+                race_display += f"🏆 | {'-' * positions[horse]}🐎{'-' * (distance - positions[horse])} {horse}\n"
             if positions[horse] == 0 and not winner:
                 winner = horse
 
@@ -4086,10 +4083,9 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(race_display)
         except RetryAfter as e:
             await asyncio.sleep(int(e.retry_after) + 1)
-            continue
+            continue  # keep going after flood control
 
-        await asyncio.sleep(0.8)
-
+        await asyncio.sleep(0.8)  # more delay to avoid flooding
 
     # Determine payout
     if winner == dealer_horse:

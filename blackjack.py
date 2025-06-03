@@ -1684,7 +1684,7 @@ async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         next_player_id = game.turn_order[0]
         next_player = await sync_to_async(Player.objects.get)(id=next_player_id)
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', next_player.name)
-
+            
         mention = f"[{user_name_escaped}](tg://user?id={next_player_id})"
         await asyncio.sleep(3)  # Non-blocking sleep
         await safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
@@ -1894,7 +1894,12 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(2)
             try:
                 # Try to tag the winner using their name
-                mention = f"[{winner.name}](tg://user?id={winner.id})"
+                # escaped_name = re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', winner.name)
+                # mention = f"[{escaped_name}](tg://user?id={winner.id})"
+                user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner.name)
+                mention = f"[{user_name_escaped}](tg://user?id={winner.id})"
+
+                # mention = f"[{winner.name}](tg://user?id={winner.id})"
             except Exception as e:
                 # Fallback to just using the player's name if tagging fails
                 mention = winner.name
@@ -1910,143 +1915,6 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Proceed to the next round or end the game if all rounds are done
     game.current_round += 1
     await check_for_next_round(update, context, game, joined_players)
-
-# async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-#     chat_id = update.message.chat_id
-
-#     try:
-#         game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
-#     except Game.DoesNotExist:
-#         await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
-#         return
-#     if game.current_round == 1:
-#         await send_vote_results(update, context,chat_id,game.poll_id)
-
-#     await asyncio.sleep(2)
-#     await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
-
-#     dealer_hand = game.dealer_hand
-#     dealer_value = calculate_hand_value(dealer_hand)
-
-#     # Fetch all active players who have joined the game
-#     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
-
-#     # Check if all players have busted
-#     all_players_busted = True
-#     highest_player_hand = 0
-
-#     for join_entry in joined_players:
-#         player_hand_value = calculate_hand_value(join_entry.hand)
-#         if player_hand_value <= 21:  # If a player has a valid hand
-#             all_players_busted = False  # At least one player hasn't busted
-#             highest_player_hand = max(highest_player_hand, player_hand_value)  # Track the highest valid hand
-
-#     # If all players are busted, dealer automatically wins and stands
-#     if all_players_busted:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, "🤖 All players have busted\\.")
-#         await asyncio.sleep(2)
-
-#         reaction = random.choice(all_players_bust_reactions)
-#         await safe_send_reaction(context.bot, chat_id, reaction)
-#         await asyncio.sleep(2)
-
-#         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
-        
-#         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
-        
-#         # Move to next round or end game
-#         game.current_round += 1
-#         await sync_to_async(game.save)()
-#         await check_for_next_round(update, context, game, joined_players)
-#         return  # Exit early since no more actions are needed
-
-#     # Dealer's logic: drawing until beating or matching the highest player hand
-#     while dealer_value < highest_player_hand and dealer_value < 21:
-#         new_card = deal_card()
-#         dealer_hand.append(new_card)
-#         dealer_value = calculate_hand_value(dealer_hand)
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
-#         if dealer_value == 21:
-#             reaction = random.choice(blackjack_reactions)
-#             await safe_send_reaction(context.bot, chat_id, reaction)
-#             break
-#     # If dealer busts (> 21)
-#     if dealer_value > 21:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
-#         reaction = random.choice(bust_reactions)
-#         await asyncio.sleep(2)
-#         await safe_send_reaction(context.bot, chat_id, reaction)
-#         dealer_busted = True
-#     elif dealer_value == 21:
-#         await asyncio.sleep(2)
-#         # reaction = random.choice(blackjack_reactions)
-#         # await safe_send_message_dealer(context.bot, chat_id, reaction)
-#         dealer_busted = False
-#     else:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
-#         dealer_busted = False
-
-#     # Save the updated dealer hand
-#     game.dealer_hand = dealer_hand
-#     await sync_to_async(game.save)()
-
-#     # Fetch all active players who have joined the game
-#     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
-
-#     # Track the player(s) who win this round
-#     highest_valid_score = 0
-#     round_winners = []
-
-#     for join_entry in joined_players:
-#         # Fetch the player asynchronously
-#         player = await sync_to_async(lambda: join_entry.player)()
-        
-#         player_hand_value = calculate_hand_value(join_entry.hand)
-        
-#         # If player busted, skip them
-#         if player_hand_value > 21:
-#             continue
-        
-#         # Track the highest valid hand that beats the dealer (if dealer didn't bust)
-#         if dealer_busted or player_hand_value > dealer_value:
-#             if player_hand_value > highest_valid_score:
-#                 highest_valid_score = player_hand_value
-#                 round_winners = [player]
-#             elif player_hand_value == highest_valid_score:
-#                 round_winners.append(player)
-#     # Announce the winner(s)
-#     if not round_winners:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
-#         reaction = random.choice(win_reactions)
-#         await safe_send_reaction(context.bot, chat_id, reaction)
-#         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
-#     else:
-#         for winner in round_winners:
-#             await asyncio.sleep(2)
-#             try:
-#                 # Try to tag the winner using their name
-#                 mention = f"[{winner.name}](tg://user?id={winner.id})"
-#             except Exception as e:
-#                 # Fallback to just using the player's name if tagging fails
-#                 mention = winner.name
-#                 print(f"Error tagging player {winner.name}: {str(e)}")
-#             await add_xp(winner, 5, context)
-
-#             await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
-#             if highest_valid_score == 10:
-#                 await unlock_achievement(winner, "win_with_10", context)
-
-#             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
-
-#     # Proceed to the next round or end the game if all rounds are done
-#     game.current_round += 1
-#     await check_for_next_round(update, context, game, joined_players)
 
 
 # Asynchronous version of reset_game

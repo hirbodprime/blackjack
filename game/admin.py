@@ -15,7 +15,123 @@ from .models import (
     RoundWinner,
     HorseRace, 
     HorseBet,
+    OwnedHorse, HorseUpgrade, PlayerUpgrade, HorseAppliedUpgrade,
 )
+# ─── Inline for HorseAppliedUpgrade under OwnedHorse ───
+class HorseAppliedUpgradeInline(admin.TabularInline):
+    model = HorseAppliedUpgrade
+    extra = 0
+    verbose_name = "Applied Upgrade"
+    verbose_name_plural = "Applied Upgrades"
+    fields = ("upgrade",)
+    readonly_fields = ()
+
+
+# ─── OwnedHorseAdmin ───
+@admin.register(OwnedHorse)
+class OwnedHorseAdmin(admin.ModelAdmin):
+    list_display = (
+        "horse_number",
+        "user",
+        "emoji",
+        "bought_at",
+    )
+    list_filter = ("user",)
+    search_fields = ("horse_number", "user__name")
+    ordering = ("horse_number",)
+    inlines = [HorseAppliedUpgradeInline]
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "user",
+                    "horse_number",
+                    "emoji",
+                ),
+            },
+        ),
+        (
+            "Timestamps",
+            {
+                "fields": ("bought_at",),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+    readonly_fields = ("bought_at",)
+
+
+# ─── HorseUpgradeAdmin ───
+@admin.register(HorseUpgrade)
+class HorseUpgradeAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "cost",
+    )
+    list_filter = ("cost",)
+    search_fields = ("name",)
+    ordering = ("cost",)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "name",
+                    "description",
+                    "cost",
+                ),
+            },
+        ),
+    )
+
+
+# ─── PlayerUpgradeAdmin ───
+@admin.register(PlayerUpgrade)
+class PlayerUpgradeAdmin(admin.ModelAdmin):
+    list_display = (
+        "player",
+        "upgrade",
+    )
+    list_filter = ("upgrade",)
+    search_fields = ("player__name", "upgrade__name")
+    ordering = ("player__name",)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "player",
+                    "upgrade",
+                ),
+            },
+        ),
+    )
+
+
+# ─── HorseAppliedUpgradeAdmin ───
+@admin.register(HorseAppliedUpgrade)
+class HorseAppliedUpgradeAdmin(admin.ModelAdmin):
+    list_display = (
+        "owner",
+        "horse",
+        "upgrade",
+    )
+    list_filter = ("upgrade",)
+    search_fields = ("owner__name", "horse__horse_number", "upgrade__name")
+    ordering = ("owner__name",)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "owner",
+                    "horse",
+                    "upgrade",
+                ),
+            },
+        ),
+    )
 
 # ─── HorseBet Inline ───
 class HorseBetInline(admin.TabularInline):

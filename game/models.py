@@ -121,3 +121,37 @@ class HorseBet(models.Model):
 
     def __str__(self):
         return f"Bet by {self.user_id} on horse {self.horse_number} ({self.bet_amount})"
+
+
+class OwnedHorse(models.Model):
+    user = models.ForeignKey(Player, on_delete=models.CASCADE)
+    horse_number = models.IntegerField(unique=True)
+    emoji = models.CharField(max_length=10, blank=True, null=True)
+
+    bought_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Horse {self.horse_number} owned by {self.user}"
+
+class HorseUpgrade(models.Model):
+    name = models.CharField(max_length=50)
+    description = models.TextField()
+    cost = models.IntegerField()
+
+    def __str__(self):
+        return self.name
+
+class PlayerUpgrade(models.Model):
+    player = models.ForeignKey(Player, on_delete=models.CASCADE)
+    upgrade = models.ForeignKey(HorseUpgrade, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.player.name} owns {self.upgrade.name}"
+
+class HorseAppliedUpgrade(models.Model):
+    owner = models.ForeignKey(Player, on_delete=models.CASCADE)
+    horse = models.ForeignKey(OwnedHorse, on_delete=models.CASCADE)
+    upgrade = models.ForeignKey(HorseUpgrade, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.upgrade.name} on Horse {self.horse.horse_number} by {self.owner.name}"

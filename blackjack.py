@@ -3991,10 +3991,6 @@ async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) != 2:
         await update.message.reply_text("Usage: /joinrace <horse_number> <bet_amount>")
         return
-    existing_bet = await sync_to_async(HorseBet.objects.filter)(race=race, user_id=user_id)
-    if await sync_to_async(existing_bet.exists)():
-        await update.message.reply_text("❌ You have already placed a bet in this race!")
-        return
 
     horse_number = int(args[0])
     bet_amount = int(args[1])
@@ -4008,10 +4004,17 @@ async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ You can’t bet on the dealer’s horse!")
         return
 
+    # First: find the active race
     race = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, race_started=False)
     race = await sync_to_async(race.first)()
     if not race:
         await update.message.reply_text("❌ No active race! Start one with /horserace")
+        return
+
+    # Then: check if the user has already placed a bet in this race
+    existing_bet = await sync_to_async(HorseBet.objects.filter)(race=race, user_id=user_id)
+    if await sync_to_async(existing_bet.exists)():
+        await update.message.reply_text("❌ You have already placed a bet in this race!")
         return
 
     player = await sync_to_async(Player.objects.get)(id=user_id)

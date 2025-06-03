@@ -4139,8 +4139,8 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "🏪 Shop Menu:\n"
-        "/buyhorse <number> - Buy a horse number\n"
-        "/setemoji <horse_number> <emoji> - Set emoji for your horse\n"
+        "/buyhorse <number> - Buy a horse number,(Costs 60000)\n"
+        "/setemoji <horse_number> <emoji> - Set emoji for your horse(Costs 9000)\n"
         "/myhorses - View your owned horses"
     )
 

@@ -27,9 +27,18 @@ SECRET_KEY = 'django-insecure-p!y0x5c_z%-44hxy%g_rgdu=e=9q$^1u6g!=01go5(adawz%yw
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     ALLOWED_HOSTS = []
+    CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1', 'http://localhost']
+
 elif DEBUG == "False":
     ALLOWED_HOSTS = ["hirbots.com","www.hirbots.com"]
+    CSRF_TRUSTED_ORIGINS = ["https://hirbots.com","https://www.hirbots.com"]
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
+
+
+# Secure session and CSRF cookies (only sent over HTTPS)
 
 # Application definition
 

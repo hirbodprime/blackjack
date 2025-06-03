@@ -1,0 +1,4290 @@
+import random
+from telegram import Update, Bot
+from telegram.constants import ParseMode
+from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes, MessageHandler, filters,CallbackQueryHandler
+from telegram.helpers import escape_markdown
+import asyncio
+from telegram.error import TimedOut,RetryAfter
+import math
+
+import os
+import django
+
+# Set the environment variable to point to your Django settings module
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
+
+# Initialize Django
+django.setup()
+from dotenv import load_dotenv
+import time
+import re
+from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification,Achievement,PlayerAchievement,RaiseGameBet
+from django.core.exceptions import ObjectDoesNotExist
+from asgiref.sync import sync_to_async
+
+
+from datetime import datetime, timedelta
+from django.utils import timezone
+
+load_dotenv()
+
+async def move_to_next_raise_player(update, context, game):
+    game.turn_order.pop(0)
+    await sync_to_async(game.save)()
+
+    if game.turn_order:
+        next_player_id = game.turn_order[0]
+        next_player = await sync_to_async(Player.objects.get)(id=next_player_id)
+        mention = f"[{escape_markdown(next_player.name, version=2)}](tg://user?id={next_player.id})"
+        await context.bot.send_message(
+            chat_id=game.chat_id,
+            text=f"💰 {mention}, it's your turn to act\\!\nUse /raise <amount>, /call, or /fold\\.",
+            parse_mode="MarkdownV2"
+        )
+    else:
+        # Raising phase is done, go to hit/stand phase
+        await context.bot.send_message(
+            chat_id=game.chat_id,
+            text="💰 Raising phase is over! Now it's time to play: /hit or /stand!"
+        )
+
+        # Create a new turn_order with only active players (not folded)
+        active_players = await sync_to_async(lambda: list(
+            JoinGame.objects.filter(game=game, is_active=True).values_list('player__id', flat=True)
+        ))()
+        game.turn_order = active_players
+        await sync_to_async(game.save)()
+
+        # Start hit/stand phase
+        await player_turn(update, context)
+
+
+async def call_bet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
+
+    # Fetch the active game
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+    except Game.DoesNotExist:
+        return await update.message.reply_text("No active game or the game has not started.")
+
+    if game.game_type != "raise":
+        return await update.message.reply_text("This command can only be used in raise game mode.")
+
+    # Get the player's join record
+    try:
+        join_game = await sync_to_async(JoinGame.objects.get)(player_id=user_id, game=game, is_active=True)
+    except JoinGame.DoesNotExist:
+        return await update.message.reply_text("You are not part of this game.")
+
+    # Ensure it's the player's turn
+    if user_id != game.turn_order[0]:
+        return await update.message.reply_text("It's not your turn!")
+
+    # Find the highest current bet
+    highest_bet = await sync_to_async(lambda: max(RaiseGameBet.objects.filter(game=game).values_list('bet_amount', flat=True), default=0))()
+
+    # Fetch or create the RaiseGameBet record
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    bet_record, _ = await sync_to_async(RaiseGameBet.objects.get_or_create)(player=player, game=game)
+
+    # Determine the amount to match
+    amount_to_call = highest_bet - bet_record.bet_amount
+    if amount_to_call <= 0:
+        return await update.message.reply_text("You have already matched the highest bet.")
+
+    if player.chips < amount_to_call:
+        return await update.message.reply_text("You don't have enough chips to call.")
+
+    # Deduct chips and update bet record
+    player.chips -= amount_to_call
+    bet_record.bet_amount += amount_to_call
+    bet_record.has_called = True
+    bet_record.has_raised = False
+    await sync_to_async(player.save)()
+    await sync_to_async(bet_record.save)()
+
+    # Add to the pot
+    game.pot += amount_to_call
+    await sync_to_async(game.save)()
+
+    # Announce the call
+    user_name_escaped = escape_markdown(player.name, version=2)
+    mention = f"[{user_name_escaped}](tg://user?id={player.id})"
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"💰 {mention} called and matched the highest bet\\!\nThe pot is now {game.pot} chips\\.",
+        parse_mode="MarkdownV2"
+    )
+
+    # Move to the next player
+    await move_to_next_raise_player(update, context, game)
+async def fold(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
+
+    # Fetch the active game
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+    except Game.DoesNotExist:
+        return await update.message.reply_text("No active game or the game has not started.")
+
+    if game.game_type != "raise":
+        return await update.message.reply_text("This command can only be used in raise game mode.")
+
+    # Get the player's join record
+    try:
+        join_game = await sync_to_async(JoinGame.objects.get)(player_id=user_id, game=game, is_active=True)
+    except JoinGame.DoesNotExist:
+        return await update.message.reply_text("You are not part of this game.")
+
+    # Ensure it's the player's turn
+    if user_id != game.turn_order[0]:
+        return await update.message.reply_text("It's not your turn!")
+
+    # Mark the player as folded
+    bet_record, _ = await sync_to_async(RaiseGameBet.objects.get_or_create)(player=join_game.player, game=game)
+    bet_record.has_folded = True
+    await sync_to_async(bet_record.save)()
+
+    # Remove the player from the main join_game table to skip them in hit/stand phase
+    join_game.is_active = False
+    await sync_to_async(join_game.save)()
+
+    # Announce the fold
+    user_name_escaped = escape_markdown(join_game.player.name, version=2)
+    mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"🙅 {mention} folded and left the round\\.",
+        parse_mode="MarkdownV2"
+    )
+
+    # Move to the next player's turn
+    await move_to_next_raise_player(update, context, game)
+
+async def raise_bet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
+
+    if not context.args:
+        return await update.message.reply_text("Usage: /raise <amount>")
+
+    try:
+        raise_amount = int(context.args[0])
+    except ValueError:
+        return await update.message.reply_text("Please enter a valid number.")
+
+    if raise_amount <= 0:
+        return await update.message.reply_text("Raise amount must be positive.")
+
+    # Fetch the active game
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+    except Game.DoesNotExist:
+        return await update.message.reply_text("No active game or the game has not started.")
+
+    # Check if game type is 'raise'
+    if game.game_type != "raise":
+        return await update.message.reply_text("This command can only be used in raise game mode.")
+
+    # Get the player's join record
+    try:
+        join_game = await sync_to_async(JoinGame.objects.get)(player_id=user_id, game=game, is_active=True)
+    except JoinGame.DoesNotExist:
+        return await update.message.reply_text("You are not part of this game.")
+
+    # Ensure it's the player's turn
+    if user_id != game.turn_order[0]:
+        return await update.message.reply_text("It's not your turn!")
+
+    # Ensure player has enough chips
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < raise_amount:
+        return await update.message.reply_text("You don't have enough chips to raise this amount.")
+
+    # Update or create the RaiseGameBet record
+    bet_record, created = await sync_to_async(RaiseGameBet.objects.get_or_create)(
+        player=player,
+        game=game
+    )
+    bet_record.bet_amount += raise_amount
+    bet_record.has_raised = True
+    bet_record.has_called = False  # Reset call status
+    await sync_to_async(bet_record.save)()
+
+    # Deduct the chips from player and add to pot
+    player.chips -= raise_amount
+    game.pot += raise_amount
+    await sync_to_async(player.save)()
+    await sync_to_async(game.save)()
+
+    # Announce the raise
+    user_name_escaped = escape_markdown(player.name, version=2)
+    mention = f"[{user_name_escaped}](tg://user?id={player.id})"
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"💰 {mention} raised the bet by {raise_amount} chips\\!\nThe pot is now {game.pot} chips\\.",
+        parse_mode="MarkdownV2"
+    )
+
+    # Move to the next player's turn in the raise phase
+    await move_to_next_raise_player(update, context, game)
+
+
+async def start_raising_phase(update, context, game, joined_players):
+    chat_id = update.message.chat_id
+
+    await context.bot.send_message(chat_id=chat_id, text="💰 The raising phase has begun\\!\nPlayers can /raise, /call, or /fold\\.")
+
+    # Initialize the turn order
+    game.turn_order = [join_entry.player.id for join_entry in joined_players]
+    await sync_to_async(game.save)()
+
+    first_player_id = game.turn_order[0]
+    first_player = await sync_to_async(Player.objects.get)(id=first_player_id)
+
+    mention = f"[{escape_markdown(first_player.name, version=2)}](tg://user?id={first_player.id})"
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"💰 {mention}, it's your turn to act\\!\nUse /raise <amount>, /call, or /fold\\.",
+        parse_mode="MarkdownV2"
+    )
+
+
+
+async def deal_initial_cards(update, context, game, joined_players):
+    chat_id = update.message.chat_id
+    player_blackjacks = []
+
+    for join_entry in joined_players:
+        player_hand = [deal_card(), deal_card()]
+        join_entry.hand = player_hand
+        await sync_to_async(join_entry.save)()
+
+        hand_value = calculate_hand_value(player_hand)
+        if hand_value == 21:
+            player_blackjacks.append(join_entry)
+        else:
+            await context.bot.send_message(
+                chat_id=join_entry.player.id,
+                text=f"🃏 Your hand: {player_hand}\n♠️ Total value: {hand_value}"
+            )
+
+    dealer_hand = [deal_card(), deal_card()]
+    game.dealer_hand = dealer_hand
+    await sync_to_async(game.save)()
+
+    return player_blackjacks
+
+
+# xpppppppppppppp
+
+
+
+
+def xp_for_next_level(level: int) -> int:
+    """
+    Returns the XP required *to complete* the current `level` and bump to `level+1`.
+    E.g. level=1 → need 50 XP, level=2 → need 100 XP, level=3 → need 150 XP, etc.
+    """
+    return level * 50
+
+# Function to add XP, check for level-up, and give rewards
+async def add_xp(player, amount, context):
+    player.xp += amount  # Add the XP amount to the player's total XP
+    level_up = False  # Track if player leveled up
+
+    # Loop to handle multiple level-ups in case of large XP gain
+    while player.xp >= xp_for_next_level(player.level):
+        next_level_xp = xp_for_next_level(player.level)  # Calculate the XP needed for the next level
+        player.xp -= next_level_xp  # Subtract the XP required for the current level
+        player.level += 1  # Increase the player's level
+        level_up = True
+
+        # Reward player with 50 chips per level
+        chips_reward = player.level * 50
+        player.chips += chips_reward
+        
+        # Send level-up and reward message
+        await context.bot.send_message(
+            chat_id=player.id, 
+            text=f"🎉 Congratulations! You've reached level {player.level}! You've been rewarded with {chips_reward} 💰 chips!"
+        )
+
+    await sync_to_async(player.save)()  # Save the player data
+
+
+async def normalize_player_level_xp(player: Player):
+    """
+    If player.xp is already ≥ xp_for_next_level(player.level),
+    then remove that threshold from xp, increment level, and repeat until
+    xp < xp_for_next_level(level). This ensures the stored xp is always "in‐level."
+    No chips or messages are awarded here; it's purely a data‐correction step.
+    """
+    changed = False
+
+    # Keep leveling up as long as xp reaches the threshold for the current level
+    while player.xp >= xp_for_next_level(player.level):
+        threshold = xp_for_next_level(player.level)
+        player.xp -= threshold
+        player.level += 1
+        changed = True
+
+    # Just in case someone’s XP was negative, clamp it at 0 at level 1:
+    if player.xp < 0 and player.level == 1:
+        player.xp = 0
+        changed = True
+
+    # If anything changed, save
+    if changed:
+        await sync_to_async(player.save)()
+
+async def safe_send_reaction(bot, chat_id, reaction, max_retries=10):
+    retries = 0
+    while retries < max_retries:
+        try:
+            await bot.send_message(chat_id=chat_id, text=reaction)
+            return  # Exit the loop if successful
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
+            await asyncio.sleep(4)  # Non-blocking wait
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Rate limit exceeded. Retrying in {retry_after} seconds...")
+            await asyncio.sleep(retry_after)  # Wait for the retry after time
+            retries += 1
+        except Exception as e:
+            print(f"Failed to send message: {e}")
+            break  # Exit on other exceptions
+
+    print("Failed to send reaction after multiple retries.")
+
+# Function to deduct XP and check for level-down
+async def deduct_xp(player, amount, context):
+    player.xp -= amount  # Subtract the XP amount
+
+    level_down = False  # Track if player levels down
+
+    # Loop to handle level-down in case of large XP loss
+    while player.xp < 0 and player.level > 1:
+        previous_level_xp = xp_for_next_level(player.level - 1)  # XP required for the previous level
+        player.level -= 1  # Decrease the player's level
+        player.xp += previous_level_xp  # Add the XP required for the previous level
+        level_down = True
+
+    # Handle level-down to minimum level
+    if player.xp < 0 and player.level == 1:
+        player.xp = 0  # Ensure XP doesn't go negative at level 1
+
+    # Send a level-down message if the player leveled down
+    if level_down:
+        await context.bot.send_message(
+            chat_id=player.id,
+            text=f"⚠️ You lost {amount} XP and have been demoted to level {player.level}."
+        )
+
+    await sync_to_async(player.save)()  # Save the player data
+
+
+
+
+# achievementssssssssssssssss ------------------------------------------------ 
+
+
+async def unlock_achievement(player, condition_name, context):
+    try:
+        # Fetch the achievement by its condition name
+        achievement = await sync_to_async(Achievement.objects.get)(condition=condition_name)
+        
+        # Check if the player already has this achievement
+        already_unlocked = await sync_to_async(lambda: PlayerAchievement.objects.filter(player=player, achievement=achievement).exists())()
+
+        if not already_unlocked:
+            # Unlock the achievement for the player
+            await sync_to_async(PlayerAchievement.objects.create)(
+                player=player, achievement=achievement, unlocked_at=datetime.now()
+            )
+
+            # Notify the player
+            await add_xp(player, 20, context)
+
+            await context.bot.send_message(
+                chat_id=player.id,
+                text=f"🎉 Congratulations! You've unlocked the '{achievement.name}' achievement: {achievement.description}"
+            )
+        else:
+            print(f"{player.name} already has the {achievement.name} achievement.")
+
+    except ObjectDoesNotExist:
+        print(f"Achievement with condition '{condition_name}' does not exist.")
+
+
+
+
+
+async def my_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_player(update, context):
+        return
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+    chat_id = update.message.chat_id  # This is the chat where the command was used
+    
+    try:
+        # Fetch the player from the database
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text(f"{user_name}, you don't seem to have a player profile. Start a game first!")
+        return
+
+    # Fetch all achievements for the player
+    player_achievements = await sync_to_async(list)(
+        PlayerAchievement.objects.filter(player=player).select_related('achievement')
+    )
+
+    # Fetch total achievements available in the system
+    total_achievements = await sync_to_async(Achievement.objects.count)()
+
+    # If no achievements found
+    if not player_achievements:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"{user_name}, you haven't unlocked any achievements yet.\n\n0/{total_achievements} achievements unlocked.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Calculate the player's achievement progress
+    unlocked_achievements_count = len(player_achievements)
+
+    # Prepare the achievement list
+    achievements_list = "\n".join([f"🏅 *{pa.achievement.name}*: {pa.achievement.description}" for pa in player_achievements])
+
+    # Send the message with the achievements list and progress to the player's private chat
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"🎉 *{user_name}'s Achievements* 🎉\n\n"
+             f"Progress: {unlocked_achievements_count}/{total_achievements} achievements unlocked.\n\n"
+             f"{achievements_list}",
+        parse_mode="Markdown"
+    )
+
+
+
+
+async def achievement_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+
+    # Fetch all achievements from the database
+    achievements = await sync_to_async(list)(Achievement.objects.all())
+
+    # Check if there are any achievements available
+    if not achievements:
+        await update.message.reply_text("There are no achievements available yet.")
+        return
+
+    # Prepare the list of achievements with descriptions
+    achievement_list = "\n".join([f"🏅 *{achievement.name}*: {achievement.description}" for achievement in achievements])
+
+    # Send the achievements list to the player
+    await context.bot.send_message(
+        chat_id=user_id,  # Send to player's private chat
+        text=f"🎉 *Achievements Info* 🎉\n\n"
+             f"Here’s how you can unlock the achievements:\n\n{achievement_list}",
+        parse_mode="Markdown"
+    )
+
+    # Inform the user in the group chat if the message is sent in a group
+    if chat_id != user_id:
+        await update.message.reply_text("📩 A message with the achievements info has been sent to your private chat.")
+
+
+
+
+async def is_player_in_another_game(player_id: int, current_chat_id: int) -> bool:
+    """
+    Check if the player is already joined in another game in a different group.
+    
+    Args:
+        player_id (int): The ID of the player.
+        current_chat_id (int): The ID of the current group chat.
+
+    Returns:
+        bool: True if the player is in another game, False otherwise.
+    """
+    # Query to check if the player is active in another game in a different group
+    is_in_another_game = await sync_to_async(
+        JoinGame.objects.filter(
+            player_id=player_id, 
+            is_active=True
+        ).exclude(game__chat_id=current_chat_id).exists
+    )()
+    
+    return is_in_another_game
+from telegram.error import TelegramError
+
+async def check_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+
+    try:
+        # Try to get the Player instance from the database
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+
+        try:
+            # Test if the bot can send a chat action (e.g., typing) to check if the user has blocked the bot
+            await context.bot.send_chat_action(chat_id=user_id, action="typing")
+
+            # If no exception is raised, the bot can message the user
+            return True
+
+        except TelegramError as e:
+            # Handle case where the bot is blocked or cannot message the user
+            await update.message.reply_text(
+                "It seems like I can't message you in private. Please make sure to start the bot in private chat first: "
+                "t.me/blackjack_21_game_bot"
+            )
+            return False
+
+    except ObjectDoesNotExist:
+        # If no player exists, prompt the user to start the bot in private chat
+        await update.message.reply_text(
+            "It looks like you don't have a player profile. Please start the bot in private chat to create one. "
+            "Use the following link: t.me/blackjack_21_game_bot"
+        )
+        return False  # Player does not exist
+
+async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    now = timezone.now()
+
+    # Reset the count if 24 hours have passed
+    if player.last_claimed_tokens is None or player.last_claimed_tokens.date() != now.date():
+        player.tokens_claimed_today = 0
+        player.last_claimed_tokens = now
+
+    if player.tokens_claimed_today >= 2:
+        await update.message.reply_text("You've already Tried twice today. Try again tomorrow!")
+        return
+
+    # Send the dart emoji and check the result
+    message = await context.bot.send_dice(chat_id=update.message.chat_id, emoji='🎯')
+
+    # Check if the dart hits the middle (value = 6, which represents hitting the bullseye)
+    await asyncio.sleep(3)
+    if message.dice.value == 6:
+        # Grant 200 tokens
+        player.chips += 200
+        player.tokens_claimed_today += 1
+        player.last_claimed_tokens = now
+        await sync_to_async(player.save)()
+
+        await update.message.reply_text(f"🎯 Bullseye! You've received 💰200 chips! You now have 💰{player.chips} chips.")
+    else:
+        player.tokens_claimed_today += 1
+        player.last_claimed_tokens = now
+        await sync_to_async(player.save)()
+        await update.message.reply_text("🎯 You missed the bullseye! Better luck next time!")
+
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+
+    try:
+        # Check if the player already exists (using sync_to_async)
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        await update.message.reply_text("Welcome back to Blackjack!")
+
+    except ObjectDoesNotExist:
+        # If the player does not exist, create the Player and Stats instance (using sync_to_async)
+        player = await sync_to_async(Player.objects.create)(id=user_id, name=user_name, chips=200)
+        await sync_to_async(Stats.objects.create)(wins=0, loses=0, how_many_21=0, player=player)
+        
+        # Send a welcome message and suggest using /help
+        await update.message.reply_text(
+            f"Welcome to Blackjack, {user_name}! You have been given 200 💰chips to start.\n"
+            "Type /help to see all available commands."
+        )
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id   = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+
+    try:
+        # Fetch the Player & Stats objects for this user
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        stats  = await sync_to_async(Stats.objects.get)(player=player)
+
+        # Normalize their xp/level before computing "xp to next"
+        await normalize_player_level_xp(player)
+
+        # Now player.level and player.xp are guaranteed to satisfy:
+        #    player.xp < xp_for_next_level(player.level)
+
+        xp    = player.xp
+        level = player.level
+        threshold = xp_for_next_level(level)  # how much XP needed *this* level
+
+        xp_to_next_level = threshold - xp  # always > 0, unless xp==threshold (in which
+                                           # case normalize would have bumped them already)
+
+        message = (
+            f"🎮 *Your Stats* 🎮\n\n"
+            f"🏆 *Wins*: {stats.wins}\n"
+            f"❌ *Losses*: {stats.loses}\n"
+            f"💥 *Blackjacks*: {stats.how_many_21}\n"
+            f"💪 *XP (this level)*: {xp}\n"
+            f"📈 *Level*: {level}\n"
+            f"🔜 *XP to next level*: {xp_to_next_level} XP\n"
+        )
+        await update.message.reply_text(message, parse_mode="Markdown")
+
+    except ObjectDoesNotExist:
+        # First‐time user: create Player & Stats, give 20 chips
+        player = await sync_to_async(Player.objects.create)(
+            id=user_id,
+            name=user_name,
+            chips=20,
+            xp=0,
+            level=1
+        )
+        stats  = await sync_to_async(Stats.objects.create)(
+            wins=0, loses=0, how_many_21=0, player=player
+        )
+
+        message = (
+            f"Welcome to Blackjack, {user_name}! You have been given 20 💰 chips to start.\n\n"
+            f"🎮 *Your Stats* 🎮\n\n"
+            f"🏆 *Wins*: {stats.wins}\n"
+            f"❌ *Losses*: {stats.loses}\n"
+            f"💥 *Blackjacks*: {stats.how_many_21}\n"
+            f"💪 *XP (this level)*: 0\n"
+            f"📈 *Level*: 1\n"
+            f"🔜 *XP to next level*: 50 XP\n"
+            f"\nKeep playing to earn XP and level up!"
+        )
+        await update.message.reply_text(message, parse_mode="Markdown")
+
+
+
+# # Deck of cards
+deck = [2, 3, 4, 5, 6, 7, 8, 9, 10, 'J', 'Q', 'K', 'A'] * 4
+
+# Function to deal cards
+def deal_card():
+    return random.choice(deck)
+
+# # Function to calculate hand value
+def calculate_hand_value(hand):
+    value = 0
+    aces = 0
+
+    for card in hand:
+        if card in ['J', 'Q', 'K']:
+            value += 10
+        elif card == 'A':
+            aces += 1  # Count Aces separately
+        else:
+            value += card
+
+    # Now calculate the value of Aces
+    for _ in range(aces):
+        if value + 11 <= 21:  # Try to count the Ace as 11
+            value += 11
+        else:
+            value += 1  # If counting as 11 would bust, count as 1
+
+    return value
+game_start_reactions = [
+    "A new round begins! Are you ready? 🃏",
+    "let the cards decide your fate! 💰",
+    "Good luck to all! Let’s have a great round. 🍀",
+    "New round, new chances to win! Let’s get started. 🎯",
+    "It’s time to deal the cards Losers. Ready? 🃏",
+    "A fresh round begins! May the best hand win. 👑",
+    "Let’s shuffle up and deal! Good luck! 🔄",
+    "The cards are ready. Who’s going to win this one? 👀",
+    "Let the round begin! Who’s feeling lucky? 🔥"
+]
+
+# Dealer reactions for betting phase
+betting_phase_reactions = [
+    "Place your bets! It’s time to see who’s daring today. 💰",
+    "Bet wisely! The game is about to heat up. 🔥",
+    "Time to put your chips on the table! Who’s going big? 💸",
+    "Betting is open! Will you play it safe or take a risk? 🎲",
+    "Place your bets now! Will you go all in? 🤑",
+    "How much are you willing to risk? Place your bets! 💪",
+    "The pot is waiting! Let’s see who’s feeling bold. 💼",
+    "Bet smart! The cards don’t lie. 🃏",
+    "Who’s betting big this round? Let’s see! 💰",
+    "Betting is open! Choose your risk carefully. 🎯"
+]
+async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_player(update, context):
+        return
+
+    chat_id = update.message.chat_id
+    group_name = update.message.chat.title  # Get the group name
+
+    # Check if a game exists and if it has ended
+    game = await sync_to_async(lambda: Game.objects.filter(chat_id=chat_id).order_by('-id').first())()
+
+    if not game or game.ended:
+        game, created = await sync_to_async(Game.objects.get_or_create)(chat_id=chat_id, ended=False)
+        game.betting = True
+        game.started = False
+
+        # 🚀 NEW: Get the group’s default game mode and apply it to the new game
+        group, _ = await sync_to_async(Group.objects.get_or_create)(group_chat_id=chat_id)
+        game.game_type = group.default_game_mode  # Use the group's default mode
+        await sync_to_async(game.save)()
+
+        # Notify users who subscribed to the next game
+        next_game_users = await sync_to_async(list)(
+            NextGameNotification.objects.filter(chat_id=chat_id)
+        )
+
+        # Send a message to each user in their private chat
+        for next_user in next_game_users:
+            try:
+                await context.bot.send_message(
+                    chat_id=next_user.user_id,
+                    text=f"A new Blackjack game has started in the group {group_name}!"
+                )
+            except Exception as e:
+                print(f"Failed to send message to {next_user.user_id}: {e}")
+
+        # Optionally, clear the list after notifying
+        await sync_to_async(lambda: NextGameNotification.objects.filter(chat_id=chat_id).delete())()
+
+        await asyncio.sleep(2)
+        await context.bot.send_message(chat_id=chat_id, text="🃏 Set the bet amount for the blackjack game to start.")
+        await create_poll(update, context)
+
+        await asyncio.sleep(2)
+        await context.bot.send_message(chat_id=chat_id, text="🃏 Betting process has started!")
+        await asyncio.sleep(1)
+        reaction = random.choice(betting_phase_reactions)
+        await safe_send_reaction(context.bot, chat_id, reaction)
+        return
+
+    # Check the game state and respond accordingly
+    if game.betting:
+        await update.message.reply_text("A Blackjack game is in betting progress. Wait for the betting process to end and use /join to join the game.")
+    elif game.started:
+        await update.message.reply_text("A game has already started. Use the /nextgame command to be notified when the next game starts.")
+    elif game.join_time:
+        await update.message.reply_text("A game is in join time. Use the /join command to join the game.")
+    else:
+        await update.message.reply_text("An error occurred, please try again.")
+
+
+async def safe_send_poll(bot, chat_id, question, options, max_retries=10):
+    retries = 0
+    while retries < max_retries:
+        try:
+            message = await bot.send_poll(chat_id=chat_id, question=question, options=options, is_anonymous=False)
+            return message  # Exit if successful
+        except TimedOut:
+            retries += 1
+            await asyncio.sleep(4)  # Use async sleep
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            await asyncio.sleep(retry_after)  # Use async sleep
+            retries += 1
+# Create poll function for setting bet amounts
+async def create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.message.chat_id
+
+    # Retrieve or create Group instance using sync_to_async
+    try:
+        group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+    except Group.DoesNotExist:
+        group = await sync_to_async(Group.objects.create)(group_chat_id=chat_id)
+
+    # Determine if the game should be based on real tokens or chips
+    if group.vip and group.real_money:
+        options = ["100 $", "200 $", "500 $", "1000 $"]
+        if group.games >= 100:
+            options.extend(["10000 $", "20000 $", "50000 $"])
+        question = "How much do you want to bet (real tokens 💵)?"
+    else:
+        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰"]
+        if group.games >= 100:
+            options.extend(["10000 chips💰", "20000 chips💰", "50000 chips💰"])
+        question = "How much do you want to bet (virtual chips 💰)?"
+
+    # Send the poll asynchronously
+    message = await safe_send_poll(context.bot, chat_id, question, options)
+
+    # Store poll data in context.bot_data using poll_id as key
+    if 'poll_data' not in context.bot_data:
+        context.bot_data['poll_data'] = {}
+    
+    context.bot_data['poll_data'][message.poll.id] = {
+        'chat_id': chat_id,
+        'poll_message_id': message.message_id
+    }
+
+async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # chat_id = update.message.chat_id
+
+    poll_answer = update.poll_answer
+    user_id = poll_answer.user.id
+    user_name = poll_answer.user.first_name
+    selected_option = poll_answer.option_ids[0]  # Get the index of the selected option
+
+    # Retrieve the poll data from context using poll_id
+    poll_data = context.bot_data.get('poll_data', {}).get(poll_answer.poll_id)
+
+    if not poll_data:
+        print("No poll data found.")
+        return
+    else:
+        print("Poll data exists.")
+        try:
+            chat_id = poll_data['chat_id']
+            print(f"Chat ID: {chat_id}")
+
+            game = await sync_to_async(Game.objects.get)(
+                chat_id=chat_id, betting=False, started=True, ended=False
+            )
+            print("Game found with betting=False, started=True, ended=False.")
+        except Game.DoesNotExist:
+            print("No game found with betting=False, started=True, ended=False.")
+            try:
+                game = await sync_to_async(Game.objects.get)(
+                    chat_id=chat_id, betting=True, started=False, ended=False
+                )
+                print("Game found with betting=True, started=False, ended=False.")
+            except Game.DoesNotExist:
+                print("Game not found?")
+                return
+
+        if game.bet_phase != "total_pot":
+            print(f"Current bet phase: {game.bet_phase}")
+            if game.bet_phase == "dealer":
+                print("Handling dealer poll response.")
+                await handle_poll_response(update, context)
+            else:
+                print("Poll data not found.")
+                return
+
+
+    chat_id = poll_data['chat_id']
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, betting=True, started=False, ended=False)
+    except Game.DoesNotExist:
+        print("Game not found?")
+        return
+    # Retrieve the group using sync_to_async
+    group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+
+    # Set bet amounts based on real tokens or chips
+    if group.vip and group.real_money:
+        options = ["100 $", "200 $", "500 $", "1000 $", "10000 $", "20000 $", "50000 $"]
+    else:
+        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
+
+    chosen_option = options[selected_option]
+    bet_amount = int(chosen_option.split()[0])
+
+    # Retrieve the game using sync_to_async
+    
+
+    # Update game state using sync_to_async
+    game.bet_amount = bet_amount
+    game.betting = False
+    game.join_time = True
+    game.bet_phase = "dealer"
+    await sync_to_async(game.save)()
+
+    # Escape special characters in user_name
+    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
+    mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+    
+    # Send a message to notify the chat
+    currency_type = "$" if group.vip and group.real_money else "chips💰"
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"{mention} has set the bet amount to {chosen_option}\nUse /join to join the game", 
+        parse_mode="MarkdownV2"
+    )
+    
+
+
+async def safe_send_message_join(bot, chat_id, text, max_retries=10):
+    retries = 0
+    while retries < max_retries:
+        try:
+            await bot.send_message(chat_id=chat_id, text=text)
+            return  # Exit the loop if the message is sent successfully
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
+            await asyncio.sleep(4)  # Non-blocking sleep
+    print("Failed to send the message after retries.")
+
+async def join_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+
+    chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=True, started=False, ended=False, betting=False)
+    except Game.DoesNotExist:
+        await update.message.reply_text("No active game found or the game is not in join time.")
+        return
+
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text(f"{user_name}, please start the bot in private first.")
+        return
+
+    group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+
+    # Check if the player already joined
+    if await sync_to_async(JoinGame.objects.filter(game=game, player=player, is_active=True).exists)():
+        await update.message.reply_text(f"{user_name}, you are already in the game!")
+        return
+
+    if group.vip and group.real_money:
+        # Real token game
+        if player.real_tokens < game.bet_amount:
+            await update.message.reply_text(
+                f"{user_name}, you do not have enough 💵real tokens to join the game.\nMinimum bet is {game.bet_amount} 💵real tokens."
+            )
+            return
+        # Deduct real tokens **when joining**
+        player.real_tokens -= game.bet_amount
+    else:
+        # Chips game
+        if player.chips < game.bet_amount:
+            await update.message.reply_text(
+                f"{user_name}, you do not have enough 💰chips to join the game.\nMinimum bet is {game.bet_amount} 💰chips."
+            )
+            return
+        # Deduct chips **when joining**
+        player.chips -= game.bet_amount
+
+    await sync_to_async(player.save)()
+    await sync_to_async(JoinGame.objects.create)(player=player, game=game, is_active=True)
+
+    escaped_user_name = escape_markdown(user_name, version=2)
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"[{escaped_user_name}](tg://user?id={user_id}) has joined the game\\!",
+        parse_mode="MarkdownV2"
+    )
+    await context.bot.send_message(
+        chat_id=player.id,
+        text=f"You have successfully joined a game in group {update.message.chat.title}, Good Luck😃"
+    )
+
+
+
+scare_players_reactions = [
+    "I wouldn’t get too comfortable if I were you. 😈",
+    "Do you really think you can win this? Think again. 😏",
+    "I can already see the outcome, and it’s not in your favor. 👀",
+    "You might want to start preparing for a loss. 🎲",
+    "The cards don’t look good for you. Better luck next time. 😎",
+    "Feeling lucky? You might need more than that. 😏",
+    "Oh, I wouldn’t bet too much on this round if I were you. 🃏",
+    "Your fate is sealed. This won’t end well. 😈",
+    "I’ve seen better hands, and trust me, this isn’t one of them. 😅",
+    "Get ready to lose everything, because that’s where this is heading. 💥",
+    "I hope you didn’t go all in, because this might hurt. 💸",
+    "The house always wins, and today is no exception. 🤑",
+    "I wouldn’t count on winning this one. Better get used to losing. 🎯",
+    "This is where it all goes downhill for you. 😎",
+    "Enjoy your last moments of hope, because they’re fading fast. 🃏"
+]
+
+
+# Force start the Blackjack game
+async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+    chat_id = update.message.chat_id
+
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=True, started=False, ended=False, betting=False)
+    except Game.DoesNotExist:
+        try:
+            game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=False, started=False, ended=False, betting=True)
+            await safe_send_message_join(context.bot, chat_id, "The game is in the betting process. Please wait for it to end, then forcestart the game.")
+            return
+        except Game.DoesNotExist:
+            try:
+                game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=False, started=True, ended=False, betting=False)
+                await safe_send_message_join(context.bot, chat_id, "A game has already started. You cannot forcestart the game, use /nextgame to be prompted when another game is started.")
+                return
+            except Game.DoesNotExist:
+                await safe_send_message_join(context.bot, chat_id, "No active Blackjack game. Start one by typing /startblackjack.")
+                return
+
+    # Fetch all active players who have joined the game
+    joined_players = await sync_to_async(lambda: list(JoinGame.objects.filter(game=game, is_active=True)))()
+
+    # Check if there are enough players
+    if len(joined_players) < 1:
+        await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
+        await update.message.reply_text('At least 1 player is required to start the game, ending the game!')
+        return
+    if game.forced:
+        await context.bot.send_message(chat_id=chat_id, text="This game has already been force-started.")
+        return
+
+    game.forced = True
+    await sync_to_async(game.save)()
+
+    dealer = await sync_to_async(Dealer.objects.first)()
+    group_game, created = await sync_to_async(Group.objects.get_or_create)(group_chat_id=chat_id)
+    group_game.games += 1
+    await sync_to_async(group_game.save)()
+
+    # Determine whether to use real tokens or chips
+    is_real_token_game = group_game.vip and group_game.real_money
+    currency_type = "$" if is_real_token_game else "chips💰"
+
+    # Handle the dealer's token/chips deduction
+    if dealer:
+        # if is_real_token_game:
+        #     if dealer.real_tokens < game.bet_amount:
+        #         await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer doesn't have enough 💵real tokens to participate. The game is ending.")
+        #         await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
+        #         return
+        #     else:
+        #         dealer.real_tokens -= game.bet_amount
+        # else:
+        if dealer.chips < game.bet_amount:
+            await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer doesn't have enough chips to participate. The game is ending.")
+            await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
+            return
+        else:
+            dealer.chips -= game.bet_amount
+        
+        dealer.games += 1
+        await sync_to_async(dealer.save)()
+        reaction = random.choice(scare_players_reactions)
+        await safe_send_reaction(context.bot, chat_id, reaction)
+
+        await asyncio.sleep(2)
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text=f"🤖 Dealer is in the game with {game.bet_amount} {currency_type} on the table\\.",
+            parse_mode="MarkdownV2"
+        )
+    if len(joined_players) >= 5:
+        for join_entry in joined_players:
+            player = await sync_to_async(lambda: join_entry.player)()
+            await unlock_achievement(player, "5_or_more_player", context)
+    for join_entry in joined_players:
+        player = await sync_to_async(lambda: join_entry.player)()
+        
+        # Now you can safely add XP
+        await add_xp(player, 10, context)
+
+        player = await sync_to_async(lambda: join_entry.player)()
+        if game.bet_amount >= 5000:
+            await unlock_achievement(player, "5000_game_join", context)
+        # Deduct bet amount based on whether it's a real token or chips game
+        # if is_real_token_game:
+        #     player.real_tokens -= game.bet_amount  # Deduct the bet amount once
+
+        #     remaining_tokens = player.real_tokens
+
+        # else:
+        #     player.chips -= game.bet_amount  # Deduct the chips once
+        if player.chips == 0:
+            await unlock_achievement(player, "all_in", context)
+
+        remaining_tokens = player.chips
+        
+        player.games += 1  # Update the games count
+        await sync_to_async(player.save)()  # Save the player after deduction
+        
+        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player.name)
+        mention = f"[{user_name_escaped}](tg://user?id={player.id})"
+        await asyncio.sleep(2)  # Non-blocking sleep
+        
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text=f"{mention} has bet {game.bet_amount} {currency_type}\\.\nRemaining {currency_type}: {remaining_tokens}", 
+            parse_mode="MarkdownV2"
+        )
+
+    # Initialize turn order with the list of player IDs
+    game.turn_order = [join_entry.player.id for join_entry in joined_players]
+    game.current_round = 1  # Start with round 1
+    players_count = len(joined_players) + 1
+    game.pot = game.bet_amount * players_count  # Track total pot across rounds
+
+    game.started = True
+    game.join_time = False
+    await sync_to_async(game.save)()
+
+    # Proceed to the first round
+    if game.game_type == "raise":
+        await deal_initial_cards(update, context, game, joined_players)
+        await start_raising_phase(update, context, game, joined_players)
+    else:
+        await start_round(update, context, game, joined_players)
+
+
+
+
+# # Function to start each round
+async def safe_pin_chat_message(bot, chat_id, message_id, max_retries=10):
+    retries = 0
+    while retries < max_retries:
+        try:
+            await bot.pin_chat_message(chat_id=chat_id, message_id=message_id)  # Assuming timeout is 20
+            return  # Exit the loop if successful
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while pinning message. Retrying {retries}/{max_retries}...")
+            await asyncio.sleep(4)  # Non-blocking exponential backoff
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Rate limit exceeded. Retrying in {retry_after} seconds...")
+            await asyncio.sleep(retry_after)  # Wait for the retry after time
+            retries += 1
+
+    print("Failed to pin message after multiple retries.")
+
+async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, joined_players):
+    chat_id = update.message.chat_id
+
+    print(game.current_round)
+
+    if game.current_round >= 2:
+
+        bot_member = await context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
+
+        round_winners = await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False))
+        dealer_wins = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True).count)()
+        winner_count = {}
+
+        for winner in round_winners:
+            # Accessing related 'winner' field asynchronously
+            winner_player = await sync_to_async(lambda: winner.winner)()
+            if winner_player in winner_count:
+                winner_count[winner_player] += 1
+            else:
+                winner_count[winner_player] = 1
+
+        winners = []
+        no_wins = []
+
+        # Fetch related fields with sync_to_async
+        for join_entry in joined_players:
+            player_name = await sync_to_async(lambda: join_entry.player.name)()
+            player_id = await sync_to_async(lambda: join_entry.player.id)()
+            wins = winner_count.get(join_entry.player, 0)
+
+            if wins > 0:
+                winners.append((player_name, wins, player_id))
+            else:
+                no_wins.append((player_name, player_id))
+
+        winners = sorted(winners, key=lambda x: x[1], reverse=True)
+
+        await asyncio.sleep(1)
+        standings_message = "📊 Current standings:\n"
+
+        if dealer_wins > 0:
+            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+        else:
+            standings_message += "🤖 Dealer: No wins yet\n"
+
+        for winner_name, wins, user_id in winners:
+            user_name_escaped = escape_markdown(winner_name, version=2)
+            mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+            standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
+
+        for player_name, player_id in no_wins:
+            user_name_escaped = escape_markdown(player_name, version=2)
+            mention = f"[{user_name_escaped}](tg://user?id={player_id})"
+            standings_message += f"🎲 {mention}: No wins yet\n"
+
+        message = await context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
+
+        # if bot_member.status in ['administrator', 'creator']:
+        #     await safe_pin_chat_message(context.bot, chat_id, message.message_id)
+
+    await asyncio.sleep(2)
+
+    await context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...")
+    await asyncio.sleep(3)
+    reaction = random.choice(game_start_reactions)
+    await safe_send_reaction(context.bot, chat_id, reaction)
+
+    await asyncio.sleep(2)
+
+    player_blackjacks = []
+
+    for join_entry in joined_players:
+        player_hand = [deal_card(), deal_card()]
+        join_entry.hand = player_hand
+        await sync_to_async(join_entry.save)()
+
+        # Fetch player's name asynchronously
+        player_hand_value = calculate_hand_value(player_hand)
+        if player_hand_value == 21:
+            player_blackjacks.append(join_entry)
+        else:
+            await context.bot.send_message(chat_id=join_entry.player.id, text=f"🃏Your hand: {player_hand}.\n♠️Total value: {player_hand_value}")
+
+    dealer_hand = [deal_card(), deal_card()]
+    game.dealer_hand = dealer_hand
+    await sync_to_async(game.save)()
+    # if game.current_round == 1:
+    #     await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer's visible 🃏card: ♠️{dealer_hand[0]}")
+    #     # Create a poll with options for users to bet on the dealer's total hand value
+    #     poll_options = [
+    #             "Under 10",
+    #             "10-15",
+    #             "15-18",
+    #             "19-20",
+    #             "21!",
+                
+    #         ]
+
+    #     poll_message = await context.bot.send_poll(
+    #         chat_id=chat_id,
+    #         question="What do you think the dealer's total hand value will be?",
+    #         options=poll_options,
+    #         is_anonymous=False,  # Allows users to see who voted for what
+    #         allows_multiple_answers=False  # Only one answer allowed
+    #     )
+
+    #     # Optionally, you could track poll responses
+    #     poll_id = poll_message.poll.id
+    #     print(f"adsfasdfsadfa sdpoll_id: {poll_id}")
+    #     context.bot_data['poll_data'][poll_message.poll.id] = {
+    #         'chat_id': chat_id,
+    #         'poll_id': poll_message.poll.id
+    #     }
+    #     game.poll_id = poll_id
+    #     context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'] = []  # Initialize if it doesn't exist
+    #     context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'] = []  # Initialize if it doesn't exist
+    #     await sync_to_async(game.save)()
+    #     game.dealer_bet_timer = 30
+    #     await sync_to_async(game.save)()
+    #     await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    #     await asyncio.sleep(10)
+    #     game.dealer_bet_timer -= 10
+    #     await sync_to_async(game.save)()
+    #     await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    #     await asyncio.sleep(10)
+    #     game.dealer_bet_timer -= 10
+    #     await sync_to_async(game.save)()
+    #     await context.bot.send_message(chat_id=chat_id, text=f"You have {game.dealer_bet_timer} seconds to vote")
+    #     await asyncio.sleep(10)
+    #     game.dealer_bet_timer = 1 
+    #     await sync_to_async(game.save)()
+    #     await context.bot.send_message(chat_id=chat_id, text="Times Up!")
+    
+
+    dealer_value = calculate_hand_value(dealer_hand)
+    dealer_has_blackjack = dealer_value == 21
+
+    if dealer_has_blackjack:
+        if game.current_round == 1:
+            await send_vote_results(update, context,chat_id,game.poll_id)
+
+        await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer has a natural Blackjack! 💥")
+        dealer = await sync_to_async(Dealer.objects.get)(id=1)
+        dealer.blackjack_count += 1
+        await sync_to_async(dealer.save)()
+
+        for join_entry in player_blackjacks:
+            await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} had Blackjack💥 too.")
+
+        await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
+        game.current_round += 1
+        await check_for_next_round(update, context, game, joined_players)
+        return
+
+    if player_blackjacks:
+        for join_entry in player_blackjacks:
+            await unlock_achievement(join_entry.player, "first_natrual_blackjack", context)
+            if game.current_round == 1:
+                await send_vote_results(update, context,chat_id,game.poll_id)
+
+            await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.")
+            await add_xp(join_entry.player, 35, context)
+
+            stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
+
+            stats.how_many_21 += 1
+            await sync_to_async(stats.save)()
+            if stats.how_many_21 >= 21:
+                await unlock_achievement(join_entry.player, "21_black_jacks", context)
+            if stats.how_many_21 >= 100:
+                await unlock_achievement(join_entry.player, "100_black_jacks", context)
+
+            await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=join_entry.player)
+
+        game.current_round += 1
+        await check_for_next_round(update, context, game, joined_players)
+        return
+
+    for join_entry in joined_players:
+        if join_entry not in player_blackjacks:
+            stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
+            await sync_to_async(stats.save)()
+
+    await player_turn(update, context)
+
+async def send_vote_results(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id=None, poll_id=None, game=None):
+    poll_data = context.bot_data.get('poll_data', {}).get(poll_id)
+
+    if not poll_data:
+        print("Poll data not found.")
+        return
+
+    correct_guess_player_ids = poll_data.get('correct_guess_player_ids', [])
+    wrong_guess_player_ids = poll_data.get('wrong_guess_player_ids', [])
+    
+    # Set chips and xp based on correct guesses
+    if correct_guess_player_ids:
+        xp = poll_data.get('xp', [])
+        chips = poll_data.get('chips', [])
+    else:
+        xp = 0
+        chips = 0
+
+    # Construct the results message based on correct guesses
+    results_message_correct = "✅ Correct Guesses:\n"
+    results_message_wrong = "❌ Wrong Guesses:\n"
+
+    if correct_guess_player_ids:
+        for player_id in correct_guess_player_ids:
+            results_message_correct += f"- Player ID: {player_id}\n"
+    else:
+        results_message_correct += "No players guessed correctly.\n"
+
+    if wrong_guess_player_ids: 
+        for player_id in wrong_guess_player_ids:
+            results_message_wrong += f"- Player ID: {player_id}\n"
+    else:
+        results_message_wrong += "No players guessed incorrectly.\n"
+
+    # Add rewards information
+    rewards_message = f"🎉 Players who guessed correctly received:\n💰 {chips} Chips\n📈 {xp} XP"
+
+    # Send the message
+    await context.bot.send_message(chat_id=chat_id, text=f"{results_message_correct}\n\n{results_message_wrong}\n\n{rewards_message}")
+async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.poll_answer.user.id
+    print(f"User ID: {user_id}")
+
+    poll_answer = update.poll_answer
+    poll_data = context.bot_data.get('poll_data', {}).get(poll_answer.poll_id)
+    
+    if not poll_data:
+        print("Poll data not found.")
+        return
+
+    chat_id = poll_data['chat_id']
+    print(f"Chat ID: {chat_id}")
+
+    try:
+        join_entry = await sync_to_async(JoinGame.objects.get)(player__id=user_id, game__chat_id=chat_id)
+        print(f"Join entry found for user {user_id} in chat {chat_id}.")
+    except JoinGame.DoesNotExist:
+        print(f"Join entry not found for user {user_id} in chat {chat_id}.")
+        return
+
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id)
+        print(f"Game found for user {game.chat_id}")
+    except Game.DoesNotExist:
+        print(f"Game not found for user {game.chat_id}")
+        return
+
+    if game.dealer_bet_timer == 1:
+        return
+
+    poll_id = poll_data['poll_id']
+    print(f"Current Poll ID: {poll_id}")
+
+    # Check if the player has already voted
+    if user_id in poll_data.get('voted_player_ids', []):
+        print(f"Player {user_id} has already voted. Ignoring duplicate vote.")
+        return  # Ignore if they've already voted
+
+    # Add user ID to the list of voters
+    if 'voted_player_ids' not in poll_data:
+        poll_data['voted_player_ids'] = []
+    
+    poll_data['voted_player_ids'].append(user_id)
+
+    if update.poll_answer.poll_id == poll_id:
+        selected_option = update.poll_answer.option_ids[0]
+        print(f"Selected option: {selected_option}")
+
+        dealer_value = calculate_hand_value(game.dealer_hand)
+        print(f"Dealer's hand value: {dealer_value}")
+
+        correct_guess = (
+            (dealer_value < 10 and selected_option == 0) or
+            (10 <= dealer_value <= 15 and selected_option == 1) or
+            (15 <= dealer_value <= 18 and selected_option == 2) or
+            (19 <= dealer_value <= 20 and selected_option == 3) or
+            (dealer_value == 21 and selected_option == 4) 
+        )
+        print(f"Correct guess: {correct_guess}")
+
+        if correct_guess:
+            player_playerentry = await sync_to_async(lambda: join_entry.player)()
+            player_stats = await sync_to_async(Stats.objects.get)(player=player_playerentry)
+            player_stats.correct_dealer_guesses += 1
+            await sync_to_async(player_stats.save)()
+            player_name = await sync_to_async(lambda: join_entry.player.name)()
+            print(f"Player stats updated for {player_name}.")
+
+            pot_amount = game.pot  # Ensure you have access to the pot
+            print(f"Pot amount: {pot_amount}")
+
+            bonus = pot_amount // 3  # Calculate 1/3 of the pot
+            
+            await add_xp(player_playerentry, 50, context)
+            print(f"{player_name} receives a bonus of {bonus} chips!")
+
+            # Store player ID in the poll data for later use
+            context.bot_data['poll_data'][poll_id]['chips'] = bonus
+            context.bot_data['poll_data'][poll_id]['xp'] = 50
+            
+            context.bot_data['poll_data'][poll_id]['correct_guess_player_ids'].append(player_name)
+
+        else:
+            player_name = await sync_to_async(lambda: join_entry.player.name)()
+            context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'].append(player_name)
+            print(f"{player_name} guessed incorrectly.")
+    else:
+        print("Poll ID does not match.")
+
+
+async def update_statistics(winners, dealer_wins, joined_players, context):
+    # Initialize a list for non-winners
+    non_winners = []
+
+    # Update stats for each winner
+    for winner in winners:
+        if winner == 'dealer':
+            dealer = await sync_to_async(Dealer.objects.first)()  # Assuming only one dealer
+            dealer.wins += 1
+            await sync_to_async(dealer.save)()
+        else:
+            player = await sync_to_async(Player.objects.get)(id=winner.id)
+            stats, _ = await sync_to_async(Stats.objects.get_or_create)(player=player)
+            await add_xp(player, 25, context)
+            
+            stats.wins += 1
+            await sync_to_async(stats.save)()
+            total_games = stats.wins + stats.loses
+            if stats.wins >= 100:
+                await unlock_achievement(player, "100_wins", context)
+            if total_games >= 100:
+                await unlock_achievement(player, "100_games", context)
+            if total_games >= 500:
+                await unlock_achievement(player, "500_games", context)
+
+    # Determine non-winners
+    winners_ids = {winner.id for winner in winners if winner != 'dealer'}
+    non_winners = [await sync_to_async(lambda: join_entry.player)() for join_entry in joined_players 
+                   if await sync_to_async(lambda: join_entry.player.id)() not in winners_ids and join_entry.player != 'dealer']
+
+    # Remove duplicates in non-winners list
+    non_winners = list(set(non_winners))
+
+    # Update losses for each non-winner
+    for player in non_winners:
+        stats, _ = await sync_to_async(Stats.objects.get_or_create)(player=player)
+        stats.loses += 1
+        await deduct_xp(player, 25, context)
+        await sync_to_async(stats.save)()
+        total_games = stats.wins + stats.loses
+        if stats.loses >= 100:
+            await unlock_achievement(player, "100_loses", context)
+        if total_games >= 100:
+            await unlock_achievement(player, "100_games", context)
+        if total_games >= 500:
+            await unlock_achievement(player, "500_games", context)
+
+    # Update dealer's losses if dealer did not win
+    if not dealer_wins:
+        dealer = await sync_to_async(Dealer.objects.first)()  # Assuming only one dealer
+        dealer.loses += 1
+        await sync_to_async(dealer.save)()
+
+
+
+async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, joined_players):
+    chat_id = update.message.chat_id
+    await asyncio.sleep(3)
+
+    if game.current_round > game.total_rounds:
+        # Determine the overall winner
+        round_winners = await sync_to_async(list)(RoundWinner.objects.filter(game=game))
+
+        # Count wins for each player and the dealer
+        winner_count = {}
+        for winner in round_winners:
+            # Fetch the related 'winner' field asynchronously
+            winner_player = await sync_to_async(lambda: winner.winner)()
+            if winner_player:
+                if winner_player in winner_count:
+                    winner_count[winner_player] += 1
+                else:
+                    winner_count[winner_player] = 1
+
+        dealer_wins = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True).count)()
+        if dealer_wins > 0:
+            winner_count['dealer'] = dealer_wins
+
+
+        if winner_count:
+            # Determine the overall winner(s)
+            max_wins = max(winner_count.values())
+            overall_winners = [winner for winner, wins in winner_count.items() if wins == max_wins]
+
+            if len(overall_winners) == 1:
+                # One clear winner
+                overall_winner = overall_winners[0]
+
+                if overall_winner == 'dealer':
+                    await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game! 🏆")
+                else:
+                    await context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆")
+            elif len(overall_winners) > 1:
+                # Check if all players and the dealer tied
+                if len(overall_winners) == (len(joined_players) + 1) and dealer_wins == max_wins:
+                    for join_entry in joined_players:
+                        player = await sync_to_async(lambda: join_entry.player)()
+                        await unlock_achievement(player, "paid_back_tie", context)
+
+                    await context.bot.send_message(chat_id=chat_id, text="All players and the dealer tied, and shared the pot! 🏆 Everyone gets the `paid_back_tie` achievement.")
+                else:
+                    # Multiple winners (tie without all players tying)
+                    winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
+                    await context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2")
+
+            # Update statistics for winners and losers
+            await update_statistics(overall_winners, dealer_wins, joined_players,context)
+        else:
+            await context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.")
+
+        # Call the end_game function to finalize the game
+        await end_game(update, context)
+
+        # Prepare standings message
+        bot_member = await context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
+        round_winners = await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False))
+        dealer_wins = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True).count)()
+        winner_count = {}
+
+        for winner in round_winners:
+            winner_player = await sync_to_async(lambda: winner.winner)()
+            if winner_player in winner_count:
+                winner_count[winner_player] += 1
+            else:
+                winner_count[winner_player] = 1
+
+        winners = []
+        no_wins = []
+
+        for player in joined_players:
+            player_name = await sync_to_async(lambda: player.player.name)()
+            player_id = await sync_to_async(lambda: player.player.id)()
+            wins = winner_count.get(player.player, 0)
+
+            if wins > 0:
+                winners.append((player_name, wins, player_id))
+            else:
+                no_wins.append((player_name, player_id))
+
+        winners = sorted(winners, key=lambda x: x[1], reverse=True)
+        await asyncio.sleep(1)
+
+        standings_message = "📊 Current standings:\n"
+
+        if dealer_wins > 0:
+            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+        else:
+            standings_message += f"🤖 Dealer: No wins yet\n"
+
+        for winner_name, wins, user_id in winners:
+            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
+            mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+            standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
+
+        for player_name, player_id in no_wins:
+            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
+            mention = f"[{user_name_escaped}](tg://user?id={player_id})"
+            standings_message += f"🎲 {mention}: No wins yet\n"
+
+        message = await context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
+
+        # if bot_member.status in ['administrator', 'creator']:
+        #     await safe_pin_chat_message(context.bot, chat_id, message.message_id)
+
+        await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
+        await context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.")
+
+    else:
+
+        # Reset has_stood for all players
+        for player in joined_players:
+            player.has_stood = False
+            await sync_to_async(player.save)()
+
+        # Prepare for the next round
+        game.hands_reset = False
+        await sync_to_async(game.save)()
+
+        await asyncio.sleep(2)
+        await start_round(update, context, game, joined_players)
+
+
+
+async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+
+    try:
+        # Fetch the active game in the chat
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+    except Game.DoesNotExist:
+        await update.message.reply_text("No active game or the game has not started.")
+        return
+
+    # Get the players in turn order for the current game
+    players_in_game = await sync_to_async(list)(
+        JoinGame.objects.filter(game=game, is_active=True).order_by('id')
+    )
+
+    # Check if turn order exists, initialize if not
+    if not game.turn_order or game.current_round > 1:
+        game.turn_order = await sync_to_async(list)(
+            JoinGame.objects.filter(game=game, is_active=True).values_list('player__id', flat=True)
+        )
+        await sync_to_async(game.save)()
+
+    # Get the current player from the turn order
+    current_player_id = game.turn_order[0]
+    current_player = await sync_to_async(Player.objects.get)(id=current_player_id)
+
+    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
+    mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
+
+    if update.message.from_user.id == current_player_id:
+        # Notify the current player it is their turn
+        await asyncio.sleep(2)  # Non-blocking sleep
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text=f"{mention}, it's your turn\\! Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",
+            parse_mode="MarkdownV2"
+        )
+    else:
+        # Notify others that the current player is making a decision
+        await asyncio.sleep(2)  # Non-blocking sleep
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text=f"Waiting for {mention}'s decision\\.\\.\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.",
+            parse_mode="MarkdownV2"
+        )
+
+
+# # Escape special characters in the player's name
+
+# Asynchronous version of safe_send_message
+async def safe_send_message_async(bot, chat_id, text, parse_mode="MarkdownV2", max_retries=10):
+    retries = 0
+    while retries < max_retries:
+        try:
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+            return  # Exit the loop if the message is sent successfully
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
+            await asyncio.sleep(4)  # Non-blocking exponential backoff
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Flood control triggered. Retrying in {retry_after} seconds...")
+            await asyncio.sleep(retry_after)  # Non-blocking wait for the RetryAfter period before retrying
+            retries += 1
+    print(f"Failed to send the message after {max_retries} retries.")
+
+async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+    except Game.DoesNotExist:
+        await update.message.reply_text("No active game or the game has not started.")
+        return
+
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text(f"{user_name}, please start the bot in private first.")
+        return
+
+    try:
+        join_game = await sync_to_async(JoinGame.objects.select_related('player').get)(player=player, game=game, is_active=True)
+    except JoinGame.DoesNotExist:
+        await update.message.reply_text("You are not part of the game.")
+        return
+
+    # Check if it's the player's turn
+    try:
+        if user_id != game.turn_order[0]:
+            await update.message.reply_text("It's not your turn!")
+            return
+    except:
+        await update.message.reply_text("It's not your turn!")
+        return
+    player_hand = join_game.hand
+    hand_value = calculate_hand_value(player_hand)
+    if hand_value > 21:
+        await update.message.reply_text("You have already busted and cannot take any more actions.")
+        return
+    elif hand_value == 21:
+        await update.message.reply_text("You have automaticly standing and cannot take any more actions.")
+        return
+    # Add a card to the player's hand
+    new_card = deal_card()
+    join_game.hand.append(new_card)
+    await sync_to_async(join_game.save)()
+
+    user_name_escaped = re.sub(r'([_*[\]()~>#+\-=|{}.!])', r'\\\1', user_name)
+    mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+
+    await safe_send_message_async(context.bot, chat_id, f"{mention} drew: {new_card}")
+
+    player_hand = join_game.hand
+    hand_value = calculate_hand_value(player_hand)
+    
+    await safe_send_message_async(context.bot, user_id, f"Your full hand: {player_hand}\\. Total value: {hand_value}")
+    print(f"join_game.hand {join_game.hand} player_hand {player_hand} hand_value {hand_value}")
+    # Check for bust or 21
+    if hand_value == 21:
+        join_game.has_stood = True
+        await sync_to_async(join_game.save)()
+        print("im in the hand 21")
+        await asyncio.sleep(3)
+        stats = await sync_to_async(Stats.objects.get)(player=join_game.player)
+        stats.how_many_21 += 1
+        await sync_to_async(stats.save)()
+        if stats.how_many_21 >= 21:
+            print("giving achv21")
+            await unlock_achievement(join_game.player, "21_black_jacks", context)
+        if stats.how_many_21 >= 100:
+            print("giving achv100")
+            await unlock_achievement(join_game.player, "100_black_jacks", context)
+        
+
+        await safe_send_message_async(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
+        await add_xp(join_game.player, 30, context)
+        
+        await next_player_turn(update, context)
+    elif hand_value > 21:
+        if hand_value >= 30:
+            await unlock_achievement(join_game.player, "30_or_more_deck", context)
+        await asyncio.sleep(3)
+        await deduct_xp(join_game.player, 20, context)
+        await safe_send_message_async(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\. ")
+        await next_player_turn(update, context)
+    else:
+        # Check for specific achievements (3 Aces or 3 Sixes)
+        ace_count = sum(1 for card in player_hand if card == 'A')
+        six_count = sum(1 for card in player_hand if card == '6')
+
+        if ace_count == 3:
+            await unlock_achievement(join_game.player, "3_A_in_one_deck", context)
+        
+        if six_count == 3:
+            await unlock_achievement(join_game.player, "thriple_6_in_one_deck", context)
+
+        await asyncio.sleep(3)
+        await safe_send_message_async(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
+
+# Asynchronous stand function
+async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+    except Game.DoesNotExist:
+        await update.message.reply_text("No active game or the game has not started.")
+        return
+
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text(f"{user_name}, please start the bot in private first.")
+        return
+
+    try:
+        join_game = await sync_to_async(JoinGame.objects.get)(player=player, game=game, is_active=True)
+    except JoinGame.DoesNotExist:
+        await update.message.reply_text("You are not part of the game.")
+        return
+    if join_game.has_stood:
+        await update.message.reply_text("You have already chosen to stand and cannot take further actions.")
+        return
+    # Check if it's the player's turn
+    try:
+        if user_id != game.turn_order[0]:
+            await update.message.reply_text("It's not your turn!")
+            return
+    except:
+        player_hand = join_game.hand
+        hand_value = calculate_hand_value(player_hand)
+
+        # Prevent the player from standing if they have already busted
+        if hand_value > 21:
+            await update.message.reply_text("You have already busted and cannot stand.")
+            return
+        if hand_value == 21:
+            await update.message.reply_text("You are automaticly standing")
+            return
+        # Check if the player has already chosen to stand
+        
+
+    # Mark the player as having stood
+    join_game.has_stood = True
+    await sync_to_async(join_game.save)()
+
+    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
+    mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+
+    await safe_send_message_async(context.bot, chat_id, f"{mention} has chosen to stand\\.")
+
+    player_hand = join_game.hand
+    hand_value = calculate_hand_value(player_hand)
+    await asyncio.sleep(2)
+
+    await safe_send_message_async(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
+
+    # Move to the next player's turn
+    await next_player_turn(update, context)
+
+
+# # Function to move to the next player's turn
+# # Move to the next player's turn by removing the current player from the turn order
+async def safe_send_message_next_player_turn(bot, chat_id, text, max_retries=10):  # Increased timeout
+    retries = 0
+    while retries < max_retries:
+        try:
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode="MarkdownV2")
+            return  # Exit the loop if the message is sent successfully
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
+            await asyncio.sleep(4)  # Non-blocking sleep before retrying
+    print("Failed to send the message after retries.")
+
+# Asynchronous version of next_player_turn
+async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+    except Game.DoesNotExist:
+        await update.message.reply_text("No active game or the game has not started.")
+        return
+
+    if not game.turn_order:
+        # If no players are left in the turn order, proceed to the dealer's turn
+        await dealer_turn(update, context)
+        return
+
+    # Remove the current player from the turn order
+    game.turn_order.pop(0)
+    await sync_to_async(game.save)()
+
+    # Check if there are more players left to take their turn
+    if game.turn_order:
+        next_player_id = game.turn_order[0]
+        next_player = await sync_to_async(Player.objects.get)(id=next_player_id)
+        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', next_player.name)
+
+        mention = f"[{user_name_escaped}](tg://user?id={next_player_id})"
+        await asyncio.sleep(3)  # Non-blocking sleep
+        await safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
+    else:
+        # All players have finished their turns, now it's the dealer's turn
+        await dealer_turn(update, context)
+
+# Asynchronous version of safe_send_message_dealer
+async def safe_send_message_dealer(bot, chat_id, text, max_retries=10):
+    retries = 0
+    while retries < max_retries:
+        try:
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode="MarkdownV2")
+            return  # Exit the loop if the message is sent successfully
+        except TimedOut:
+            retries += 1
+            print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
+            await asyncio.sleep(4)  # Non-blocking sleep before retrying
+        except RetryAfter as e:
+            retry_after = int(e.retry_after)
+            print(f"Flood control triggered. Retrying in {retry_after} seconds...")
+            await asyncio.sleep(retry_after)  # Non-blocking wait for the RetryAfter period before retrying
+            retries += 1
+    print("Failed to send the message after retries.")
+# Dealer bust reactions
+bust_reactions = [
+    "Oops! I went over! 😅",
+    "Busted! What a surprise! 😬",
+    "Uh-oh! I got too greedy. Who would’ve thought? 😳",
+    "Looks like I miscalculated. Shocking, right? 😟",
+    "Oh no! I’m out! Guess I should have seen that coming! 😖",
+    "Well, that didn’t work. Who knew? 😓",
+    "I guess I went too far. Wow, what a revelation! 😔",
+    "Oops, over the limit! You win this round. How original! 🙈",
+    "I should’ve stopped sooner. Classic me! 🤦"
+]
+
+
+# Dealer win reactions
+win_reactions = [
+    "Better luck next time! Or, you know, maybe just give up! 😎",
+    "I win! Care to try again, or is this a one-time deal? 😏",
+    "The house always wins! Shocking, right? 🤑",
+    "Nice try, but I’ve got this one. How cute! 😌",
+    "I told you, I’m unbeatable! You really thought otherwise? 😈",
+    "Dealer takes the round! Guess I’ll be here all night! 💪",
+    "I got you this time! How unexpected! 😁",
+    "Victory is mine! Not that anyone’s surprised! 🎉",
+    "A win for the dealer! Ready for another round of disappointment? 🃏",
+    "I came out on top this time! Who could’ve seen that coming? 💥"
+]
+
+
+blackjack_reactions = [
+    "Blackjack! I’m unbeatable! Shocking, right? 😏",
+    "21! Looks like I’ve won this one. What a twist! 🎯",
+    "Boom! A perfect 21! Who would’ve guessed? 💥",
+    "Blackjack! Can’t do better than that! But hey, keep trying! 🃏",
+    "I hit 21! You didn’t stand a chance! Surprise! 😎",
+    "Blackjack! The perfect hand. Who knew luck could be this one-sided? 🤑",
+    "21! That’s as good as it gets! Try not to cry! 💣",
+    "A flawless 21! I win! Again, who saw that coming? 👑",
+    "Blackjack! I’m on fire today! Bet you wish you were too! 🔥",
+    "21! The perfect game! You know, for me! ✨"
+]
+
+all_players_bust_reactions = [
+    "Looks like everyone’s out! Guess I’ll just stand here. 😎",
+    "Oh, you all busted? Easy win for me! What a surprise! 🃏",
+    "Everyone busted? Guess I’ll take this one. How original! 😏",
+    "Well, that was quick! I didn’t even have to try. Shocking! 😌",
+    "All players busted! I’ll stand and take the win. How unexpected! 👑",
+    "I didn’t even need to draw. You made it easy! Thanks for that! 🎉",
+    "No cards left for me! You all busted! What a twist! 🃏",
+    "Wow, everyone went over! I guess I’ll keep my cards. What a surprise! 💼",
+    "Everyone busted? I’ll just take the win, no problem! Not even close! 😎",
+    "No need to play it out, I win by default! Shocking outcome! 😈",
+    "Well, well, well... looks like you couldn’t keep up! How surprising! 💥",
+    "All of you busted? I guess the house wins again! Not that anyone saw that coming! 🏠",
+    "Looks like I didn't need to try! I'll take the win. How original! 🎯",
+    "You all went over 21? I guess I’ll stand here as the winner. Shocking! 👑",
+    "That’s a wrap! Easy win for me. What a surprise! 💥"
+]
+
+
+
+async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    chat_id = update.message.chat_id
+
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+    except Game.DoesNotExist:
+        await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
+        return
+    if game.current_round == 1:
+        await send_vote_results(update, context,chat_id,game.poll_id)
+
+    await asyncio.sleep(2)
+    await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
+
+    dealer_hand = game.dealer_hand
+    dealer_value = calculate_hand_value(dealer_hand)
+
+    # Fetch all active players who have joined the game
+    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
+
+    # Check if all players have busted
+    all_players_busted = True
+
+    for join_entry in joined_players:
+        player_hand_value = calculate_hand_value(join_entry.hand)
+        if player_hand_value <= 21:  # If a player has a valid hand
+            all_players_busted = False  # At least one player hasn't busted
+
+    # If all players are busted, dealer automatically wins and stands
+    if all_players_busted:
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, "🤖 All players have busted\\.")
+        await asyncio.sleep(2)
+
+        reaction = random.choice(all_players_bust_reactions)
+        await safe_send_reaction(context.bot, chat_id, reaction)
+        await asyncio.sleep(2)
+
+        await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
+        
+        await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
+        
+        # Move to next round or end game
+        game.current_round += 1
+        await sync_to_async(game.save)()
+        await check_for_next_round(update, context, game, joined_players)
+        return  # Exit early since no more actions are needed
+
+    if any(calculate_hand_value(join_entry.hand) == 21 for join_entry in joined_players):
+        target_value = 21  # Dealer should aim for 21 if any player has it
+    else:
+        target_value = 18  # Default target for the dealer
+
+    while dealer_value < target_value:
+        # Draw a new card
+        new_card = deal_card()
+        dealer_hand.append(new_card)
+        dealer_value = calculate_hand_value(dealer_hand)
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
+        
+        if dealer_value == 21:
+            reaction = random.choice(blackjack_reactions)
+            await safe_send_reaction(context.bot, chat_id, reaction)
+            break
+
+    # If dealer busts (> 21)
+    if dealer_value > 21:
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
+        reaction = random.choice(bust_reactions)
+        await asyncio.sleep(2)
+        await safe_send_reaction(context.bot, chat_id, reaction)
+        dealer_busted = True
+    elif dealer_value == 21:
+        await asyncio.sleep(2)
+        dealer_busted = False
+    else:
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
+        dealer_busted = False
+
+    # Save the updated dealer hand
+    game.dealer_hand = dealer_hand
+    await sync_to_async(game.save)()
+
+    # Fetch all active players who have joined the game
+    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
+
+    # Track the player(s) who win this round
+    highest_valid_score = 0
+    round_winners = []
+
+    for join_entry in joined_players:
+        # Fetch the player asynchronously
+        player = await sync_to_async(lambda: join_entry.player)()
+        
+        player_hand_value = calculate_hand_value(join_entry.hand)
+        
+        # If player busted, skip them
+        if player_hand_value > 21:
+            continue
+        
+        # Track the highest valid hand that beats the dealer (if dealer didn't bust)
+        if dealer_busted or player_hand_value > dealer_value:
+            if player_hand_value > highest_valid_score:
+                highest_valid_score = player_hand_value
+                round_winners = [player]
+            elif player_hand_value == highest_valid_score:
+                round_winners.append(player)
+    # Announce the winner(s)
+    if not round_winners:
+        await asyncio.sleep(2)
+        await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
+        reaction = random.choice(win_reactions)
+        await safe_send_reaction(context.bot, chat_id, reaction)
+        await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
+    else:
+        for winner in round_winners:
+            await asyncio.sleep(2)
+            try:
+                # Try to tag the winner using their name
+                mention = f"[{winner.name}](tg://user?id={winner.id})"
+            except Exception as e:
+                # Fallback to just using the player's name if tagging fails
+                mention = winner.name
+                print(f"Error tagging player {winner.name}: {str(e)}")
+            await add_xp(winner, 5, context)
+
+            await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
+            if highest_valid_score == 10:
+                await unlock_achievement(winner, "win_with_10", context)
+
+            await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
+
+    # Proceed to the next round or end the game if all rounds are done
+    game.current_round += 1
+    await check_for_next_round(update, context, game, joined_players)
+
+# async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+#     chat_id = update.message.chat_id
+
+#     try:
+#         game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+#     except Game.DoesNotExist:
+#         await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
+#         return
+#     if game.current_round == 1:
+#         await send_vote_results(update, context,chat_id,game.poll_id)
+
+#     await asyncio.sleep(2)
+#     await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
+
+#     dealer_hand = game.dealer_hand
+#     dealer_value = calculate_hand_value(dealer_hand)
+
+#     # Fetch all active players who have joined the game
+#     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
+
+#     # Check if all players have busted
+#     all_players_busted = True
+#     highest_player_hand = 0
+
+#     for join_entry in joined_players:
+#         player_hand_value = calculate_hand_value(join_entry.hand)
+#         if player_hand_value <= 21:  # If a player has a valid hand
+#             all_players_busted = False  # At least one player hasn't busted
+#             highest_player_hand = max(highest_player_hand, player_hand_value)  # Track the highest valid hand
+
+#     # If all players are busted, dealer automatically wins and stands
+#     if all_players_busted:
+#         await asyncio.sleep(2)
+#         await safe_send_message_dealer(context.bot, chat_id, "🤖 All players have busted\\.")
+#         await asyncio.sleep(2)
+
+#         reaction = random.choice(all_players_bust_reactions)
+#         await safe_send_reaction(context.bot, chat_id, reaction)
+#         await asyncio.sleep(2)
+
+#         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
+        
+#         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
+        
+#         # Move to next round or end game
+#         game.current_round += 1
+#         await sync_to_async(game.save)()
+#         await check_for_next_round(update, context, game, joined_players)
+#         return  # Exit early since no more actions are needed
+
+#     # Dealer's logic: drawing until beating or matching the highest player hand
+#     while dealer_value < highest_player_hand and dealer_value < 21:
+#         new_card = deal_card()
+#         dealer_hand.append(new_card)
+#         dealer_value = calculate_hand_value(dealer_hand)
+#         await asyncio.sleep(2)
+#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
+#         if dealer_value == 21:
+#             reaction = random.choice(blackjack_reactions)
+#             await safe_send_reaction(context.bot, chat_id, reaction)
+#             break
+#     # If dealer busts (> 21)
+#     if dealer_value > 21:
+#         await asyncio.sleep(2)
+#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
+#         reaction = random.choice(bust_reactions)
+#         await asyncio.sleep(2)
+#         await safe_send_reaction(context.bot, chat_id, reaction)
+#         dealer_busted = True
+#     elif dealer_value == 21:
+#         await asyncio.sleep(2)
+#         # reaction = random.choice(blackjack_reactions)
+#         # await safe_send_message_dealer(context.bot, chat_id, reaction)
+#         dealer_busted = False
+#     else:
+#         await asyncio.sleep(2)
+#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
+#         dealer_busted = False
+
+#     # Save the updated dealer hand
+#     game.dealer_hand = dealer_hand
+#     await sync_to_async(game.save)()
+
+#     # Fetch all active players who have joined the game
+#     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
+
+#     # Track the player(s) who win this round
+#     highest_valid_score = 0
+#     round_winners = []
+
+#     for join_entry in joined_players:
+#         # Fetch the player asynchronously
+#         player = await sync_to_async(lambda: join_entry.player)()
+        
+#         player_hand_value = calculate_hand_value(join_entry.hand)
+        
+#         # If player busted, skip them
+#         if player_hand_value > 21:
+#             continue
+        
+#         # Track the highest valid hand that beats the dealer (if dealer didn't bust)
+#         if dealer_busted or player_hand_value > dealer_value:
+#             if player_hand_value > highest_valid_score:
+#                 highest_valid_score = player_hand_value
+#                 round_winners = [player]
+#             elif player_hand_value == highest_valid_score:
+#                 round_winners.append(player)
+#     # Announce the winner(s)
+#     if not round_winners:
+#         await asyncio.sleep(2)
+#         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
+#         reaction = random.choice(win_reactions)
+#         await safe_send_reaction(context.bot, chat_id, reaction)
+#         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
+#     else:
+#         for winner in round_winners:
+#             await asyncio.sleep(2)
+#             try:
+#                 # Try to tag the winner using their name
+#                 mention = f"[{winner.name}](tg://user?id={winner.id})"
+#             except Exception as e:
+#                 # Fallback to just using the player's name if tagging fails
+#                 mention = winner.name
+#                 print(f"Error tagging player {winner.name}: {str(e)}")
+#             await add_xp(winner, 5, context)
+
+#             await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
+#             if highest_valid_score == 10:
+#                 await unlock_achievement(winner, "win_with_10", context)
+
+#             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
+
+#     # Proceed to the next round or end the game if all rounds are done
+#     game.current_round += 1
+#     await check_for_next_round(update, context, game, joined_players)
+
+
+# Asynchronous version of reset_game
+async def reset_game(chat_id):
+    try:
+        # Get the active game with the given chat_id
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+
+        # Mark the game as ended and reset its fields
+        game.ended = True
+        game.started = False
+        game.betting = False
+        game.join_time = False
+        await sync_to_async(game.save)()
+
+        # Reset all players' is_active status to False for the current game
+        await sync_to_async(JoinGame.objects.filter(game=game, is_active=True).update)(is_active=False)
+
+    except Game.DoesNotExist:
+        pass
+async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
+    except Game.DoesNotExist:
+        await context.bot.send_message(chat_id=chat_id, text="No active game to end.")
+        return
+
+    # Get the group's real money and VIP status
+    try:
+        group_game = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+    except Group.DoesNotExist:
+        await context.bot.send_message(chat_id=chat_id, text="Group not found.")
+        return
+
+    is_real_token_game = group_game.vip and group_game.real_money
+    currency_type = "$" if is_real_token_game else "chips💰"
+
+    # Get round winners and determine the final winner
+    dealer_rounds_won = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True, rounds_ended=False).count)()
+    player_rounds = await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False, rounds_ended=False))
+
+    round_wins = {}
+    for round_win in player_rounds:
+        # Wrap access to the foreign key field in sync_to_async
+        winner_player = await sync_to_async(lambda: round_win.winner)()
+        if winner_player in round_wins:
+            round_wins[winner_player] += 1
+        else:
+            round_wins[winner_player] = 1
+
+    # Determine the highest number of rounds won
+    max_rounds_won = max(max(round_wins.values(), default=0), dealer_rounds_won)
+
+    # Check if any player won all 5 rounds
+    if max_rounds_won == 5:
+        # If dealer won all 5 rounds
+        if dealer_rounds_won == 5:
+            for round_win in player_rounds:
+                player = await sync_to_async(lambda: round_win.winner)()
+                await unlock_achievement(player, "Dealer_wins_5_rounds", context)
+            await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer won all 5 rounds!")
+        else:
+            # If any player won all 5 rounds
+            for winner, wins in round_wins.items():
+                if wins == 5:
+                    await unlock_achievement(winner, "win_5_rounds", context)
+    # Find all winners (both dealer and players) who won the maximum number of rounds
+    winners = [winner for winner, wins in round_wins.items() if wins == max_rounds_won]
+    if dealer_rounds_won == max_rounds_won:
+        winners.append('dealer')  # Include the dealer in the winners if they won the max rounds
+
+    # Split the pot evenly among all winners
+    if winners:
+        split_pot = game.pot // len(winners)
+        
+        if 'dealer' in winners:
+            winners.remove('dealer')
+            dealer = await sync_to_async(Dealer.objects.get)(id=1)
+            
+            if is_real_token_game:
+                dealer.real_tokens += split_pot
+            else:
+                dealer.chips += split_pot
+
+            await sync_to_async(dealer.save)()
+            await context.bot.send_message(chat_id=chat_id, text=f"🤖 Dealer wins {split_pot} {currency_type}!")
+
+        for winner in winners:
+            if is_real_token_game:
+                winner.real_tokens += split_pot
+            else:
+                winner.chips += split_pot
+
+            await sync_to_async(winner.save)()
+            await context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} {currency_type}!")
+
+    else:
+        await context.bot.send_message(chat_id=chat_id, text="No one won this game.")
+
+    # Mark the game as ended
+    game.ended = True
+    game.started = False
+    game.betting = False
+    game.join_time = False
+    await sync_to_async(game.save)()
+# Asynchronous version of reset_round_state
+async def reset_round_state(game):
+    # Reset the hands and necessary state for the next round
+    await sync_to_async(JoinGame.objects.filter(game=game, is_active=True).update)(hand=[])
+    game.dealer_hand = []
+    await sync_to_async(game.save)()
+
+
+
+# Asynchronous version of get_player_instance
+async def get_player_instance(user_id):
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        return player
+    except ObjectDoesNotExist:
+        return None
+
+# Asynchronous version of get_player_chips
+async def get_player_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    
+    # Fetch the player instance
+    player = await get_player_instance(user_id)
+    
+    if player:
+        stats_message = (
+            f"💰 Chips: {player.chips}\n"
+            f"💵 Real Tokens: {player.real_tokens}\n"
+        )
+        
+        # Send the stats message to the chat
+        await context.bot.send_message(chat_id=update.message.chat_id, text=stats_message)
+    else:
+        # Handle the case where the player does not exist
+        await context.bot.send_message(chat_id=update.message.chat_id, text="You don't have a player profile yet. Start the bot in private to create one.")
+
+# Asynchronous version of get_dealer_blackjack_stats
+async def get_dealer_blackjack_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+
+    try:
+        dealer = await sync_to_async(Dealer.objects.first)()  # Assuming there's only one dealer
+        if dealer is None:
+            await context.bot.send_message(chat_id=chat_id, text="No dealer stats found.")
+            return
+
+        # Format the dealer stats into a readable format
+        stats_message = (
+            f"🤖 Dealer's Blackjack Stats:\n"
+            f"💰 Chips: {dealer.chips}\n"
+            f"💵 Real Tokens: {dealer.real_tokens}\n"
+            f"Wins: {dealer.wins}\n"
+            f"Losses: {dealer.loses}\n"
+            f"💥 Blackjacks: {dealer.blackjack_count}"
+        )
+        
+        # Send the stats message to the chat
+        await context.bot.send_message(chat_id=chat_id, text=stats_message)
+
+    except Exception as e:
+        await context.bot.send_message(chat_id=chat_id, text=f"Error retrieving dealer stats: {str(e)}")
+async def flee_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+
+    try:
+        game = await sync_to_async(Game.objects.get)(chat_id=chat_id, join_time=True, ended=False)
+
+        if game.started:
+            await update.message.reply_text("The game has already started, you can no longer flee.")
+            return
+
+        join_instance = await sync_to_async(JoinGame.objects.get)(player_id=user_id, game=game, is_active=True)
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+
+        # Refund the player's bet (based on whether it was real tokens or chips)
+        if group.vip and group.real_money:
+            player.real_tokens += game.bet_amount
+        else:
+            player.chips += game.bet_amount
+
+        await sync_to_async(player.save)()
+        await sync_to_async(join_instance.delete)()
+
+        user_name_escaped = escape_markdown(update.message.from_user.first_name, version=2)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"[{user_name_escaped}](tg://user?id={user_id}) has fled the game and is no longer part of it\\.",
+            parse_mode="MarkdownV2"
+        )
+
+    except Game.DoesNotExist:
+        await update.message.reply_text("No active game to flee from in this chat.")
+    except JoinGame.DoesNotExist:
+        await update.message.reply_text("You are not currently part of the game.")
+
+
+async def nextgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+
+    # Add the user to the next game notification list
+    _, created = await sync_to_async(NextGameNotification.objects.get_or_create)(user_id=user_id, chat_id=chat_id)
+
+    if created:
+        await update.message.reply_text("You will be notified when the next game starts!")
+    else:
+        await update.message.reply_text("You're already signed up to be notified when the next game starts.")
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_player(update, context):
+        return
+
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+    chat_id = update.message.chat_id
+
+    # Notify in group that help is in private chat
+    if chat_id != user_id:
+        await update.message.reply_text(
+            "📩 A message with all available commands and instructions has been sent to your private chat."
+        )
+
+    # Full help text (plain text, no Markdown formatting)
+    full_help = """
+Blackjack Bot Help & Command Reference
+
+How to Play a Group Blackjack Game:
+  1. Any member types /startblackjack → bot opens a join window.  
+  2. Players type /join (in that group) to reserve their seat and lock in their bet.  
+  3. Once enough players have joined, use /forcestart to begin.  
+  4. The bot deals two cards to each player privately, and two to itself (one face-down).  
+  5. In turn order, each player privately chooses /hit or /stand.  
+      – If a player’s hand > 21, they bust and lose immediately.  
+  6. After all players finish, the dealer reveals the hidden card and draws until ≥ 17.  
+  7. Settlement:
+      – Dealer higher or tie → player loses.   
+  8. XP is awarded/lost accordingly (see “XP & Leveling”).  
+      – Winners gain XP, losers lose XP.
+
+────────────────────────────────────────
+Getting Started:
+  • /start  
+    – Register yourself with the bot. You’ll receive 20 chips to begin.
+
+  • /help  
+    – Show this help message again (sent to your private chat).
+
+  • /rules  
+    – Display detailed rules of the Blackjack game.
+
+  • /stats  
+    – View your personal statistics (wins, losses, XP, level, etc.).
+
+  • /nextgame  
+    – Ask the bot to send you a private reminder when the next game starts.
+
+────────────────────────────────────────
+Blackjack Game Flow:
+1) /startblackjack  
+   – Initiate a new Blackjack game in the group. The bot will open a “join” period during which players can enter.
+
+2) /join  
+   – Join the current game (during the join window). You must have at least the minimum bet in your chips to enter.  
+   – As soon as you tap /join, the bot will deduct the required amount from your chips.
+
+3) /forcestart  
+   –  Use this command to start the game. Once forced, no new players can join.  
+   – The dealer (bot) also contributes the same bet amount. Cards are dealt to each player.
+
+4) During your turn:
+   • /hit  
+     – Draw one more card. If your hand exceeds 21, you bust and lose immediately.
+
+   • /stand  
+     – Keep your current hand and end your turn. The next player goes, and eventually the dealer completes their hand.
+
+   • /flee  
+     – Leave the current Blackjack game (forfeit your bet).
+
+
+
+────────────────────────────────────────
+Minigames & Side Games:
+  These can be played anytime in private chat or group. Use /minigames to see a detailed list of them.
+  • /dice [betamount]  
+    – Roll two dice and guess the outcome. Win up to 6× your bet.
+
+  • /slot [betamount]  
+    – Pull the slot machine lever. Match symbols to win big.
+
+  • /coin [heads/tails] [betamount]  
+    – Flip a coin. Guess heads or tails; double or lose your bet.
+
+  • /draw [betamount]  
+    – Draw a random card. Higher card wins against the bot’s draw.
+
+  • /rps [rock/paper/scissors] [betamount]  
+    – Play Rock-Paper-Scissors against the bot. Win or tie.
+
+  • /dart  
+    – Throw a dart and earn up to 200 XP. Available twice per day.
+  
+  • /spin - Spin the wheel once a day for a chance to win chips, XP, or levels! Type /spin <low/mid/high> and let the wheel decide your fate
+    
+  • /roulette - Bet on red, black, or a number (0-36). Usage: /roulette <red|black|0-36> <bet amount>
+       If you guess the color, you win double; if you guess the number, you win 35 times your bet! Good luck!
+────────────────────────────────────────
+Economy & Token Commands:
+  • /my_tokens  
+    – Show your current chip balance.
+
+  • /claim_tokens  
+    – Claim free chips twice per day (if available).
+
+────────────────────────────────────────
+Achievements & Rewards:
+  • /achievements  
+    – View your unlocked achievements and progress toward new ones.
+
+  • /achievements_info  
+    – Display how to unlock each achievement (conditions and icons).
+
+  – Achievements grant bonus XP when unlocked (+20 XP each).
+
+────────────────────────────────────────
+XP & Leveling System:
+  – You earn XP by playing and winning:
+      • Play any game: +10 XP  
+      • Win a Blackjack round: +5 XP  
+      • Win a full Blackjack game: +25 XP  
+      • Get Blackjack: +30 XP  
+      • Unlock an achievement: +20 XP  
+
+  – You lose XP for poor performance:
+      • Bust in a hand: –20 XP  
+      • Lose a full Blackjack game: –25 XP  
+
+  – Each level requires 50 XP × current level. Example:
+      • Level 1 → need 50 XP to reach Level 2  
+      • Level 2 → need 100 XP to reach Level 3 (and so on)
+
+  – Check your progress with /stats (shows “XP to next level”).
+
+────────────────────────────────────────
+Loan System:
+  • /loan [amount]  
+    – Borrow chips. For every 100 chips borrowed, you lose 5 XP.  
+      • If you don’t have enough XP, you may lose levels instead.
+
+  • /repay_loan  
+    – Repay your outstanding loan plus 3% interest.  
+      • E.g., if you borrowed 100 chips, you must repay 103 chips.
+
+
+────────────────────────────────────────
+Use these commands any time the bot is in a chat. If you need more help, type /help again.
+
+Good luck and have fun! 🃏🎉
+"""
+
+    # Split into 4000-character chunks
+    max_length = 4000
+    chunks = []
+    text = full_help.strip()
+    while text:
+        if len(text) <= max_length:
+            chunks.append(text)
+            break
+        # Find last newline before max_length to avoid splitting mid-line
+        split_pos = text.rfind("\n", 0, max_length)
+        if split_pos == -1:
+            split_pos = max_length
+        chunks.append(text[:split_pos].rstrip())
+        text = text[split_pos:].lstrip()
+
+    # Send each chunk as plain text
+    for chunk in chunks:
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=chunk
+            )
+        except Exception as e:
+            print(f"Error sending help message to {user_name} (ID: {user_id}): {e}")
+            break
+
+
+async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_player(update, context):
+        return
+
+    user_id = update.message.from_user.id
+
+    # Inform user in the group chat
+    await update.message.reply_text("📩 A message with the game rules has been sent to your private chat.")
+
+    # Send the rules message to the user's private chat
+    rules_text = """
+    🎮 *Blackjack Game Rules* 🎮
+    
+    The goal of the game is to get as close to 21 as possible without going over.
+    
+    *Basic Rules*:
+    
+    1. Each player is dealt two cards, and they can choose to "hit" to get more cards or "stand" to keep their hand.
+    2. Numbered cards (2-10) are worth their face value.
+    3. Face cards (Jack, Queen, King) are worth 10 points each.
+    4. Aces can be worth either 1 or 11 points, depending on what benefits the player.
+    
+    *Game Flow*:
+    
+    - Players take turns to either hit or stand.
+    - The goal is to reach 21 or as close to it as possible without going over (busting).
+    - If a player’s total goes over 21, they lose automatically (bust).
+    - If all players bust, the dealer wins the round.
+
+    *Dealer Rules*:
+    
+    - The dealer will also draw cards but must stand if their total is 18 or higher.
+    - The dealer must hit if their total is 16 or lower.
+    
+    *Betting*:
+    
+    - Players can place bets before the game starts.
+    - The total bet amount is divided among the winners, or goes to the dealer if all players bust.
+    
+    *Winning*:
+    
+    - The player closest to 21 without busting wins the round.
+    - If the dealer busts and all players stand with a valid hand, the highest hand wins.
+    
+    Enjoy the game, and good luck! 🍀
+    """
+    await context.bot.send_message(chat_id=user_id, text=rules_text, parse_mode="Markdown")
+
+
+
+
+
+
+
+
+async def set_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.message.chat_id
+    chat_name = update.message.chat.title  # Get the group's name
+    args = context.args
+
+    if len(args) != 1 or args[0] not in ["real_token", "chips"]:
+        await update.message.reply_text(
+            "Invalid usage. Use /set_status real_token or /set_status chips."
+        )
+        return
+
+    try:
+        # Fetch the group from the database based on chat_id
+        group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+    except Group.DoesNotExist:
+        # If group doesn't exist, create a new one and set the name
+        group = await sync_to_async(Group.objects.create)(group_chat_id=chat_id, group_name=chat_name)
+
+    # Update the group name if it has changed
+    if group.group_name != chat_name:
+        group.group_name = chat_name
+
+    # Check if the group is VIP
+    if group.vip:
+        # Set status based on the command argument
+        if args[0] == "real_token":
+            group.real_money = True
+            await update.message.reply_text("This group is now using 💵real tokens for the next games.")
+        else:
+            group.real_money = False
+            await update.message.reply_text("This group is now using 💰chips for the next games.")
+    else:
+        # If group is not VIP, always use chips
+        group.real_money = False
+        await update.message.reply_text("This group is not VIP. Using chips for the next games.")
+
+    # Save the updated group settings
+    await sync_to_async(group.save)()
+
+
+
+
+
+
+
+ADMIN_CHAT_ID = '1628536823'
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+
+    # Ensure the message is sent in private chat (user_id == chat_id)
+    if chat_id == user_id:
+        # Get the player's profile information
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+            profile_info = (
+                f"Player Profile:\n"
+                f"Name: {player.name}\n"
+                f"Chips: {player.chips}\n"
+                f"Games Played: {player.games}\n"
+                f"Real Tokens: {player.real_tokens}\n"
+            )
+        except ObjectDoesNotExist:
+            profile_info = "Player profile not found."
+
+        # Get the highest resolution of the photo
+        photo_file = update.message.photo[-1].file_id
+        caption = update.message.caption if update.message.caption else "No caption"
+
+        # Combine the caption with the player's profile info
+        message_text = f"Photo from {update.message.from_user.first_name} (ID: {user_id})\n\n{profile_info}\nCaption: {caption}"
+
+        # Forward the photo to your own private chat
+        await context.bot.send_photo(
+            chat_id=ADMIN_CHAT_ID,
+            photo=photo_file,
+            caption=message_text
+        )
+
+        # Optionally, send a confirmation message to the user
+        await update.message.reply_text("Your photo and profile have been forwarded to the admin.")
+    else:
+        pass
+        # await update.message.reply_text("Please send the photo in private chat.")
+
+
+photo_handler = MessageHandler(filters.PHOTO, handle_photo)
+
+
+async def buy_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+    user_name = update.message.from_user.first_name
+
+    # Define the credit card number and token buying details
+    credit_card_info = "Credit Card Number: \n6219 8619 4904 7871\nهیربد افلاکی "
+    token_info = "💵Each 100 real tokens is : 10 Toman\\."
+
+    # Check if the message was sent in a group or private chat
+    if chat_id != user_id:
+        # If in a group, notify the user that the message will be sent privately
+        await context.bot.send_message(chat_id=chat_id, text="A message has been sent to your private chat with the payment details.")
+    
+    # Send the message with credit card info and token buying options to the user's private chat
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"Hello {user_name},\n\n{token_info}\n{credit_card_info}",
+        parse_mode="MarkdownV2"
+    )
+
+    # Optionally log or notify in case of failure to send to private chat
+    try:
+        await context.bot.send_message(chat_id=user_id, text="Send the image here, after the PURCHASE was DONE")
+    except Exception as e:
+        print(f"Error sending message to user {user_id}: {e}")
+# Function to give tokens (real or fake) only if the player is admin
+async def give_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    try:
+        # Check if the player exists and is an admin
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        
+        if not player.admin:
+            await update.message.reply_text("You do not have permission to use this command.")
+            return
+
+        # Parse arguments: token type, target player id, and amount
+        args = context.args
+        if len(args) != 3 or args[0] not in ["real_token", "chips"]:
+            await update.message.reply_text("Usage: /give_token real_token|chips [user_id] [amount]")
+            return
+        
+        token_type = args[0]
+        target_user_id = args[1]
+        amount = int(args[2])
+
+        # Fetch the target player
+        try:
+            target_player = await sync_to_async(Player.objects.get)(id=target_user_id)
+        except ObjectDoesNotExist:
+            await update.message.reply_text(f"Player with ID {target_user_id} does not exist.")
+            return
+
+        # Update the player's tokens
+        if token_type == "real_token":
+            target_player.real_tokens += amount
+            await update.message.reply_text(f"{amount} 💵 real tokens have been given to {target_player.name}.")
+        else:
+            target_player.chips += amount
+            await update.message.reply_text(f"{amount} 💰 chips have been given to {target_player.name}.")
+
+        # Save the changes
+        await sync_to_async(target_player.save)()
+
+        # Send a private message to the target player
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=f"{amount} {'💵 real tokens' if token_type == 'real_token' else '💰 chips'} have been given to you by the admin."
+        )
+    except ObjectDoesNotExist:
+        await update.message.reply_text("You are not registered as a player.")
+
+async def get_player_user_id(player_name: str):
+    try:
+        # Fetch the player by name
+        player = await sync_to_async(Player.objects.get)(name=player_name)
+        return player.id  # The user_id from the Player model
+    except ObjectDoesNotExist:
+        return None
+
+# Command handler for /get_user_id
+async def get_user_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) == 0:
+        await update.message.reply_text("Please provide a player name. Usage: /get_user_id [player_name]")
+        return
+    
+    player_name = context.args[0]
+    
+    # Retrieve the user ID
+    user_id = await get_player_user_id(player_name)
+
+    if user_id:
+        await update.message.reply_text(f"User ID for {player_name} is {user_id}.")
+    else:
+        await update.message.reply_text(f"Player with the name {player_name} was not found.")
+from django.db import transaction
+
+
+
+
+async def save_player(player):
+    """Ensures player data is saved asynchronously."""
+    await sync_to_async(player.save)()
+
+async def validate_bet_amount(update, bet_amount):
+    if bet_amount <= 0:
+        await update.message.reply_text("❌ Invalid bet amount. It must be a positive number.")
+        return False
+    return True
+
+# games------------------------------
+async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await asyncio.sleep(0.9)
+    
+    user_id = update.message.from_user.id
+    bet_amount = int(context.args[0]) if context.args else 50  # Default bet amount is 50 chips
+    if not await validate_bet_amount(update, bet_amount):
+            return
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("You don't have enough chips to spin the slot machine!")
+        return
+
+    # Deduct the bet amount
+    player.chips -= bet_amount
+    await save_player(player)  # Ensure it's saved properly
+
+    # Possible slot symbols
+    slot_symbols = ['🍒', '🍋', '💰', '🍀', '🔔', '⭐']
+
+    # Send the initial message
+    message = await update.message.reply_text('🎰 Spinning...')
+
+    # Simulate spinning effect
+    spinning_texts = [
+        '🎰 Spinning... 🍒 | 🍋 | 💰',
+        '🎰 Spinning... 🍀 | 💰 | 🔔',
+        '🎰 Spinning... ⭐ | 🍋 | 🍒',
+        '🎰 Spinning... 🔔 | ⭐ | 🍀',
+        '🎰 Spinning... 🍒 | 💰 | ⭐'
+    ]
+
+    for text in spinning_texts:
+        await message.edit_text(text)
+        await asyncio.sleep(1)
+
+    # Final result
+    slot_result = [random.choice(slot_symbols) for _ in range(3)]
+    result_text = ' | '.join(slot_result)
+
+    winnings = 0  # Initialize winnings
+
+    # Check winning conditions
+    if len(set(slot_result)) == 1:  # Jackpot (all symbols match)
+        winnings = bet_amount * 10
+    elif slot_result[0] == slot_result[1] or slot_result[1] == slot_result[2]:  # Two match
+        winnings = bet_amount * 3
+
+    # Update player chips if won
+    if winnings > 0:
+        player.chips += winnings
+        await save_player(player)  # Save after updating winnings
+        await message.edit_text(f"🎰 {result_text} 🎰\nYou win {winnings} chips! 🎉")
+    else:
+        await message.edit_text(f"🎰 {result_text} 🎰\nNo match! You lose your bet. 😢")
+
+
+
+
+async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await asyncio.sleep(0.9)
+
+    user_id = update.message.from_user.id
+    guess = context.args[0].lower() if context.args else 'heads'  # Default to heads if no argument
+    bet_amount = int(context.args[1]) if len(context.args) > 1 else 50  # Default bet amount is 50 chips
+    if not await validate_bet_amount(update, bet_amount):
+            return
+    if guess not in ['heads', 'tails']:
+        await update.message.reply_text("Please choose either 'heads' or 'tails'.")
+        return
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("You don't have enough chips for this bet!")
+        return
+
+    # Deduct the bet amount
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Send the initial "spinning" message
+    message = await update.message.reply_text("🪙 Flipping the coin...")
+
+    # Simulate the flipping effect with several edits
+    flip_animation = ['🪙 Heads...', '🪙 Tails...', '🪙 Heads...', '🪙 Tails...']
+
+    for flip in flip_animation:
+        await message.edit_text(flip)
+        await asyncio.sleep(0.5)
+
+    # Final coin flip result
+    flip_result = random.choice(['heads', 'tails'])
+
+    if flip_result == guess:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await message.edit_text(f"🪙 Coin landed on {flip_result.capitalize()}! You win {winnings} chips!")
+    else:
+        await message.edit_text(f"🪙 Coin landed on {flip_result.capitalize()}! You lose your bet.")
+
+cards = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+card_values = {card: index for index, card in enumerate(cards, start=2)}
+
+async def lucky_draw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await asyncio.sleep(0.9)
+
+    user_id = update.message.from_user.id
+    bet_amount = int(context.args[0]) if context.args else 50  # Default bet amount is 50 chips
+    if not await validate_bet_amount(update, bet_amount):
+            return
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("You don't have enough chips for this bet!")
+        return
+
+    # Deduct the bet amount
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Send the initial message
+    message = await update.message.reply_text("🃏 Drawing your card...")
+
+    # Draw player's card
+    await asyncio.sleep(2)  # Wait to build suspense
+    player_card = random.choice(cards)
+    await message.edit_text(f"🃏 You drew: {player_card}")
+
+    # Wait a bit and simulate dealer's turn
+    await asyncio.sleep(2)
+    await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer is drawing a card...")
+
+    # Draw dealer's card
+    await asyncio.sleep(2)  # More suspense before revealing
+    bot_card = random.choice(cards)
+    await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}")
+
+    # Compare card values
+    player_card_value = card_values[player_card]
+    bot_card_value = card_values[bot_card]
+
+    # Determine the result after a short pause
+    await asyncio.sleep(2)
+
+    if player_card_value > bot_card_value:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}\n\nYou win {winnings} chips!")
+    elif player_card_value == bot_card_value:
+        player.chips += bet_amount  # Return the bet for a tie
+        await sync_to_async(player.save)()
+        await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}\n\nIt's a tie! You get your bet back.")
+    else:
+        await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}\n\nYou lose your bet.")
+
+
+
+choices = ['rock', 'paper', 'scissors']
+choice_emojis = {'rock': '🪨', 'paper': '📄', 'scissors': '✂️'}
+
+# Rock-Paper-Scissors game
+async def rps_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await asyncio.sleep(0.9)
+
+    user_id = update.message.from_user.id
+    # Parse the player's choice and the bet amount from the command
+    player_choice = context.args[0].lower() if len(context.args) > 0 else 'rock'  # Default to rock
+    bet_amount = int(context.args[1]) if len(context.args) > 1 else 50  # Default bet amount is 50 chips
+    if not await validate_bet_amount(update, bet_amount):
+            return
+    if player_choice not in choices:
+        await update.message.reply_text("Please choose either 'rock', 'paper', or 'scissors'.")
+        return
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    # Check if the player has enough chips for the bet
+    if player.chips < bet_amount:
+        await update.message.reply_text(f"You don't have enough chips to place a bet of {bet_amount}!")
+        return
+
+    # Deduct the bet amount
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Initial message
+    message = await update.message.reply_text(f"👊 You chose {choice_emojis[player_choice]} {player_choice.capitalize()}!\nWaiting for the dealer...")
+
+    # Simulate dealer's choice with suspense
+    await asyncio.sleep(2)
+    bot_choice = random.choice(choices)
+    await message.edit_text(f"👊 You chose {choice_emojis[player_choice]} {player_choice.capitalize()}!\n🤖 Dealer is thinking...")
+
+    await asyncio.sleep(2)
+    await message.edit_text(f"👊 You chose {choice_emojis[player_choice]} {player_choice.capitalize()}!\n🤖 Dealer chose {choice_emojis[bot_choice]} {bot_choice.capitalize()}!")
+
+    # Compare choices and determine the outcome
+    await determine_rps_winner(player_choice, bot_choice, player, message, bet_amount)
+
+
+# Determine the winner of the Rock-Paper-Scissors game
+async def determine_rps_winner(player_choice, bot_choice, player, message, bet_amount):
+    # Rules of Rock-Paper-Scissors
+    win_conditions = {
+        'rock': 'scissors',
+        'scissors': 'paper',
+        'paper': 'rock'
+    }
+
+    # Win, lose, or tie
+    if player_choice == bot_choice:
+        player.chips += bet_amount  # Return bet for tie
+        await sync_to_async(player.save)()
+        await asyncio.sleep(2)
+        await message.edit_text(f"🤝 It's a tie! You get your bet of {bet_amount} chips back!")
+    elif win_conditions[player_choice] == bot_choice:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await asyncio.sleep(2)
+        await message.edit_text(f"🎉 You win! {choice_emojis[player_choice]} beats {choice_emojis[bot_choice]}!\nYou win {winnings} chips!")
+    else:
+        await asyncio.sleep(2)
+        await message.edit_text(f"😔 You lose! {choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}!\nYou lose your bet of {bet_amount} chips.")
+
+
+async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await asyncio.sleep(0.9)
+    user_id = update.message.from_user.id
+    bet_amount = int(context.args[0]) if context.args else 50  # Default bet amount is 50 chips
+    if not await validate_bet_amount(update, bet_amount):
+            return
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("You don't have enough chips for this bet!")
+        return
+
+    # Deduct the bet amount
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Roll the dice using Telegram's dice feature
+    message = await context.bot.send_dice(chat_id=update.message.chat_id, emoji="🎲")
+
+    # Wait for a second for dice to roll
+    await asyncio.sleep(4)
+
+    dice_value = message.dice.value  # Get the dice value (1-6)
+
+    # Determine win/loss based on the dice value
+    if dice_value > 4:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou win {winnings} chips!")
+    else:
+        await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou lose your bet of {bet_amount} chips.")
+
+
+from django.db.models import F, Sum, Count
+from asgiref.sync import sync_to_async
+
+# Utility function to truncate player names and ensure it doesn't exceed 8 characters
+def format_name(name, max_length=8):
+    truncated_name = (name[:max_length - 3] + '...') if len(name) > max_length else name
+    return f"{truncated_name:<{max_length}}"
+
+# Utility function to format the leaderboard row with monospaced text
+def format_leaderboard_row(index, name, wins, tokens):
+    # Adjust spacing to account for emojis and varying name lengths
+    return f"`{index:<2}. {name:<8} 🏆 Wins: {wins:<3}  💰 Chips: {tokens:<7}`"
+
+# Function to fetch the global leaderboard with top 5 players
+async def get_global_leaderboard():
+    # Fetching top players based on total wins
+    top_players = await sync_to_async(list)(
+        Stats.objects.select_related('player')
+        .annotate(total_wins=F('wins'))  # Total wins
+        .order_by('-total_wins')[:5]  # Fetch top 5 players
+    )
+
+    leaderboard = []
+    for index, stats in enumerate(top_players, 1):
+        formatted_name = format_name(stats.player.name)
+        leaderboard.append(
+            format_leaderboard_row(
+                index=index,
+                name=formatted_name,
+                wins=stats.wins,
+                tokens=stats.player.chips
+            )
+        )
+
+    return leaderboard
+
+# Function to fetch the user's position and show 2 players above and 2 below
+async def get_user_rank(user_id):
+    # Fetch all players ordered by wins
+    all_players = await sync_to_async(list)(
+        Stats.objects.select_related('player')
+        .annotate(total_wins=F('wins'))
+        .order_by('-total_wins')
+    )
+
+    # Find the user's position
+    user_rank = None
+    leaderboard = []
+    for index, stats in enumerate(all_players, 1):
+        if stats.player.id == user_id:
+            # Get two players above and two below
+            start = max(index - 3, 0)
+            end = min(index + 2, len(all_players))
+            nearby_players = all_players[start:end]
+
+            # Format the leaderboard for nearby players
+            for idx, player_stats in enumerate(nearby_players, start=start+1):
+                formatted_name = format_name(player_stats.player.name)
+                leaderboard.append(
+                    format_leaderboard_row(
+                        index=idx,
+                        name=formatted_name,
+                        wins=player_stats.wins,
+                        tokens=player_stats.player.chips
+                    )
+                )
+
+            user_rank = index
+            break
+
+    return leaderboard, user_rank
+# Command to show the global leaderboard
+async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+
+    # Get top 5 players
+    top_5_leaderboard = await get_global_leaderboard()
+
+    # Get the user's rank and nearby players
+    user_leaderboard, user_rank = await get_user_rank(user_id)
+
+    # Build the leaderboard message
+    if top_5_leaderboard:
+        top_5_text = "\n".join(top_5_leaderboard)
+        message = f"🌍 *Global Leaderboard* 🌍\n\n{top_5_text}\n\n"
+    else:
+        message = "No players have ranked yet.\n\n"
+
+    # Add user's position to the message
+    if user_leaderboard:
+        user_leaderboard_text = "\n".join(user_leaderboard)
+        message += f"🏅 *Your Position* (Rank {user_rank}):\n{user_leaderboard_text}"
+    else:
+        message += "You haven't played enough games to be ranked yet."
+
+    # Send the formatted leaderboard message
+    await update.message.reply_text(message)
+
+
+async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.message.chat_id
+    text = (
+        "🎮 *Available Minigames* 🎮\n\n"
+        "🎲 /dice - Roll a dice and test your luck! (/dice [chips amount])\n\n"
+        "🎰 /slot - Try your luck at the slot machine. Will you hit the jackpot? (/slot [chips amount])\n\n"
+        "🪙 /coin - Flip a coin and see if it’s heads or tails. (/coin [heads/tails] [chips amount])\n\n"
+        "🎟 /draw - Participate in a lucky draw. Will you be the lucky one? (/draw [chips amount])\n\n"
+        "🎯 /dart - Play dart twice a day to win 200 chips.\n\n"
+        "✊🖐✌️ /rps - Play Rock, Paper, Scissors against the bot. (/rps [rock/paper/scissors] [chips amount])\n\n"
+        "🎡 /spin - Spin the wheel once a day for a chance to win chips, XP, or levels! Type /spin <low/mid/high> and let the wheel decide your fate.\n\n"
+        "🎲 /roulette - Bet on red, black, or a number (0-36). Usage: /roulette <red|black|0-36> <bet amount>. "
+        "If you guess the color, you win double; if you guess the number, you win 35 times your bet! Good luck!\n\n"
+    )
+    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+
+async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    loan_amount = int(context.args[0]) if context.args else 0
+
+    if loan_amount <= 0:
+        await update.message.reply_text("Please specify a valid loan amount.")
+        return
+
+    # Charge 25 XP per *started* 100 chips,
+    # so even loan_amount=1..100 costs 25 XP.
+    xp_cost = math.ceil(loan_amount / 100) * 25
+
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        dealer = await sync_to_async(Dealer.objects.first)()
+
+        if dealer.chips < loan_amount:
+            await update.message.reply_text("The Casino doesn't have enough chips to give you this loan.")
+            return
+
+        if player.xp < xp_cost:
+            if player.level > 1:
+                # de-level until you can pay
+                remaining_xp = player.xp - xp_cost
+                while remaining_xp < 0 and player.level > 1:
+                    player.level -= 1
+                    remaining_xp += xp_for_next_level(player.level)
+                player.xp = remaining_xp
+            else:
+                await update.message.reply_text("You don't have enough XP to take this loan.")
+                return
+
+        # Deduct XP and transfer chips
+        player.xp    -= xp_cost
+        player.chips += loan_amount
+        player.loan  += loan_amount
+        dealer.chips -= loan_amount
+
+        await sync_to_async(player.save)()
+        await sync_to_async(dealer.save)()
+
+        await update.message.reply_text(
+            f"You've received a loan of {loan_amount} 💰 chips.\n"
+            f"XP cost: {xp_cost} XP. Don't forget to repay with 3% interest!"
+        )
+
+    except Player.DoesNotExist:
+        await update.message.reply_text("You need to register with /start first.")
+
+async def repay_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        dealer = await sync_to_async(Dealer.objects.first)()  # Assuming there is only one dealer
+
+        # Check if the player has an outstanding loan
+        if player.loan <= 0:
+            await update.message.reply_text("You don't have any outstanding loans to repay.")
+            return
+
+        # Calculate total repayment with 3% interest
+        total_repayment = int(player.loan * 1.03)
+
+        # Check if the player has enough chips to repay the loan
+        if player.chips < total_repayment:
+            await update.message.reply_text(f"You don't have enough chips to repay the loan. You need {total_repayment} 💰.")
+            return
+
+        # Deduct chips from player and repay the dealer
+        player.chips -= total_repayment
+        dealer.chips += total_repayment
+        player.loan = 0
+
+        await sync_to_async(player.save)()
+        await sync_to_async(dealer.save)()
+
+        await update.message.reply_text(f"Loan repaid successfully! You paid back {total_repayment} 💰 with interest.")
+
+    except Player.DoesNotExist:
+        await update.message.reply_text("You need to register with /start first.")
+
+
+
+
+
+ADMIN_ID = 1553620403
+
+async def give_chips2(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Debug entry
+    print(f"[DEBUG] give_chips triggered by user {update.effective_user.id} in chat {update.effective_chat.id}")
+    print(f"[DEBUG] Message text: {update.message.text!r}")
+
+    # Admin check
+    if update.effective_user.id != ADMIN_ID:
+        print(f"[DEBUG] User {update.effective_user.id} is not ADMIN_ID={ADMIN_ID}, exiting.")
+        return
+
+    # Reply check
+    if not update.message.reply_to_message:
+        print("[DEBUG] No reply_to_message found, prompting usage.")
+        await update.message.reply_text(
+            "❗️ Reply to a user's message and type `/chips <amount>`.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Args parsing
+    args = context.args
+    print(f"[DEBUG] context.args = {args}")
+    if len(args) != 1:
+        print("[DEBUG] Wrong number of args, sending usage.")
+        await update.message.reply_text(
+            "Usage: `/chips <amount>`",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Amount check
+    amount_str = args[0]
+    if not amount_str.isdigit():
+        print(f"[DEBUG] args[0]={amount_str!r} is not a digit.")
+        await update.message.reply_text(
+            "❗️ Amount must be a number.",
+            parse_mode="Markdown"
+        )
+        return
+
+    amount = int(amount_str)
+    print(f"[DEBUG] Parsed amount = {amount}")
+
+    # Identify target
+    target_user = update.message.reply_to_message.from_user
+    target_id = target_user.id
+    print(f"[DEBUG] Target user is {target_user.full_name} with ID {target_id}")
+
+    # Fetch Player
+    try:
+        player = await sync_to_async(Player.objects.get)(id=target_id)
+        print(f"[DEBUG] Found Player record: {player}")
+    except ObjectDoesNotExist:
+        print(f"[DEBUG] No Player found with id={target_id}")
+        await update.message.reply_text(f"❌ No player with ID {target_id}.")
+        return
+
+    # Update and save
+    original = player.chips
+    player.chips += amount
+    print(f"[DEBUG] Updating chips: {original} -> {player.chips}")
+    await sync_to_async(player.save)()
+    print("[DEBUG] Player.save() completed")
+
+    # Confirm to admin
+    resp_admin = f"✅ {amount} 💰 given to {player.name or target_user.full_name}."
+    print(f"[DEBUG] Replying to admin: {resp_admin}")
+    await update.message.reply_text(resp_admin)
+
+    # Notify the target
+    notify_text = f"You've received {amount} 💰 from the admin!"
+    print(f"[DEBUG] Sending message to target {target_id}: {notify_text}")
+    await context.bot.send_message(chat_id=target_id, text=notify_text)
+    print("[DEBUG] Notification sent to target")
+
+async def claim_daily_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    now = timezone.now()
+
+    # If already claimed today, bail out
+    if player.last_claimed_tokens and player.last_claimed_tokens.date() == now.date():
+        await update.message.reply_text("🎁 You’ve already claimed your daily 200 chips! Come back tomorrow.")
+        return
+
+    # Grant daily 200 chips
+    player.chips += 200
+    player.last_claimed_tokens = now
+    await sync_to_async(player.save)()
+
+    await update.message.reply_text(f"🎉 Here are your 200 daily chips! You now have 💰{player.chips} chips.")
+async def group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    group_link = "https://t.me/+JLQINcmYLZg3NDM0"  # ← replace with your real link
+    await update.message.reply_text(
+        f"🎲 Join our main Blackjack group here:\n{group_link}"
+    )
+
+
+
+
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # only allow admin to run
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    # require a message
+    if not context.args:
+        await update.message.reply_text("Usage: /broadcast <your message here>")
+        return
+
+    text = " ".join(context.args)
+
+    # get all player IDs (which are the chat_ids for private chats)
+    player_ids = await sync_to_async(
+        lambda: list(Player.objects.values_list("id", flat=True))
+    )()
+
+    sent = 0
+    for uid in player_ids:
+        try:
+            await context.bot.send_message(chat_id=uid, text=text)
+            sent += 1
+            # small pause to respect flood limits
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            # log or ignore users who blocked the bot, etc.
+            print(f"Failed to send to {uid}: {e}")
+
+    await update.message.reply_text(f"Broadcast sent to {sent} players.")
+SPIN_TIERS = {
+    "low": {
+        "cost": 200,
+        "slices": [
+            # Positive‐chip rewards
+            ("💰 +5 000 chips",  5000,   0,   0),
+            ("🎉 +2 500 chips",  2500,   0,   0),
+            ("✨ +1 000 chips",  1000,   0,   0),
+            ("👍  +500 chips",    500,   0,   0),
+
+            # Exact negative “mirrors” of the above
+            ("💸 -5 000 chips", -5000,   0,   0),
+            ("💸 -2 500 chips", -2500,   0,   0),
+            ("🛑 -1 000 chips", -1000,   0,   0),
+            ("🛑 -500 chips",    -500,   0,   0),
+
+            # Neutral / XP / level slots
+            ("😐 Nothing happens",   0,    0,   0),
+            ("😐 Nothing happens",   0,    0,   0),
+            ("🌟 +50 XP",            0,   50,   0),
+            ("🧟 -50 XP",            0,  -50,   0),
+            ("⭐ +1 level",          0,    0,  +1),
+            ("⬇️ -1 level",          0,    0,  -1),
+        ],
+    },
+
+    "mid": {
+        "cost": 2000,
+        "slices": [
+            ("💰 +25 000 chips",  25000,   0,   0),
+            ("🎉 +10 000 chips",  10000,   0,   0),
+            ("✨ +5 000 chips",    5000,   0,   0),
+            ("👍  +1 000 chips",   1000,   0,   0),
+
+            # Exact negative “mirrors”
+            ("💸 -25 000 chips", -25000,   0,   0),
+            ("💸 -10 000 chips", -10000,   0,   0),
+            ("🛑 -5 000 chips",   -5000,   0,   0),
+            ("🛑 -1 000 chips",   -1000,   0,   0),
+
+            ("😐 Nothing happens",   0,    0,   0),
+            ("🌟 +200 XP",           0,   200,  0),
+            ("🧟 -200 XP",           0,  -200,  0),
+            ("⭐ +1 level",          0,    0,  +1),
+            ("⬇️ -1 level",          0,    0,  -1),
+        ],
+    },
+
+    "high": {
+        "cost": 20000,
+        "slices": [
+            ("💰 +100 000 chips", 100000,   0,   0),
+            ("🎉 +50 000 chips",   50000,   0,   0),
+            ("✨ +25 000 chips",   25000,   0,   0),
+            ("👍  +5 000 chips",    5000,   0,   0),
+
+            # Exact negative “mirrors”
+            ("💸 -100 000 chips", -100000,   0,   0),
+            ("💸 -50 000 chips",  -50000,   0,   0),
+            ("🛑 -25 000 chips",  -25000,   0,   0),
+            ("🛑 -5 000 chips",    -5000,   0,   0),
+
+            ("😐 Nothing happens",    0,     0,   0),
+            ("🌟 +500 XP",            0,   500,  0),
+            ("🧟 -500 XP",            0,  -500,  0),
+            ("⭐ +2 levels",          0,     0,  +2),
+            ("⬇️ -2 levels",          0,     0,  -2),
+        ],
+    },
+}
+
+
+async def _spin_sequence_longer(bot, chat_id, message_id, user_id, slices):
+    """
+    Show 3 intermediate “spin” frames (each lasting ~0.5 s),
+    then pick one final outcome, update the player, and edit the same message.
+    """
+    last_label = None
+    frames = 3            # <-- only 3 frames now
+    sleep_interval = 0.2  # half a second per intermediate frame
+
+    for _ in range(frames):
+        label, _, _, _ = random.choice(slices)
+
+        if label != last_label:
+            try:
+                await bot.edit_message_text(
+                    f"🎡 Spinning… {label}",
+                    chat_id=chat_id,
+                    message_id=message_id
+                )
+            except RetryAfter as e:
+                # If rate-limited, wait exactly e.retry_after then retry once
+                await asyncio.sleep(e.retry_after)
+                try:
+                    await bot.edit_message_text(
+                        f"🎡 Spinning… {label}",
+                        chat_id=chat_id,
+                        message_id=message_id
+                    )
+                except Exception:
+                    pass  # skip if it fails again
+
+            last_label = label
+
+        await asyncio.sleep(sleep_interval)
+
+    # ─── Now choose the final outcome ───
+    final_label, chips_d, xp_d, lvl_d = random.choice(slices)
+
+    # Update the player's stats:
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    player.chips = max(player.chips + chips_d, 0)  # Prevent negative chips
+    player.xp    = max(player.xp + xp_d, 0)        # Prevent negative XP
+    player.level = max(player.level + lvl_d, 1)    # Level can't go below 1
+    await sync_to_async(player.save)()
+
+    # Build & send the final text in the same message
+    final_text = (
+        f"🛑 You landed on **{final_label}**!\n"
+        f"Chips: {'+' if chips_d >= 0 else ''}{chips_d}\n"
+        f"XP:    {'+' if xp_d   >= 0 else ''}{xp_d}\n"
+        f"Level: {'+' if lvl_d  >= 0 else ''}{lvl_d}"
+    )
+    try:
+        await bot.edit_message_text(
+            final_text,
+            chat_id=chat_id,
+            message_id=message_id,
+            parse_mode="Markdown"
+        )
+    except RetryAfter as e:
+        # If Telegram asks us to wait, honor it and retry once
+        await asyncio.sleep(e.retry_after)
+        try:
+            await bot.edit_message_text(
+                final_text,
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass  # give up if it still fails
+
+
+async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /spin <tier>
+    Tiers: low (cost 200), mid (cost 2 000), high (cost 20 000)
+    Now shows 3 intermediate labels (~1.5 s of animation) before final.
+    """
+    user = update.effective_user
+    user_id = user.id
+
+    if not context.args:
+        return await update.message.reply_text(
+            "❗️ You must specify a tier: `low`, `mid`, or `high`.\n"
+            "Example: `/spin low`",
+            parse_mode="Markdown"
+        )
+
+    tier_name = context.args[0].lower()
+    if tier_name not in SPIN_TIERS:
+        return await update.message.reply_text(
+            "❗️ Invalid tier. Choose one of: `low`, `mid`, `high`.",
+            parse_mode="Markdown"
+        )
+
+    tier_info = SPIN_TIERS[tier_name]
+    cost = tier_info["cost"]
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < cost:
+        return await update.message.reply_text(
+            f"🚫 You need {cost} chips to spin **{tier_name.upper()}**, "
+            f"but you only have {player.chips}."
+        )
+
+    # Deduct cost immediately
+    player.chips -= cost
+    await sync_to_async(player.save)()
+
+    # Send one “Spinning…” message, then run the 3-frame animation + final result
+    msg = await update.message.reply_text(f"🎡 Spinning the **{tier_name.upper()}** wheel…")
+    asyncio.create_task(
+        _spin_sequence_longer(
+            context.bot,
+            update.effective_chat.id,
+            msg.message_id,
+            user_id,
+            tier_info["slices"]
+        )
+    )
+
+# ─── New /spinrewards command: list each tier, its cost, and possible outcomes ───
+async def spinrewards(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /spinrewards
+    Lists each tier’s cost and all possible outcomes (including negative-chip penalties).
+    """
+    lines = ["*Available spin tiers & their costs/rewards:*"]
+    
+    for tier_name, info in SPIN_TIERS.items():
+        cost = info["cost"]
+        lines.append(f"\n• *{tier_name.upper()}* (Cost: {cost} chips):")
+        
+        for label, chips_d, xp_d, lvl_d in info["slices"]:
+            parts = [label]
+            
+            # If there is a chip delta (positive or negative), show it
+            if chips_d != 0:
+                parts.append(f"{chips_d:+} chips")
+            
+            # If there is an XP delta (positive or negative), show it
+            if xp_d != 0:
+                parts.append(f"{xp_d:+} XP")
+            
+            # If there is a level delta (positive or negative), show it
+            if lvl_d != 0:
+                parts.append(f"{lvl_d:+} level")
+            
+            # Join the pieces with " | " and indent under the tier name
+            lines.append("    – " + " | ".join(parts))
+    
+    text = "\n".join(lines)
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
+
+RED_NUMS = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
+
+async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_amt):
+    # animation
+    for _ in range(12):
+        spun = random.randint(0,36)
+        await bot.edit_message_text(
+            f"🎲 Spinning… {spun}",
+            chat_id=chat_id,
+            message_id=message_id
+        )
+        await asyncio.sleep(0.15)
+
+    # final outcome
+    number = random.randint(0,36)
+    win = False
+    payout = 0
+
+    if bet_type.lower() in ("red","black"):
+        color = "red" if number in RED_NUMS else "black" if number != 0 else "green"
+        win = (color == bet_type.lower())
+        payout = bet_amt * 2 if win else 0
+    else:
+        try:
+            guess = int(bet_type)
+            if 0 <= guess <= 36 and guess == number:
+                win = True
+                payout = bet_amt * 35
+        except ValueError:
+            pass
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    player.chips += (payout - bet_amt)
+    await sync_to_async(player.save)()
+
+    result_text = (
+        f"🛑 Landed on **{number}** "
+        f"({'🔴' if number in RED_NUMS else '⚫️' if number!=0 else '0️⃣'})\n"
+    )
+    if win:
+        result_text += f"🎉 You win {payout - bet_amt} chips!"
+    else:
+        result_text += f"😢 You lose {bet_amt} chips."
+    await bot.send_message(chat_id=chat_id, text=result_text, parse_mode="Markdown")
+
+async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if len(args) != 2:
+        return await update.message.reply_text("Usage: /roulette <red|black|0-36> <bet>")
+    bet_type, bet_amt = args[0], int(args[1])
+    if not await validate_bet_amount(update, bet_amt):
+        return
+    user_id = update.effective_user.id
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < bet_amt:
+        return await update.message.reply_text("❌ Not enough chips.")
+
+    msg = await update.message.reply_text("🎲 Starting roulette…")
+    asyncio.create_task(
+        _roulette_sequence(
+            context.bot,
+            update.effective_chat.id,
+            msg.message_id,
+            user_id,
+            bet_type,
+            bet_amt
+        )
+    )
+
+
+
+
+
+async def give_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Command format: reply to someone's message with /givechips <amount>
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+
+    # Check if command has an argument
+    if len(context.args) != 1:
+        await update.message.reply_text("Usage: reply to a user’s message with /givechips <amount>")
+        return
+
+    # Check if the message is a reply
+    if not update.message.reply_to_message:
+        await update.message.reply_text("You need to reply to the user you want to give chips to.")
+        return
+
+    # Validate the amount
+    try:
+        amount = int(context.args[0])
+        if amount <= 0:
+            await update.message.reply_text("Amount must be greater than 0.")
+            return
+    except ValueError:
+        await update.message.reply_text("Invalid amount.")
+        return
+
+    # Get the giver and receiver
+    giver_id = user_id
+    receiver_id = update.message.reply_to_message.from_user.id
+
+    # Check if giver and receiver are not the same
+    if giver_id == receiver_id:
+        await update.message.reply_text("You cannot give chips to yourself.")
+        return
+
+    # Get both players
+    try:
+        giver = await sync_to_async(Player.objects.get)(id=giver_id)
+        receiver = await sync_to_async(Player.objects.get)(id=receiver_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text("Both players must be registered in the game.")
+        return
+
+    # Check if the giver has enough chips
+    if giver.chips < amount:
+        await update.message.reply_text("You don’t have enough chips to give.")
+        return
+
+    # Perform the transfer
+    giver.chips -= amount
+    receiver.chips += amount
+    await sync_to_async(giver.save)()
+    await sync_to_async(receiver.save)()
+
+    # Escape user names for Markdown
+    giver_name = escape_markdown(update.message.from_user.first_name, version=2)
+    receiver_name = escape_markdown(update.message.reply_to_message.from_user.first_name, version=2)
+
+    # Send a confirmation message
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"💸 *{giver_name}* has given *{amount} chips* to *{receiver_name}*\\.\n"
+            f"🎉 {receiver_name} now has *{receiver.chips} chips*\\!"
+        ),
+        parse_mode="MarkdownV2"
+    )
+
+async def sync_group_names(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /sync_groups  →  For every Group in our database, call get_chat(group_chat_id),
+    pull out the chat.title (or username), and save it into group_name.
+    Only the superuser (you) should run this command; it will DM back a summary.
+    """
+    user_id = update.effective_user.id
+
+    # OPTIONAL: Only allow a specific user ID (e.g. your own Telegram ID) to run this.
+    # Replace YOUR_TELEGRAM_ID with your actual numeric user ID.
+    if user_id != ADMIN_ID:
+        return await update.message.reply_text("🚫 You are not authorized to run this command.")
+
+    all_groups = await sync_to_async(lambda: list(Group.objects.all()))()
+    if not all_groups:
+        return await update.message.reply_text("⚠️ No groups found in the database.")
+
+    updated = 0
+    skipped = 0
+    errors = []
+
+    for group in all_groups:
+        chat_id = group.group_chat_id
+
+        try:
+            # get_chat is async in python-telegram-bot v13.5
+            chat = await context.bot.get_chat(chat_id)
+        except Exception as e:
+            errors.append(f" • Failed to fetch {chat_id!r}: {e}")
+            skipped += 1
+            # Optional: wait a tiny bit to avoid spamming Telegram
+            await asyncio.sleep(0.1)
+            continue
+
+        # Telegram’s Chat object might have:
+        #   - title (for group/supergroup/channel)
+        #   - first_name/last_name (for a private chat)
+        #   - username (if it’s a public channel or bot)
+        new_title = ""
+        if hasattr(chat, "title") and chat.title:
+            new_title = chat.title
+        elif hasattr(chat, "first_name") and chat.first_name:
+            new_title = chat.first_name
+            if getattr(chat, "last_name", None):
+                new_title += " " + chat.last_name
+        elif getattr(chat, "username", None):
+            new_title = chat.username
+        else:
+            new_title = str(chat_id)
+
+        # If we got a valid title, update group_name
+        if new_title and new_title != group.group_name:
+            group.group_name = new_title
+            await sync_to_async(group.save)()
+            updated += 1
+        else:
+            skipped += 1
+
+        # Small pause in case you have many groups, to avoid hitting rate limits
+        await asyncio.sleep(0.1)
+
+    # Build a summary message
+    summary = [
+        f"✅ Synced {len(all_groups)} groups.",
+        f"🔄 Updated: {updated}",
+        f"⏭️ Skipped (already up‐to‐date or failed): {skipped}",
+    ]
+    if errors:
+        summary.append("\nSome errors:")
+        summary.extend(errors[:10])  # show up to 10 errors
+        if len(errors) > 10:
+            summary.append(f"…and {len(errors)-10} more errors.")
+
+    await update.message.reply_text("\n".join(summary))
+
+
+
+async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Triggered whenever someone joins (or a bot is added to) a chat.
+    If the bot itself is among new_chat_members, register that group.
+    """
+    bot_id = context.bot.id
+    chat = update.effective_chat  # the group where this happened
+
+    # Loop through update.message.new_chat_members to see if the bot was added
+    for new_member in update.message.new_chat_members:
+        if new_member.id == bot_id:
+            # The bot was just added to this chat. Save it in your Group model.
+            group_chat_id = str(chat.id)
+            group_title   = chat.title or ""  # e.g. “My Cool Group”
+
+            # Use get_or_create so we don’t overwrite an existing Group
+            group_obj, created = await sync_to_async(Group.objects.get_or_create)(
+                group_chat_id=group_chat_id,
+                defaults={"group_name": group_title},
+            )
+            # If it already existed but the title changed, update it
+            if not created and group_obj.group_name != group_title:
+                group_obj.group_name = group_title
+                await sync_to_async(group_obj.save)()
+
+            # (Optionally) announce in the group that you're now watching it:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text="👋 Thanks for adding me! Use /help to see how to play "
+            )
+            break
+
+
+
+
+async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /listgroups
+    Only list groups where the bot is still present. Do NOT delete stale rows.
+    """
+    user_id = update.effective_user.id
+
+    # (Optional) restrict usage to your own ID:
+    if user_id != ADMIN_ID:
+        return await update.message.reply_text("🚫 You’re not authorized to run this command.")
+
+    # Fetch all stored Group rows
+    all_groups = await sync_to_async(lambda: list(Group.objects.all()))()
+    if not all_groups:
+        return await update.message.reply_text("ℹ️ No groups recorded in the database.")
+
+    valid_lines = []
+
+    for g in all_groups:
+        chat_id = g.group_chat_id
+        try:
+            # Try to fetch the chat. If the bot was removed, this will raise.
+            await context.bot.get_chat(chat_id)
+        except Exception:
+            # Skip this group (bot is not in it), but do not delete from DB
+            continue
+
+        # If we got here, the bot is still in that chat
+        name = g.group_name or "(no name)"
+        valid_lines.append(f" • `{chat_id}` → {name}")
+
+        # Small pause to avoid rate limits
+        await asyncio.sleep(0.05)
+
+    if not valid_lines:
+        return await update.message.reply_text("ℹ️ I’m not currently in any of the stored groups.")
+
+    # Build the response in Markdown
+    header = "*I’m currently in the following groups:*"
+    message_text = "\n".join([header] + valid_lines)
+
+    # Send in one or more chunks (≤4000 chars each)
+    max_length = 4000
+    text = message_text
+    while text:
+        if len(text) <= max_length:
+            await update.message.reply_text(text, parse_mode="Markdown")
+            break
+        # Find a safe newline split
+        split_pos = text.rfind("\n", 0, max_length)
+        if split_pos == -1:
+            split_pos = max_length
+        await update.message.reply_text(text[:split_pos], parse_mode="Markdown")
+        text = text[split_pos:].lstrip()
+async def broadcastgroups(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /broadcast <message>
+    Send <message> only to groups where the bot is still a member.
+    Do NOT delete stale rows from the database.
+    """
+    user_id = update.effective_user.id
+
+    # (Optional) restrict to your ID:
+    if user_id != ADMIN_ID:
+        return await update.message.reply_text("🚫 You’re not authorized to run this command.")
+
+    if not context.args:
+        return await update.message.reply_text("❗️ Usage: /broadcast <message text>")
+
+    text_to_send = " ".join(context.args)
+
+    all_groups = await sync_to_async(lambda: list(Group.objects.all()))()
+    if not all_groups:
+        return await update.message.reply_text("ℹ️ No groups recorded to broadcast to.")
+
+    success = 0
+    failures = 0
+
+    for g in all_groups:
+        chat_id = g.group_chat_id
+        try:
+            # Verify bot is still in chat
+            await context.bot.get_chat(chat_id)
+
+            # Send the broadcast
+            await context.bot.send_message(chat_id=chat_id, text=text_to_send)
+            success += 1
+
+        except Exception:
+            # Skip (bot not in chat or sending failed), but do NOT delete the row
+            failures += 1
+
+        await asyncio.sleep(0.05)
+
+    await update.message.reply_text(
+        f"✅ Message sent to {success} groups, skipped {failures} invalid groups."
+    )
+
+
+async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /admin
+    Sends brief descriptions of all admin commands to your private chat.
+    """
+    user_id = update.effective_user.id
+    chat_id = update.message.chat_id
+    if user_id != ADMIN_ID:
+        return await update.message.reply_text("🚫 You’re not authorized to run this command.")
+    # Notify in group that details are in private chat
+    # if chat_id != user_id:
+    #     await update.message.reply_text(
+    #         "📩 Sent you a summary of admin commands in private chat."
+    #     )
+
+    help_text = """
+*Admin Commands* (use in private chat unless noted):
+
+• `/sync_groups`  
+  Sync stored group IDs → names from Telegram.  
+  _Example:_ `/sync_groups`
+
+• `/listgroups`  
+  List all groups the bot is still in.  
+  _Example:_ `/listgroups`
+
+• `/broadcastgroup <text>`  
+  Send `<text>` to every group.  
+  _Example:_ `/broadcastgroup Hello everyone!`
+
+• `/broadcast <text>`  
+  DM `<text>` to every registered player.  
+  _Example:_ `/broadcast Maintenance in 5 min.`
+
+• `/give_token <user_id> <amount>`  
+  Add `<amount>` chips to that user.  
+  _Example:_ `/give_token 1553620403 1000`
+
+• `/user_id`  
+  Show your Telegram user ID (works anywhere).  
+  _Example:_ `/user_id`
+"""
+
+    # Send as plain text (fits under 4096 chars)
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=help_text,
+        parse_mode="Markdown"
+    )
+
+
+async def changemode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+
+    if not context.args:
+        return await update.message.reply_text(
+            "Usage: /changemode <classic|raise>"
+        )
+
+    mode = context.args[0].lower()
+    if mode not in ["classic", "raise"]:
+        return await update.message.reply_text("Invalid mode. Choose `classic` or `raise`.")
+
+    chat_id = update.message.chat_id
+
+    # Fetch the group record and update the default_game_mode
+    group, created = await sync_to_async(Group.objects.get_or_create)(group_chat_id=chat_id)
+    group.default_game_mode = mode
+    await sync_to_async(group.save)()
+
+    await update.message.reply_text(f"✅ Game mode changed to **{mode}** for all future games in this group.")
+
+DEBUG = os.getenv("DEBUG")
+if DEBUG == "True":
+    app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
+elif DEBUG == "False":
+    app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
+    
+# real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
+# test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
+
+
+app.add_handler(CommandHandler("raise", raise_bet))
+app.add_handler(CommandHandler("call", call_bet))
+app.add_handler(CommandHandler("fold", fold))
+app.add_handler(CommandHandler("mode", changemode))
+
+
+app.add_handler(CommandHandler("admin", admin_help))
+app.add_handler(CommandHandler("listgroups", list_groups))
+app.add_handler(CommandHandler("broadcastgroup", broadcastgroups))
+
+app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_chat_members))
+app.add_handler(CommandHandler("roulette", roulette))
+app.add_handler(CommandHandler("sync_groups", sync_group_names))
+
+app.add_handler(CommandHandler("spin", spin))
+app.add_handler(CommandHandler("givechips", give_chips))
+
+app.add_handler(CommandHandler("broadcast", broadcast))
+app.add_handler(CommandHandler("repay_loan", repay_loan))
+app.add_handler(CommandHandler("loan", request_loan))
+app.add_handler(CommandHandler("minigames", minigames))
+
+app.add_handler(CommandHandler("dice", roll_dice))
+app.add_handler(CommandHandler("slot", slot_machine))
+app.add_handler(CommandHandler("coin", coinflip))
+app.add_handler(CommandHandler("draw", lucky_draw))
+app.add_handler(CommandHandler("rps", rps_game))
+app.add_handler(CommandHandler("dart", claim_tokens))
+app.add_handler(CommandHandler("daily_token", claim_daily_tokens))
+app.add_handler(CommandHandler("leaderboard", leaderboard))
+app.add_handler(CommandHandler("group", group))
+
+app.add_handler(CommandHandler("spinrewards", spinrewards))
+
+app.add_handler(photo_handler)
+app.add_handler(CommandHandler("user_id", get_user_id_command))
+app.add_handler(CommandHandler("give_token", give_token))
+# app.add_handler(CommandHandler("buy_tokens", buy_tokens))
+# app.add_handler(CommandHandler("set_status", set_status))
+app.add_handler(CommandHandler("help", help_command))
+app.add_handler(CommandHandler("rules", rules_command))
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("stats", stats))
+app.add_handler(CommandHandler("startblackjack", start_blackjack, block=False))
+app.add_handler(CommandHandler("join", join_blackjack))
+app.add_handler(CommandHandler("forcestart", force_start))
+
+app.add_handler(PollAnswerHandler(poll_answer_handler))  # PollAnswerHandler for poll answers
+app.add_handler(PollAnswerHandler(handle_poll_response))
+
+app.add_handler(CommandHandler("my_tokens", get_player_chips))
+app.add_handler(CommandHandler("stand", stand))
+app.add_handler(CommandHandler("flee", flee_game))
+app.add_handler(CommandHandler("nextgame", nextgame))
+app.add_handler(CommandHandler("hit", hit))
+app.add_handler(CommandHandler("dealer_stats", get_dealer_blackjack_stats))
+app.add_handler(CommandHandler("achievements", my_achievements))
+app.add_handler(CommandHandler("achievements_info", achievement_info))
+
+app.add_handler(CommandHandler("chips", give_chips2))
+
+app.run_polling()
+
+

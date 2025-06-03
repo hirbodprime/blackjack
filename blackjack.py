@@ -21,6 +21,7 @@ import re
 from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification,Achievement,PlayerAchievement
 from django.core.exceptions import ObjectDoesNotExist
 from asgiref.sync import sync_to_async
+from game.models import HorseRace, HorseBet, Player
 
 
 from datetime import datetime, timedelta
@@ -2691,14 +2692,20 @@ async def save_player(player):
     """Ensures player data is saved asynchronously."""
     await sync_to_async(player.save)()
 
+async def validate_bet_amount(update, bet_amount):
+    if bet_amount <= 0:
+        await update.message.reply_text("❌ Invalid bet amount. It must be a positive number.")
+        return False
+    return True
 
 # games------------------------------
 async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(0.9)
-
+    
     user_id = update.message.from_user.id
     bet_amount = int(context.args[0]) if context.args else 50  # Default bet amount is 50 chips
-
+    if not await validate_bet_amount(update, bet_amount):
+            return
     if not await check_player(update, context):
         return
 
@@ -2760,7 +2767,8 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     guess = context.args[0].lower() if context.args else 'heads'  # Default to heads if no argument
     bet_amount = int(context.args[1]) if len(context.args) > 1 else 50  # Default bet amount is 50 chips
-
+    if not await validate_bet_amount(update, bet_amount):
+            return
     if guess not in ['heads', 'tails']:
         await update.message.reply_text("Please choose either 'heads' or 'tails'.")
         return
@@ -2807,7 +2815,8 @@ async def lucky_draw(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.message.from_user.id
     bet_amount = int(context.args[0]) if context.args else 50  # Default bet amount is 50 chips
-
+    if not await validate_bet_amount(update, bet_amount):
+            return
     if not await check_player(update, context):
         return
 
@@ -2870,7 +2879,8 @@ async def rps_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Parse the player's choice and the bet amount from the command
     player_choice = context.args[0].lower() if len(context.args) > 0 else 'rock'  # Default to rock
     bet_amount = int(context.args[1]) if len(context.args) > 1 else 50  # Default bet amount is 50 chips
-
+    if not await validate_bet_amount(update, bet_amount):
+            return
     if player_choice not in choices:
         await update.message.reply_text("Please choose either 'rock', 'paper', or 'scissors'.")
         return
@@ -2934,7 +2944,8 @@ async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(0.9)
     user_id = update.message.from_user.id
     bet_amount = int(context.args[0]) if context.args else 50  # Default bet amount is 50 chips
-
+    if not await validate_bet_amount(update, bet_amount):
+            return
     if not await check_player(update, context):
         return
 
@@ -3414,11 +3425,9 @@ async def _spin_sequence_longer(bot, chat_id, message_id, user_id, slices):
 
     # Update the player's stats:
     player = await sync_to_async(Player.objects.get)(id=user_id)
-    player.chips += chips_d
-    player.xp    += xp_d
-    player.level += lvl_d
-    player.level = max(player.level, 1)
-    player.xp    = max(player.xp, 0)
+    player.chips = max(player.chips + chips_d, 0)  # Prevent negative chips
+    player.xp    = max(player.xp + xp_d, 0)        # Prevent negative XP
+    player.level = max(player.level + lvl_d, 1)    # Level can't go below 1
     await sync_to_async(player.save)()
 
     # Build & send the final text in the same message
@@ -3583,6 +3592,8 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) != 2:
         return await update.message.reply_text("Usage: /roulette <red|black|0-36> <bet>")
     bet_type, bet_amt = args[0], int(args[1])
+    if not await validate_bet_amount(update, bet_amt):
+        return
     user_id = update.effective_user.id
     player = await sync_to_async(Player.objects.get)(id=user_id)
     if player.chips < bet_amt:
@@ -3933,6 +3944,186 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
+# ─── Helper: Escape MarkdownV2 ───
+def escape_markdown_v2(text: str) -> str:
+    escape_chars = r'[_*\[\]()~`>#+\-=\|{}.!]'
+    return re.sub(escape_chars, r'\\\g<0>', text)
+
+# ─── Helper: Safe send message with flood control ───
+async def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", max_retries=10):
+    escaped_text = escape_markdown_v2(text)
+    retries = 0
+    while retries < max_retries:
+        try:
+            await bot.send_message(chat_id=chat_id, text=escaped_text, parse_mode=parse_mode)
+            return
+        except TimedOut:
+            retries += 1
+            await asyncio.sleep(4)
+        except RetryAfter as e:
+            await asyncio.sleep(int(e.retry_after) + 1)
+            retries += 1
+        await asyncio.sleep(0.3)  # flood control
+    print("❌ Failed to send message after retries.")
+
+# ─── /horserace: Start a new race ───
+async def horserace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
+    existing_race = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, race_started=False)
+    if await sync_to_async(existing_race.exists)():
+        await update.message.reply_text("❗️ A race is already active in this chat!")
+        return
+
+    race = await sync_to_async(HorseRace.objects.create)(chat_id=chat_id)
+    await update.message.reply_text(
+        "🐎 A new horse race has started!\n"
+        "Join with /joinrace <horse_number> <bet_amount> (no bets on Horse 1!)"
+    )
+
+# ─── /joinrace: Players place their bets ───
+async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    username = update.effective_user.username or update.effective_user.first_name
+    chat_id = update.effective_chat.id
+    args = context.args
+
+    if len(args) != 2:
+        await update.message.reply_text("Usage: /joinrace <horse_number> <bet_amount>")
+        return
+
+    horse_number = int(args[0])
+    bet_amount = int(args[1])
+
+    # Prevent negative or zero bets
+    if bet_amount <= 0:
+        await update.message.reply_text("❌ Bet amount must be a positive number.")
+        return
+
+    if horse_number == 1:
+        await update.message.reply_text("❌ You can’t bet on the dealer’s horse!")
+        return
+
+    race = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, race_started=False)
+    race = await sync_to_async(race.first)()
+    if not race:
+        await update.message.reply_text("❌ No active race! Start one with /horserace")
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < bet_amount:
+        await update.message.reply_text("❌ Not enough chips!")
+        return
+
+    # Deduct chips
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Add bet
+    await sync_to_async(HorseBet.objects.create)(
+        race=race,
+        user_id=user_id,
+        horse_number=horse_number,
+        bet_amount=bet_amount,
+        username=username
+    )
+    await update.message.reply_text(f"✅ Bet placed on horse {horse_number} for {bet_amount} chips!")
+
+# ─── /startrace: Animate the race and handle payouts ───
+async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    race = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, race_started=False)
+    race = await sync_to_async(race.first)()
+    if not race:
+        await update.message.reply_text("❌ No active race!")
+        return
+
+    bets = await sync_to_async(list)(HorseBet.objects.filter(race=race))
+    if not bets:
+        await update.message.reply_text("❌ No bets placed!")
+        return
+
+    race.race_started = True
+    await sync_to_async(race.save)()
+
+    dealer_horse = 1
+    random_horses = random.sample(range(2, 8), 4)
+    player_horses = list(set(bet.horse_number for bet in bets if bet.horse_number != 1))
+    all_horses = [dealer_horse] + random_horses
+    for horse in player_horses:
+        if horse not in all_horses:
+            all_horses.append(horse)
+
+    distance = race.race_distance
+    positions = {horse: distance for horse in all_horses}
+
+    msg = await update.message.reply_text("🏁 The race begins! 🐎")
+    winner = None
+
+    while not winner:
+        race_display = ""
+        for horse in sorted(all_horses):
+            if positions[horse] > 0 and random.random() < 0.7:
+                positions[horse] -= 1
+            if positions[horse] == 0:
+                race_display += f"🏆 | 🏁🐎 {horse}\n"
+            else:
+                race_display += f"🏆 | {'-' * positions[horse]}🐎{'-' * (distance - positions[horse])} {horse}\n"
+            if positions[horse] == 0 and not winner:
+                winner = horse
+
+        try:
+            await msg.edit_text(race_display)
+        except RetryAfter as e:
+            await asyncio.sleep(int(e.retry_after) + 1)
+            continue  # keep going after flood control
+
+        await asyncio.sleep(0.8)  # more delay to avoid flooding
+
+    # Determine payout
+    if winner == dealer_horse:
+        await update.message.reply_text("🏆 Dealer's horse wins! All players lose their bets.")
+        return
+
+    # Determine payout
+    winning_bets = [bet for bet in bets if bet.horse_number == winner]
+    total_losing_bets = sum(bet.bet_amount for bet in bets if bet.horse_number != winner)
+
+    if not winning_bets:
+        # No players bet on the winning horse → dealer takes the pot
+        total_losing_pot = sum(bet.bet_amount for bet in bets)
+        dealer, _ = await sync_to_async(Dealer.objects.get_or_create)(id=1)
+        dealer.chips += total_losing_pot
+        dealer.wins += 1
+        dealer.games += 1
+        await sync_to_async(dealer.save)()
+        await safe_send_message(
+            context.bot,
+            chat_id,
+            f"🏆 Horse {winner} won, but no players bet on it!\n"
+            f"🎰 Casino takes the pot: {total_losing_pot} chips!"
+        )
+    else:
+        # Players bet on the winning horse → payout
+        first_winner_payout = None
+        for bet in winning_bets:
+            share_of_losing_pot = total_losing_bets // len(winning_bets)
+            payout = bet.bet_amount * 2 + share_of_losing_pot
+            player = await sync_to_async(Player.objects.get)(id=bet.user_id)
+            player.chips += payout
+            await sync_to_async(player.save)()
+            await safe_send_message(context.bot, bet.user_id, f"🎉 You won! Payout: {payout} chips.")
+            if first_winner_payout is None:
+                first_winner_payout = payout
+
+        await safe_send_message(
+            context.bot,
+            chat_id,
+            f"🏆 Race finished! Winner: Horse {winner} 🏆\n"
+            f"🎉 First winner’s payout: {first_winner_payout} chips!"
+        )
+
+
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
@@ -3941,6 +4132,10 @@ elif DEBUG == "False":
     
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
+app.add_handler(CommandHandler("horserace", horserace))
+app.add_handler(CommandHandler("joinrace", joinrace))
+app.add_handler(CommandHandler("startrace", startrace))
+
 app.add_handler(CommandHandler("admin", admin_help))
 app.add_handler(CommandHandler("listgroups", list_groups))
 app.add_handler(CommandHandler("broadcastgroup", broadcastgroups))

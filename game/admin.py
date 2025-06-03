@@ -13,8 +13,32 @@ from .models import (
     Stats,
     JoinGame,
     RoundWinner,
+    HorseRace, 
+    HorseBet,
 )
 
+# ─── HorseBet Inline ───
+class HorseBetInline(admin.TabularInline):
+    model = HorseBet
+    extra = 0
+    readonly_fields = ("user_id", "horse_number", "bet_amount", "username")
+    can_delete = False
+
+# ─── HorseRace Admin ───
+@admin.register(HorseRace)
+class HorseRaceAdmin(admin.ModelAdmin):
+    list_display = ("id", "chat_id", "race_started", "race_distance", "created_at")
+    list_filter = ("race_started", "created_at")
+    search_fields = ("chat_id",)
+    inlines = [HorseBetInline]
+    readonly_fields = ("created_at",)
+
+# ─── HorseBet Admin ───
+@admin.register(HorseBet)
+class HorseBetAdmin(admin.ModelAdmin):
+    list_display = ("id", "race", "user_id", "username", "horse_number", "bet_amount")
+    list_filter = ("horse_number", "race__chat_id")
+    search_fields = ("user_id", "username")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Inline definitions

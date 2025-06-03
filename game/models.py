@@ -100,3 +100,24 @@ class RoundWinner(models.Model):
     winner = models.ForeignKey(Player, null=True, blank=True, on_delete=models.CASCADE)  # Nullable for dealer wins
     is_dealer = models.BooleanField(default=False)  # To mark if the dealer won the round
     rounds_ended = models.BooleanField(default=False)  
+
+
+
+class HorseRace(models.Model):
+    chat_id = models.BigIntegerField()
+    race_started = models.BooleanField(default=False)
+    race_distance = models.IntegerField(default=20)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Race {self.id} in Chat {self.chat_id}"
+
+class HorseBet(models.Model):
+    race = models.ForeignKey(HorseRace, related_name="bets", on_delete=models.CASCADE)
+    user_id = models.BigIntegerField()
+    horse_number = models.IntegerField()
+    bet_amount = models.IntegerField()
+    username = models.CharField(max_length=255, blank=True, null=True)
+
+    def __str__(self):
+        return f"Bet by {self.user_id} on horse {self.horse_number} ({self.bet_amount})"

@@ -6546,7 +6546,7 @@ async def richest(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chips = f"{player.chips:,}"
         lines.append(f"{medal} *{name}* — {chips} chips")
 
-    lines.append("\n🎉 Congratulations to our financial titans! 🎉")
+    lines.append("\n🎉 Congratulations to our Unemployed Friends! 🎉")
     text = "\n".join(lines)
 
     # 3) Send with Markdown formatting

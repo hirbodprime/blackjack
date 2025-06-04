@@ -2957,8 +2957,14 @@ async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🎡 /spin - Spin the wheel once a day for a chance to win chips, XP, or levels! Type /spin <low/mid/high> and let the wheel decide your fate.\n\n"
         "🎲 /roulette - Bet on red, black, or a number (0-36). Usage: /roulette <red|black|0-36> <bet amount>. "
         "If you guess the color, you win double; if you guess the number, you win 35 times your bet! Good luck!\n\n"
+        "📈 /crash - Bet chips and watch the multiplier rise. Type /cashout before it crashes to lock your winnings!\n\n"
+        "🟥 /double - Felling lucky ? bet to win double your chips or lose all of it. (/double [amount])\n\n"
+        "🐎 /horserace - Start a new horse race.\n"
+        "🐎 /joinrace - Join the ongoing race with your horse. (/joinrace <horse_number> <amount>)\n"
+        "🐎 /startrace - Start the race and watch it live!"
     )
-    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+    await update.message.reply_text(text, parse_mode="Markdown")
+
 
 async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_player(update, context):

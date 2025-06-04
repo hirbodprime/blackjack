@@ -58,6 +58,17 @@ class Dealer(models.Model):
     real_tokens = models.IntegerField(default=0)
 
 
+class HorseSale(models.Model):
+    horse = models.OneToOneField(
+        "OwnedHorse",
+        on_delete=models.CASCADE,
+        related_name="sale_listing"
+    )
+    price = models.IntegerField()
+    listed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.horse} → {self.price:,} chips"
 
 class Player(models.Model):
     name = models.CharField(max_length=50)
@@ -127,6 +138,7 @@ class OwnedHorse(models.Model):
     user = models.ForeignKey(Player, on_delete=models.CASCADE)
     horse_number = models.IntegerField(unique=True)
     emoji = models.CharField(max_length=10, blank=True, null=True)
+    name = models.CharField(max_length=50, blank=True, null=True)   # ← new field
 
     bought_at = models.DateTimeField(auto_now_add=True)
 

@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
+
 from .models import (
     NextGameNotification,
     Achievement,
@@ -14,47 +15,43 @@ from .models import (
     HorseRace,
     HorseBet,
     OwnedHorse,
-    HorseSale,
     HorseUpgrade,
     PlayerUpgrade,
     HorseAppliedUpgrade,
+    HorseSale,
     CrashGame,
 )
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for CrashGame
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── CrashGameAdmin ─────────────────────────────────────────────────────────────
 @admin.register(CrashGame)
 class CrashGameAdmin(admin.ModelAdmin):
     list_display = (
-        'user_id',
-        'bet',
-        'multiplier',
-        'crashed',
-        'cashed_out',
-        'start_time'
+        "user_id",
+        "bet",
+        "multiplier",
+        "crashed",
+        "cashed_out",
+        "start_time",
     )
     list_filter = (
-        'crashed',
-        'cashed_out',
-        'start_time',
+        "crashed",
+        "cashed_out",
+        "start_time",
     )
-    search_fields = ('user_id',)
-    ordering = ('-start_time',)
+    search_fields = ("user_id",)
+    ordering = ("-start_time",)
     readonly_fields = (
-        'user_id',
-        'bet',
-        'multiplier',
-        'crashed',
-        'cashed_out',
-        'start_time'
+        "user_id",
+        "bet",
+        "multiplier",
+        "crashed",
+        "cashed_out",
+        "start_time",
     )
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Inline for HorseAppliedUpgrade under OwnedHorse
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── HorseAppliedUpgrade Inline ─────────────────────────────────────────────────
 class HorseAppliedUpgradeInline(admin.TabularInline):
     model = HorseAppliedUpgrade
     extra = 0
@@ -64,9 +61,18 @@ class HorseAppliedUpgradeInline(admin.TabularInline):
     readonly_fields = ()
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for OwnedHorse
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── HorseSale Inline ───────────────────────────────────────────────────────────
+class HorseSaleInline(admin.TabularInline):
+    model = HorseSale
+    extra = 0
+    verbose_name = "Sale Listing"
+    verbose_name_plural = "Sale Listings"
+    fields = ("price", "listed_at")
+    readonly_fields = ("listed_at",)
+    can_delete = False
+
+
+# ─── OwnedHorseAdmin ────────────────────────────────────────────────────────────
 @admin.register(OwnedHorse)
 class OwnedHorseAdmin(admin.ModelAdmin):
     list_display = (
@@ -79,7 +85,7 @@ class OwnedHorseAdmin(admin.ModelAdmin):
     list_filter = ("user",)
     search_fields = ("horse_number", "user__name", "name")
     ordering = ("horse_number",)
-    inlines = [HorseAppliedUpgradeInline]
+    inlines = [HorseAppliedUpgradeInline, HorseSaleInline]
     fieldsets = (
         (
             None,
@@ -103,21 +109,36 @@ class OwnedHorseAdmin(admin.ModelAdmin):
     readonly_fields = ("bought_at",)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for HorseSale
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── HorseSaleAdmin ─────────────────────────────────────────────────────────────
 @admin.register(HorseSale)
 class HorseSaleAdmin(admin.ModelAdmin):
-    list_display = ("horse", "price", "listed_at")
+    list_display = (
+        "horse_display",
+        "price",
+        "listed_at",
+    )
     list_filter = ("price", "listed_at")
-    search_fields = ("horse__horse_number", "horse__name", "horse__user__name")
+    search_fields = ("horse__horse_number", "horse__user__name", "horse__name")
     ordering = ("-listed_at",)
     readonly_fields = ("listed_at",)
 
+    def horse_display(self, obj):
+        """
+        Display the horse with its name/number and owner.
+        """
+        label = f"Horse {obj.horse.horse_number}"
+        if obj.horse.name:
+            label = f"{obj.horse.name} ({obj.horse.horse_number})"
+        return format_html(
+            "{} – owned by {}",
+            label,
+            obj.horse.user.name or obj.horse.user.id,
+        )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for HorseUpgrade
-# ──────────────────────────────────────────────────────────────────────────────
+    horse_display.short_description = "Horse Listing"
+
+
+# ─── HorseUpgradeAdmin ───────────────────────────────────────────────────────────
 @admin.register(HorseUpgrade)
 class HorseUpgradeAdmin(admin.ModelAdmin):
     list_display = (
@@ -141,9 +162,7 @@ class HorseUpgradeAdmin(admin.ModelAdmin):
     )
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for PlayerUpgrade
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── PlayerUpgradeAdmin ─────────────────────────────────────────────────────────
 @admin.register(PlayerUpgrade)
 class PlayerUpgradeAdmin(admin.ModelAdmin):
     list_display = (
@@ -166,9 +185,7 @@ class PlayerUpgradeAdmin(admin.ModelAdmin):
     )
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for HorseAppliedUpgrade
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── HorseAppliedUpgradeAdmin ───────────────────────────────────────────────────
 @admin.register(HorseAppliedUpgrade)
 class HorseAppliedUpgradeAdmin(admin.ModelAdmin):
     list_display = (
@@ -193,9 +210,7 @@ class HorseAppliedUpgradeAdmin(admin.ModelAdmin):
     )
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Inline for HorseBet under HorseRace
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── HorseBetInline ──────────────────────────────────────────────────────────────
 class HorseBetInline(admin.TabularInline):
     model = HorseBet
     extra = 0
@@ -203,9 +218,7 @@ class HorseBetInline(admin.TabularInline):
     can_delete = False
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for HorseRace
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── HorseRaceAdmin ─────────────────────────────────────────────────────────────
 @admin.register(HorseRace)
 class HorseRaceAdmin(admin.ModelAdmin):
     list_display = ("id", "chat_id", "race_started", "race_distance", "created_at")
@@ -215,9 +228,7 @@ class HorseRaceAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at",)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for HorseBet
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── HorseBetAdmin ──────────────────────────────────────────────────────────────
 @admin.register(HorseBet)
 class HorseBetAdmin(admin.ModelAdmin):
     list_display = ("id", "race", "user_id", "username", "horse_number", "bet_amount")
@@ -225,10 +236,27 @@ class HorseBetAdmin(admin.ModelAdmin):
     search_fields = ("user_id", "username")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Inline definitions for Game and its related models
-# ──────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Inline definitions
+# ────────────────────────────────────────────────────────────────────────────────
+
+
+class PlayerAchievementInline(admin.TabularInline):
+    """
+    Show unlocked achievements right in the Player edit page.
+    """
+    model = PlayerAchievement
+    extra = 0
+    readonly_fields = ("achievement", "unlocked_at")
+    can_delete = False
+    verbose_name = "Unlocked Achievement"
+    verbose_name_plural = "Unlocked Achievements"
+
+
 class JoinGameInline(admin.TabularInline):
+    """
+    Show which players have joined this Game.
+    """
     model = JoinGame
     extra = 0
     readonly_fields = ("player", "is_active", "has_stood")
@@ -238,6 +266,9 @@ class JoinGameInline(admin.TabularInline):
 
 
 class RoundWinnerInline(admin.TabularInline):
+    """
+    Show round winners beneath a Game.
+    """
     model = RoundWinner
     extra = 0
     readonly_fields = ("round_number", "winner", "is_dealer", "rounds_ended")
@@ -246,9 +277,35 @@ class RoundWinnerInline(admin.TabularInline):
     verbose_name_plural = "Round Winners"
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for Game
-# ──────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# ModelAdmin definitions
+# ────────────────────────────────────────────────────────────────────────────────
+
+
+@admin.register(NextGameNotification)
+class NextGameNotificationAdmin(admin.ModelAdmin):
+    list_display = ("user_id", "chat_id")
+    search_fields = ("user_id", "chat_id")
+    list_per_page = 25
+
+
+@admin.register(Achievement)
+class AchievementAdmin(admin.ModelAdmin):
+    list_display = ("name", "condition", "icon_preview")
+    search_fields = ("name", "condition")
+    list_filter = ("condition",)
+    readonly_fields = ("icon_preview",)
+
+    def icon_preview(self, obj):
+        """
+        If the icon field holds an emoji or HTML, show a small preview.
+        """
+        if obj.icon:
+            return format_html(f"<span style='font-size: 1.5em;'>{obj.icon}</span>")
+        return "-"
+    icon_preview.short_description = "Icon Preview"
+
+
 @admin.register(Game)
 class GameAdmin(admin.ModelAdmin):
     list_display = (
@@ -277,103 +334,39 @@ class GameAdmin(admin.ModelAdmin):
     list_per_page = 20
 
     fieldsets = (
-        (
-            None,
-            {
-                "fields": (
-                    "chat_id",
-                    "bet_amount",
-                    "current_round",
-                    "total_rounds",
-                    "pot",
-                )
-            },
-        ),
-        (
-            "Statuses",
-            {
-                "fields": (
-                    "join_time",
-                    "betting",
-                    "started",
-                    "forced",
-                    "ended",
-                    "hands_reset",
-                )
-            },
-        ),
-        (
-            "Extra Data",
-            {
-                "classes": ("collapse",),
-                "fields": (
-                    "dealer_hand",
-                    "turn_order",
-                    "bet_phase",
-                    "dealer_bet_timer",
-                    "join_start_time",
-                    "poll_id",
-                ),
-            },
-        ),
+        (None, {
+            "fields": (
+                "chat_id",
+                "bet_amount",
+                "current_round",
+                "total_rounds",
+                "pot",
+            )
+        }),
+        ("Statuses", {
+            "fields": (
+                "join_time",
+                "betting",
+                "started",
+                "forced",
+                "ended",
+                "hands_reset",
+            )
+        }),
+        ("Extra Data", {
+            "classes": ("collapse",),
+            "fields": (
+                "dealer_hand",
+                "turn_order",
+                "bet_phase",
+                "dealer_bet_timer",
+                "join_start_time",
+                "poll_id",
+            ),
+        }),
     )
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for JoinGame
-# ──────────────────────────────────────────────────────────────────────────────
-@admin.register(JoinGame)
-class JoinGameAdmin(admin.ModelAdmin):
-    list_display = ("player", "game", "is_active", "has_stood")
-    search_fields = ("player__name", "game__chat_id")
-    list_filter = ("is_active", "has_stood")
-    list_per_page = 25
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for RoundWinner
-# ──────────────────────────────────────────────────────────────────────────────
-@admin.register(RoundWinner)
-class RoundWinnerAdmin(admin.ModelAdmin):
-    list_display = ("game", "round_number", "winner", "is_dealer", "rounds_ended")
-    search_fields = ("game__chat_id", "winner__name")
-    list_filter = ("is_dealer", "rounds_ended")
-    list_per_page = 25
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for NextGameNotification
-# ──────────────────────────────────────────────────────────────────────────────
-@admin.register(NextGameNotification)
-class NextGameNotificationAdmin(admin.ModelAdmin):
-    list_display = ("user_id", "chat_id")
-    search_fields = ("user_id", "chat_id")
-    list_per_page = 25
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for Achievement
-# ──────────────────────────────────────────────────────────────────────────────
-@admin.register(Achievement)
-class AchievementAdmin(admin.ModelAdmin):
-    list_display = ("name", "condition", "icon_preview")
-    search_fields = ("name", "condition")
-    list_filter = ("condition",)
-    readonly_fields = ("icon_preview",)
-
-    def icon_preview(self, obj):
-        """
-        If the icon field holds an emoji or HTML, show a small preview.
-        """
-        if obj.icon:
-            return format_html(f"<span style='font-size: 1.5em;'>{obj.icon}</span>")
-        return "-"
-    icon_preview.short_description = "Icon Preview"
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for Group
-# ──────────────────────────────────────────────────────────────────────────────
 @admin.register(Group)
 class GroupAdmin(admin.ModelAdmin):
     list_display = ("group_chat_id", "group_name", "games", "vip", "real_money")
@@ -383,9 +376,6 @@ class GroupAdmin(admin.ModelAdmin):
     list_per_page = 25
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for Dealer
-# ──────────────────────────────────────────────────────────────────────────────
 @admin.register(Dealer)
 class DealerAdmin(admin.ModelAdmin):
     list_display = ("id", "chips", "wins", "loses", "blackjack_count", "games", "real_tokens")
@@ -393,9 +383,6 @@ class DealerAdmin(admin.ModelAdmin):
     list_per_page = 25
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for Player
-# ──────────────────────────────────────────────────────────────────────────────
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):
     list_display = (
@@ -406,13 +393,11 @@ class PlayerAdmin(admin.ModelAdmin):
         "xp_with_icon",
         "level",
         "games_played",
-        "loan",
-        "last_spin",
     )
     search_fields = ("name", "id")
     list_filter = ("level",)
     list_editable = ("level",)
-    readonly_fields = ("games", "last_claimed_tokens", "tokens_claimed_today")
+    readonly_fields = ("games",)
     inlines = (PlayerAchievementInline,)
     list_per_page = 25
 
@@ -433,21 +418,6 @@ class PlayerAdmin(admin.ModelAdmin):
     games_played.short_description = "Games"
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Inline for PlayerAchievement under Player
-# ──────────────────────────────────────────────────────────────────────────────
-class PlayerAchievementInline(admin.TabularInline):
-    model = PlayerAchievement
-    extra = 0
-    readonly_fields = ("achievement", "unlocked_at")
-    can_delete = False
-    verbose_name = "Unlocked Achievement"
-    verbose_name_plural = "Unlocked Achievements"
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for PlayerAchievement
-# ──────────────────────────────────────────────────────────────────────────────
 @admin.register(PlayerAchievement)
 class PlayerAchievementAdmin(admin.ModelAdmin):
     list_display = ("player", "achievement", "unlocked_at")
@@ -457,9 +427,6 @@ class PlayerAchievementAdmin(admin.ModelAdmin):
     list_per_page = 25
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for Stats
-# ──────────────────────────────────────────────────────────────────────────────
 @admin.register(Stats)
 class StatsAdmin(admin.ModelAdmin):
     list_display = ("player", "wins", "loses", "how_many_21", "correct_dealer_guesses")
@@ -468,9 +435,6 @@ class StatsAdmin(admin.ModelAdmin):
     list_per_page = 25
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for JoinGame
-# ──────────────────────────────────────────────────────────────────────────────
 @admin.register(JoinGame)
 class JoinGameAdmin(admin.ModelAdmin):
     list_display = ("player", "game", "is_active", "has_stood")
@@ -479,9 +443,6 @@ class JoinGameAdmin(admin.ModelAdmin):
     list_per_page = 25
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Admin for RoundWinner
-# ──────────────────────────────────────────────────────────────────────────────
 @admin.register(RoundWinner)
 class RoundWinnerAdmin(admin.ModelAdmin):
     list_display = ("game", "round_number", "winner", "is_dealer", "rounds_ended")

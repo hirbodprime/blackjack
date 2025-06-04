@@ -28,7 +28,9 @@ DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     ALLOWED_HOSTS = []
     CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1', 'http://localhost']
-
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
 elif DEBUG == "False":
     ALLOWED_HOSTS = ["hirbots.com","www.hirbots.com"]
     CSRF_TRUSTED_ORIGINS = ["https://hirbots.com","https://www.hirbots.com"]

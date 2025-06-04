@@ -578,7 +578,7 @@ async def create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     else:
         options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰"]
         if group.games >= 100:
-            options.extend(["10000 chips💰", "20000 chips💰", "50000 chips💰"])
+            options.extend(["10000 chips💰", "20000 chips💰", "50000 chips💰", "100000 chips💰", "1000000 chips💰"])
         question = "How much do you want to bet (virtual chips 💰)?"
 
     # Send the poll asynchronously
@@ -651,7 +651,7 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if group.vip and group.real_money:
         options = ["100 $", "200 $", "500 $", "1000 $", "10000 $", "20000 $", "50000 $"]
     else:
-        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰"]
+        options = ["10 chips💰", "50 chips💰", "100 chips💰", "200 chips💰", "500 chips💰", "1000 chips💰", "10000 chips💰", "20000 chips💰", "50000 chips💰", "100000 chips💰", "1000000 chips💰"]
 
     chosen_option = options[selected_option]
     bet_amount = int(chosen_option.split()[0])

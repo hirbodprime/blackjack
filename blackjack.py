@@ -3971,7 +3971,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dealer_horse = 1
 
     # 5) PICK FOUR RANDOM “HOUSE” HORSES FROM 2..7
-    random_horses = random.sample(range(2, 8), 4)
+    random_horses = random.sample(range(2, 5), 2)
 
     # 6) COLLECT ANY HORSE NUMBERS THAT PLAYERS SPECIFICALLY BET ON (excluding dealer=1)
     player_horses = list({bet.horse_number for bet in bets if bet.horse_number != dealer_horse})

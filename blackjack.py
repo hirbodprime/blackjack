@@ -4558,9 +4558,7 @@ async def horse(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 CRASH_SPEED = 0.6  # seconds per tick
-
 async def simulate_crash_game(game_id, bot, chat_id):
-    # Try to fetch the game
     try:
         game = await sync_to_async(CrashGame.objects.get)(id=game_id)
     except CrashGame.DoesNotExist:
@@ -4570,28 +4568,25 @@ async def simulate_crash_game(game_id, bot, chat_id):
     crash_point = round(random.uniform(1.3, 2.5), 2)
     print(f"Crash point: {crash_point}")
 
+    # Send the first message in the group (not in private)
     msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
 
     while multiplier < crash_point:
         multiplier = round(multiplier + 0.2, 2)
         await asyncio.sleep(CRASH_SPEED)
 
-        # Check if game still exists (user may have cashed out and deleted it)
         game_exists = await sync_to_async(CrashGame.objects.filter(id=game_id).exists)()
         if not game_exists:
             return
 
-        # Update only the multiplier (safe if exists)
         await sync_to_async(CrashGame.objects.filter(id=game_id).update)(multiplier=multiplier)
 
-        # Skip edit if already cashed out
         is_cashed_out = await sync_to_async(
             lambda: CrashGame.objects.filter(id=game_id, cashed_out=True).exists()
         )()
         if is_cashed_out:
             return
 
-        # Attempt to edit the message with the current multiplier
         try:
             await msg.edit_text(f"🚀 {multiplier}x")
         except RetryAfter as e:
@@ -4599,7 +4594,6 @@ async def simulate_crash_game(game_id, bot, chat_id):
         except Exception:
             continue
 
-    # Crash happens here
     await sync_to_async(CrashGame.objects.filter(id=game_id).update)(crashed=True)
 
     final_text = f"💥 Crashed at {crash_point}x! You lost your bet."
@@ -4614,11 +4608,12 @@ async def simulate_crash_game(game_id, bot, chat_id):
     except Exception:
         await bot.send_message(chat_id=chat_id, text=final_text)
 
-    # Delete the game after crash
     await sync_to_async(CrashGame.objects.filter(id=game_id).delete)()
 
+# Your command
 async def crash(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
     bet = int(context.args[0]) if context.args else 100
 
     if not await validate_bet_amount(update, bet):
@@ -4629,21 +4624,18 @@ async def crash(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Not enough chips.")
         return
 
-    # Prevent multiple active games
     already_playing = await sync_to_async(
         lambda: CrashGame.objects.filter(user_id=user_id, crashed=False, cashed_out=False).exists()
     )()
     if already_playing:
         return await update.message.reply_text("🚫 You already have a crash game running. Use /cashout to end it.")
 
-    # Deduct bet and create game
     player.chips -= bet
     await sync_to_async(player.save)()
     crash_game = await sync_to_async(CrashGame.objects.create)(user_id=user_id, bet=bet)
 
-    await update.message.reply_text("🚀 Game started at 1.0x multiplier!")
-    asyncio.create_task(simulate_crash_game(crash_game.id, context.bot, user_id))
-
+    # Don't send "Game started" here – it's now inside simulate_crash_game
+    asyncio.create_task(simulate_crash_game(crash_game.id, context.bot, chat_id))
 
 
 async def cashout(update: Update, context: ContextTypes.DEFAULT_TYPE):

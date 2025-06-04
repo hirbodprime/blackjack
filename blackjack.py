@@ -4567,7 +4567,7 @@ async def simulate_crash_game(game_id, bot, chat_id):
         return
 
     multiplier = 0.4
-    crash_point = round(random.uniform(1.3, 5.0), 2)
+    crash_point = round(random.uniform(1.3, 2.5), 2)
     print(f"Crash point: {crash_point}")
 
     msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
@@ -4616,6 +4616,7 @@ async def simulate_crash_game(game_id, bot, chat_id):
 
     # Delete the game after crash
     await sync_to_async(CrashGame.objects.filter(id=game_id).delete)()
+
 async def crash(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     bet = int(context.args[0]) if context.args else 100
@@ -4641,7 +4642,8 @@ async def crash(update: Update, context: ContextTypes.DEFAULT_TYPE):
     crash_game = await sync_to_async(CrashGame.objects.create)(user_id=user_id, bet=bet)
 
     await update.message.reply_text("🚀 Game started at 1.0x multiplier!")
-    asyncio.create_task(simulate_crash_game(crash_game.id, context.bot, update.effective_chat.id))
+    asyncio.create_task(simulate_crash_game(crash_game.id, context.bot, user_id))
+
 
 
 async def cashout(update: Update, context: ContextTypes.DEFAULT_TYPE):

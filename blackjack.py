@@ -2815,14 +2815,14 @@ async def simulate_crash_game(game_id, bot, chat_id):
         return
 
     multiplier = 0.4
-    crash_point = round(random.uniform(1.3, 3.3), 2)
+    crash_point = round(random.uniform(1.0, 2.0), 2)
     print(f"Crash point: {crash_point}")
 
     # Send the first message in the group (not in private)
     msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
 
     while multiplier < crash_point:
-        multiplier = round(multiplier + 0.2, 2)
+        multiplier = round(multiplier + 0.1, 2)
         await asyncio.sleep(CRASH_SPEED)
 
         game_exists = await sync_to_async(CrashGame.objects.filter(id=game_id).exists)()

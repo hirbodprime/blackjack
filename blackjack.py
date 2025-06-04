@@ -18,7 +18,7 @@ django.setup()
 from dotenv import load_dotenv
 import time
 import re
-from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification,Achievement,PlayerAchievement,OwnedHorse,HorseAppliedUpgrade,PlayerUpgrade,HorseUpgrade
+from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification,Achievement,PlayerAchievement,OwnedHorse,HorseAppliedUpgrade,CrashGame,PlayerUpgrade,HorseUpgrade
 from django.core.exceptions import ObjectDoesNotExist
 from asgiref.sync import sync_to_async
 from game.models import HorseRace, HorseBet, Player
@@ -4550,6 +4550,156 @@ async def horse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
+
+CRASH_SPEED = 0.6  # seconds per tick
+
+async def simulate_crash_game(game_id, bot, chat_id):
+    # Try to fetch the game
+    try:
+        game = await sync_to_async(CrashGame.objects.get)(id=game_id)
+    except CrashGame.DoesNotExist:
+        return
+
+    multiplier = 0.4
+    crash_point = round(random.uniform(1.3, 5.0), 2)
+    print(f"Crash point: {crash_point}")
+
+    msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
+
+    while multiplier < crash_point:
+        multiplier = round(multiplier + 0.2, 2)
+        await asyncio.sleep(CRASH_SPEED)
+
+        # Check if game still exists (user may have cashed out and deleted it)
+        game_exists = await sync_to_async(CrashGame.objects.filter(id=game_id).exists)()
+        if not game_exists:
+            return
+
+        # Update only the multiplier (safe if exists)
+        await sync_to_async(CrashGame.objects.filter(id=game_id).update)(multiplier=multiplier)
+
+        # Skip edit if already cashed out
+        is_cashed_out = await sync_to_async(
+            lambda: CrashGame.objects.filter(id=game_id, cashed_out=True).exists()
+        )()
+        if is_cashed_out:
+            return
+
+        # Attempt to edit the message with the current multiplier
+        try:
+            await msg.edit_text(f"🚀 {multiplier}x")
+        except RetryAfter as e:
+            await asyncio.sleep(e.retry_after + 1)
+        except Exception:
+            continue
+
+    # Crash happens here
+    await sync_to_async(CrashGame.objects.filter(id=game_id).update)(crashed=True)
+
+    final_text = f"💥 Crashed at {crash_point}x! You lost your bet."
+    try:
+        await msg.edit_text(final_text)
+    except RetryAfter as e:
+        await asyncio.sleep(e.retry_after + 1)
+        try:
+            await msg.edit_text(final_text)
+        except Exception:
+            await bot.send_message(chat_id=chat_id, text=final_text)
+    except Exception:
+        await bot.send_message(chat_id=chat_id, text=final_text)
+
+    # Delete the game after crash
+    await sync_to_async(CrashGame.objects.filter(id=game_id).delete)()
+async def crash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    bet = int(context.args[0]) if context.args else 100
+
+    if not await validate_bet_amount(update, bet):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < bet:
+        await update.message.reply_text("❌ Not enough chips.")
+        return
+
+    # Prevent multiple active games
+    already_playing = await sync_to_async(
+        lambda: CrashGame.objects.filter(user_id=user_id, crashed=False, cashed_out=False).exists()
+    )()
+    if already_playing:
+        return await update.message.reply_text("🚫 You already have a crash game running. Use /cashout to end it.")
+
+    # Deduct bet and create game
+    player.chips -= bet
+    await sync_to_async(player.save)()
+    crash_game = await sync_to_async(CrashGame.objects.create)(user_id=user_id, bet=bet)
+
+    await update.message.reply_text("🚀 Game started at 1.0x multiplier!")
+    asyncio.create_task(simulate_crash_game(crash_game.id, context.bot, update.effective_chat.id))
+
+
+async def cashout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    try:
+        game = await sync_to_async(CrashGame.objects.get)(
+            user_id=user_id, crashed=False, cashed_out=False
+        )
+    except CrashGame.DoesNotExist:
+        return await update.message.reply_text("⚠️ You have no active game to cash out from.")
+
+    game.cashed_out = True
+    await sync_to_async(game.save)()
+
+    winnings = int(game.bet * game.multiplier)
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    player.chips += winnings
+    await sync_to_async(player.save)()
+
+    await update.message.reply_text(f"✅ Cashed out at {game.multiplier}x!\n💰 You won {winnings} chips!")
+
+    # Delete the game
+    await sync_to_async(game.delete)()
+
+
+
+
+async def double_or_nothing(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # Parse bet amount
+    bet_amount = int(context.args[0]) if context.args else 50
+    if not await validate_bet_amount(update, bet_amount):
+        return
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("❌ You don't have enough chips for that bet.")
+        return
+
+    # Deduct the bet
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # await asyncio.sleep(0.5)  # Short suspense
+
+    if random.random() < 0.5:
+        await update.message.reply_text("😵 You lost your bet. Nothing ❌doubled today.")
+    else:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await update.message.reply_text(
+            f"🎉 Lucky! You doubled your bet and won {winnings} chips💰!\n"
+
+        )
+
+
+
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
@@ -4558,6 +4708,12 @@ elif DEBUG == "False":
     
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
+app.add_handler(CommandHandler("double", double_or_nothing))
+app.add_handler(CommandHandler("crash", crash))
+app.add_handler(CommandHandler("cashout", cashout))
+
+
+
 app.add_handler(CommandHandler("horse", horse))
 app.add_handler(CommandHandler("horserace", horserace))
 app.add_handler(CommandHandler("joinrace", joinrace))

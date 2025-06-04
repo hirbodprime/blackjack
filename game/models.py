@@ -155,3 +155,16 @@ class HorseAppliedUpgrade(models.Model):
 
     def __str__(self):
         return f"{self.upgrade.name} on Horse {self.horse.horse_number} by {self.owner.name}"
+
+
+
+class CrashGame(models.Model):
+    user_id = models.BigIntegerField()
+    bet = models.PositiveIntegerField()
+    multiplier = models.FloatField(default=1.0)
+    crashed = models.BooleanField(default=False)
+    cashed_out = models.BooleanField(default=False)
+    start_time = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"CrashGame(user={self.user_id}, bet={self.bet}, multiplier={self.multiplier:.2f})"

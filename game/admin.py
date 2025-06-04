@@ -15,8 +15,36 @@ from .models import (
     RoundWinner,
     HorseRace, 
     HorseBet,
-    OwnedHorse, HorseUpgrade, PlayerUpgrade, HorseAppliedUpgrade,
+    OwnedHorse, HorseUpgrade, PlayerUpgrade, HorseAppliedUpgrade,CrashGame
 )
+
+
+@admin.register(CrashGame)
+class CrashGameAdmin(admin.ModelAdmin):
+    list_display = (
+        'user_id', 
+        'bet', 
+        'multiplier', 
+        'crashed', 
+        'cashed_out', 
+        'start_time'
+    )
+    list_filter = (
+        'crashed', 
+        'cashed_out', 
+        'start_time',
+    )
+    search_fields = ('user_id',)
+    ordering = ('-start_time',)
+    readonly_fields = (
+        'user_id',
+        'bet',
+        'multiplier',
+        'crashed',
+        'cashed_out',
+        'start_time'
+    )
+
 # ─── Inline for HorseAppliedUpgrade under OwnedHorse ───
 class HorseAppliedUpgradeInline(admin.TabularInline):
     model = HorseAppliedUpgrade

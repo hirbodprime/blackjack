@@ -1,5 +1,5 @@
 import random
-from telegram import Update, Bot
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes, MessageHandler, filters,CallbackQueryHandler
 from telegram.helpers import escape_markdown
@@ -2807,6 +2807,146 @@ async def determine_rps_winner(player_choice, bot_choice, player, message, bet_a
         await asyncio.sleep(2)
         await message.edit_text(f"😔 You lose! {choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}!\nYou lose your bet of {bet_amount} chips.")
 
+CRASH_SPEED = 0.6  # seconds per tick
+async def simulate_crash_game(game_id, bot, chat_id):
+    try:
+        game = await sync_to_async(CrashGame.objects.get)(id=game_id)
+    except CrashGame.DoesNotExist:
+        return
+
+    multiplier = 0.4
+    crash_point = round(random.uniform(1.3, 3.3), 2)
+    print(f"Crash point: {crash_point}")
+
+    # Send the first message in the group (not in private)
+    msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
+
+    while multiplier < crash_point:
+        multiplier = round(multiplier + 0.2, 2)
+        await asyncio.sleep(CRASH_SPEED)
+
+        game_exists = await sync_to_async(CrashGame.objects.filter(id=game_id).exists)()
+        if not game_exists:
+            return
+
+        await sync_to_async(CrashGame.objects.filter(id=game_id).update)(multiplier=multiplier)
+
+        is_cashed_out = await sync_to_async(
+            lambda: CrashGame.objects.filter(id=game_id, cashed_out=True).exists()
+        )()
+        if is_cashed_out:
+            return
+
+        try:
+            await msg.edit_text(f"🚀 {multiplier}x")
+        except RetryAfter as e:
+            await asyncio.sleep(e.retry_after + 1)
+        except Exception:
+            continue
+
+    await sync_to_async(CrashGame.objects.filter(id=game_id).update)(crashed=True)
+
+    final_text = f"💥 Crashed at {crash_point}x! You lost your bet."
+    try:
+        await msg.edit_text(final_text)
+    except RetryAfter as e:
+        await asyncio.sleep(e.retry_after + 1)
+        try:
+            await msg.edit_text(final_text)
+        except Exception:
+            await bot.send_message(chat_id=chat_id, text=final_text)
+    except Exception:
+        await bot.send_message(chat_id=chat_id, text=final_text)
+
+    await sync_to_async(CrashGame.objects.filter(id=game_id).delete)()
+
+# Your command
+async def crash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    bet = int(context.args[0]) if context.args else 100
+
+    if not await validate_bet_amount(update, bet):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < bet:
+        await update.message.reply_text("❌ Not enough chips.")
+        return
+
+    already_playing = await sync_to_async(
+        lambda: CrashGame.objects.filter(user_id=user_id, crashed=False, cashed_out=False).exists()
+    )()
+    if already_playing:
+        return await update.message.reply_text("🚫 You already have a crash game running. Use /cashout to end it.")
+
+    player.chips -= bet
+    await sync_to_async(player.save)()
+    crash_game = await sync_to_async(CrashGame.objects.create)(user_id=user_id, bet=bet)
+
+    # Don't send "Game started" here – it's now inside simulate_crash_game
+    asyncio.create_task(simulate_crash_game(crash_game.id, context.bot, chat_id))
+
+
+async def cashout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    try:
+        game = await sync_to_async(CrashGame.objects.get)(
+            user_id=user_id, crashed=False, cashed_out=False
+        )
+    except CrashGame.DoesNotExist:
+        return await update.message.reply_text("⚠️ You have no active game to cash out from.")
+
+    game.cashed_out = True
+    await sync_to_async(game.save)()
+
+    winnings = int(game.bet * game.multiplier)
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    player.chips += winnings
+    await sync_to_async(player.save)()
+
+    await update.message.reply_text(f"✅ Cashed out at {game.multiplier}x!\n💰 You won {winnings} chips!")
+
+    # Delete the game
+    await sync_to_async(game.delete)()
+
+
+
+
+async def double_or_nothing(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # Parse bet amount
+    bet_amount = int(context.args[0]) if context.args else 50
+    if not await validate_bet_amount(update, bet_amount):
+        return
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("❌ You don't have enough chips for that bet.")
+        return
+
+    # Deduct the bet
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # await asyncio.sleep(0.5)  # Short suspense
+
+    if random.random() < 0.5:
+        await update.message.reply_text("😵 You lost your bet. Nothing ❌doubled today.")
+    else:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await update.message.reply_text(
+            f"🎉 Lucky! You doubled your bet and won {winnings} chips💰!\n"
+
+        )
 
 async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(0.9)
@@ -3970,117 +4110,229 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     dealer_horse = 1
 
-    # 5) PICK FOUR RANDOM “HOUSE” HORSES FROM 2..7
-    random_horses = random.sample(range(2, 5), 2)
+    # 5) PICK TWO RANDOM “HOUSE” HORSES FROM 2..4
+    random_horses = [2, 3]
+
 
     # 6) COLLECT ANY HORSE NUMBERS THAT PLAYERS SPECIFICALLY BET ON (excluding dealer=1)
     player_horses = list({bet.horse_number for bet in bets if bet.horse_number != dealer_horse})
 
-    # 7) BUILD FULL LIST: [dealer=1] + four random + any extra player‐chosen horses
+    # 7) BUILD FULL LIST: [dealer=1] + two random + any extra player‐chosen horses
     all_horses = [dealer_horse] + random_horses
     for h in player_horses:
         if h not in all_horses:
             all_horses.append(h)
 
-    distance  = race.race_distance
+    distance  = race.race_distance  # e.g. 20
     positions = {h: distance for h in all_horses}
 
-    # 8) FETCH ALL APPLIED UPGRADES FOR THESE HORSES
-    applied_qs   = await sync_to_async(HorseAppliedUpgrade.objects.filter)( horse__horse_number__in=all_horses )
+    # 8) FETCH ALL APPLIED UPGRADES (“spells”) FOR THESE HORSES
+    applied_qs   = await sync_to_async(HorseAppliedUpgrade.objects.filter)(horse__horse_number__in=all_horses)
     applied_list = await sync_to_async(list)(applied_qs)
 
     # Build a mapping: horse_number → list of upgrade names
     upgrades_map = {}
     for au in applied_list:
-        # Wrap related‐model lookups in sync_to_async:
         horse_number = await sync_to_async(lambda: au.horse.horse_number)()
         upgrade_name = await sync_to_async(lambda: au.upgrade.name)()
         upgrades_map.setdefault(horse_number, []).append(upgrade_name)
 
     # 9) LOAD ANY CUSTOM EMOJI THAT OWNERS HAVE SET ON THEIR OwnedHorse
-    owned_horses_qs = await sync_to_async(OwnedHorse.objects.filter)( horse_number__in=all_horses )
+    owned_horses_qs = await sync_to_async(OwnedHorse.objects.filter)(horse_number__in=all_horses)
     owned_horses    = await sync_to_async(list)(owned_horses_qs)
     # Build a dict: horse_number → emoji string
-    horse_emojis = { oh.horse_number: oh.emoji for oh in owned_horses if oh.emoji }
+    horse_emojis = {oh.horse_number: oh.emoji for oh in owned_horses if oh.emoji}
 
-    # 10) APPLY “HEAD START” NOW BY REDUCING INITIAL POSITION BY 1 FOR ANY HORSE WITH THAT UPGRADE
-    # for h in all_horses:
-    #     if "Quick Start" in upgrades_map.get(h, []):
-    #         print("Quick Start activated")
+    # 10) APPLY “🏁 Head Start” INITIAL POSITION BONUS
+    for h in all_horses:
+        if "🏁 Head Start" in upgrades_map.get(h, []):
+            positions[h] = max(0, positions[h] - 4)
 
-    #         positions[h] = max(0, positions[h] - 2)
+    # 11) INITIALIZE PER‐HORSE STATE FOR SPELLS THAT NEED IT
+    tick_count       = 0
+    last_movements   = {h: 1 for h in all_horses}    # for "Mirror Trick"
+    freeze_used      = set()                         # which horses have used "Freeze Ray"
+    frozen_for_one   = set()                         # which horses are frozen this tick
+    bounce_used      = set()                         # which horses have used "Bounce Back"
 
-    # 11) SEND INITIAL MESSAGE, THEN EDIT EACH TICK
+    # 12) SEND INITIAL MESSAGE, THEN EDIT EACH TICK
     msg    = await update.message.reply_text("🏁 The race begins! 🐎")
     winner = None
-    broken = set()  # track horses that “broke their leg” due to Wild Sprint
+    broken = set()  # track horses that “broke their leg” due to spells
 
-    # ─── MAIN ANIMATION LOOP ───
-        # ─── MAIN ANIMATION LOOP (with 25‐dash width) ───
+    # ─── MAIN ANIMATION LOOP (with a fixed 25‐dash width) ───
     while not winner:
-        race_display = ""
+        tick_count += 1
+        frozen_for_one.clear()
 
+        # 12a) “Freeze Ray”: each horse with that spell freezes one random rival (once per race)
+        for h in all_horses:
+            if "🧊 Freeze Ray" in upgrades_map.get(h, []):
+                rivals = [r for r in all_horses if r != h and positions[r] > 0]
+                if rivals:
+                    victim = random.choice(rivals)
+                    frozen_for_one.add(victim)
+
+        # 12b) Compute each horse's movement this tick
+        new_movements = {}
         for h in sorted(all_horses):
-            # Choose the correct emoji (default to 🐎)
-            emoji = horse_emojis.get(h, "🐎")
-
-            # If already “broken,” show a broken horse icon and skip movement:
-            if h in broken:
-                race_display += f"🚫 | 💥 Horse {h} (broken!)\n"
+            if positions[h] <= 0:
+                new_movements[h] = 0
                 continue
 
-            # If still racing, move forward according to upgrades:
-            if positions[h] > 0:
-                # if "Risky Rocket" in upgrades_map.get(h, []):
-                #     print("Risky Rocket activated")
+            if h in frozen_for_one:
+                new_movements[h] = 0
+                continue
 
-                #     # 50% chance to break its leg; otherwise move 5 positions
-                #     if random.choice([True, False]):
-                #         broken.add(h)
-                #     else:
-                #         positions[h] = max(0, positions[h] - 5)
+            spells = upgrades_map.get(h, [])
 
-                # elif "Double Dash" in upgrades_map.get(h, []):
-                #     print("double dash activated")
-                #     # Always move exactly 2 positions per tick
-                #     positions[h] = max(0, positions[h] - 2)
+            # Mirror Trick: copy another horse’s last‐tick movement
+            if "🔮 Mirror Trick" in spells:
+                others = [o for o in all_horses if o != h]
+                if others:
+                    chosen = random.choice(others)
+                    new_movements[h] = last_movements.get(chosen, random.randint(1, 3))
+                else:
+                    new_movements[h] = random.randint(1, 3)
+                continue
 
-                # else:
-                    # No upgrade: move a random 1–3 positions
-                    positions[h] = max(0, positions[h] - random.randint(1, 3))
+            # ⚖️ Steady Stride: move 1–5
+            if "⚖️ Steady Stride" in spells:
+                new_movements[h] = random.randint(1, 5)
+                continue
 
-            # Now build the text line for horse #h:
+            # ⚡ Power Burst: 10% chance move 4, else 1
+            if "⚡ Power Burst" in spells:
+                new_movements[h] = 4 if random.random() < 0.1 else 1
+                continue
+
+            # 💨 Triple Dash: always 3
+            if "💨 Triple Dash" in spells:
+                new_movements[h] = 3
+                continue
+
+            # 🛠 Cursed Sprint: 60 % move 5, 40 % break leg
+            if "🛠 Cursed Sprint" in spells:
+                if random.random() < 0.4:
+                    # 40 % → breaks this tick
+                    broken.add(h)
+                    new_movements[h] = 0
+                else:
+                    # 60 % → moves 5 this tick
+                    new_movements[h] = 5
+                continue
+
+
+
+            # 🏁 Head Start: always move 2 (initial bonus already applied)
+            if "🏁 Head Start" in spells:
+                new_movements[h] = 2
+                continue
+
+            if "🧬 Mutation" in spells:
+                # Pick one of your other spell‐effects at random. For example:
+                #    “Mirror Trick”, “Steady Stride”, “Power Burst”, “Triple Dash”,
+                #    “Cursed Sprint”, or “Head Start”
+                choice = random.choice([
+                    "🔮 Mirror Trick",
+                    "⚖️ Steady Stride",
+                    "⚡ Power Burst",
+                    "💨 Triple Dash",
+                    "🛠 Cursed Sprint",
+                    "🏁 Head Start"
+                ])
+
+                # Now pretend this horse has exactly that single spell for this tick:
+                if choice == "🔮 Mirror Trick":
+                    # Copy a random other horse’s last tick movement (or fallback to 1–3)
+                    others = [o for o in all_horses if o != h]
+                    if others:
+                        pick = random.choice(others)
+                        new_movements[h] = last_movements.get(pick, random.randint(1,3))
+                    else:
+                        new_movements[h] = random.randint(1,3)
+
+                elif choice == "⚖️ Steady Stride":
+                    new_movements[h] = random.randint(1, 5)
+
+                elif choice == "⚡ Power Burst":
+                    new_movements[h] = 4 if random.random() < 0.1 else 1
+
+                elif choice == "💨 Triple Dash":
+                    new_movements[h] = 3
+
+                elif choice == "🛠 Cursed Sprint":
+                    if random.random() < 0.4:
+                        # break leg (counts as 0 movement)
+                        broken.add(h)
+                        new_movements[h] = 0
+                    else:
+                        new_movements[h] = 5
+
+                elif choice == "🏁 Head Start":
+                    new_movements[h] = 2
+
+                # (Note: We do _not_ fall through to the other checks below,
+                #  so we `continue` immediately once we’ve handled Mutation.)
+                continue
+
+            # Default: random 1–3
+            new_movements[h] = random.randint(1, 3)
+
+        # 12c) Apply all movements to positions
+        prev_positions = positions.copy()
+        for h, move in new_movements.items():
+            positions[h] = max(0, positions[h] - move)
+
+        # 12d) Magnet Pull: on every 3rd tick, horses with that spell slow all others by 1
+        if tick_count % 3 == 0:
+            for h in all_horses:
+                if "🧲 Magnet Pull" in upgrades_map.get(h, []):
+                    for other in all_horses:
+                        if other != h and positions[other] > 0:
+                            positions[other] = max(0, positions[other] + 1)
+
+        # 12e) Bounce Back: if horse is overtaken by ≥2 others in one tick, bounce it 5 steps
+        for h in all_horses:
+            if "🦘 Bounce Back" in upgrades_map.get(h, []) and h not in bounce_used and positions[h] > 0:
+                overtakes = 0
+                for o in all_horses:
+                    if o == h: continue
+                    if prev_positions[o] > prev_positions[h] and positions[o] < positions[h]:
+                        overtakes += 1
+                if overtakes >= 2:
+                    positions[h] = max(0, positions[h] - 5)
+                    bounce_used.add(h)
+
+        # 12f) Build the “race_display” string (25‐dash track)
+        race_display = ""
+        for h in sorted(all_horses):
+            emoji = horse_emojis.get(h, "🐎")
             if h in broken:
                 race_display += f"🚫 | 💥 Horse {h} (broken!)\n"
-
             elif positions[h] == 0:
                 race_display += f"🏆 | 🏁{emoji} Horse {h}\n"
-
+                if winner is None:
+                    winner = h
             else:
-                # We want a fixed “width” of about 25 dashes + emoji
-                # Compute how many dashes to draw on the left side:
                 dash_count  = max(1, (positions[h] * 25) // distance)
-                # Then fill out the rest so total ≈ 25
                 trail_count = max(1, 25 - dash_count)
-
                 leading  = "-" * dash_count
                 trailing = "-" * trail_count
                 race_display += f"🏆 | {leading}{emoji}{trailing} Horse {h}\n"
 
-            # First time any horse hits zero (and is not broken) → mark as winner
-            if positions[h] == 0 and h not in broken and winner is None:
-                winner = h
-
-        # Attempt to edit the message; if flood‐controlled, sleep and retry
+        # 12g) Attempt to edit the message; if flood‐controlled, sleep and retry
         try:
             await msg.edit_text(race_display)
         except RetryAfter as e:
             await asyncio.sleep(int(e.retry_after) + 1)
             continue
 
-        # Pause a moment before the next tick
+        # 12h) Pause before next tick
         await asyncio.sleep(0.8)
 
+        # 12i) Save this tick’s movements for Mirror Trick
+        last_movements = new_movements.copy()
 
     # ─── Once “winner” is set (and not broken) ───
     if winner == dealer_horse:
@@ -4093,10 +4345,10 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not winning_bets:
         # NO ONE bet on the winning horse: Dealer takes pot
-        total_pot, _   = await sync_to_async(
-            lambda: ( sum(bet.bet_amount for bet in bets), None )
+        total_pot, _  = await sync_to_async(
+            lambda: (sum(bet.bet_amount for bet in bets), None)
         )()
-        dealer_obj, _  = await sync_to_async(Dealer.objects.get_or_create)(id=1)
+        dealer_obj, _ = await sync_to_async(Dealer.objects.get_or_create)(id=1)
         dealer_obj.chips += total_pot
         dealer_obj.wins  += 1
         dealer_obj.games += 1
@@ -4105,17 +4357,18 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_send_message(
             context.bot,
             chat_id,
-            f"🏆 Horse {winner} won, but no players bet on it!\n"
-            f"🎰 Casino (Dealer) takes the pot: {total_pot} chips!"
+            (
+                f"🏆 Horse {winner} won, but no players bet on it!\n"
+                f"🎰 Casino (Dealer) takes the pot: {total_pot} chips!"
+            )
         )
-
     else:
-        # SOME PLAYERS DID bet on winner → split losing bets + 2× stake
+        # SOME PLAYERS DID bet on the winning horse → split losing bets + 2× stake
         first_winner_payout = None
 
         for bet in winning_bets:
             share_of_losing_pot = total_losing_bets // len(winning_bets)
-            payout               = bet.bet_amount * 2 + share_of_losing_pot
+            payout = bet.bet_amount * 2 + share_of_losing_pot
 
             player_obj = await sync_to_async(Player.objects.get)(id=bet.user_id)
             player_obj.chips += payout
@@ -4133,10 +4386,11 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_send_message(
             context.bot,
             chat_id,
-            f"🏆 Race finished! Winner: Horse {winner} 🏆\n"
-            f"🎉 First winner’s payout: {first_winner_payout} chips!"
+            (
+                f"🏆 Race finished! Winner: Horse {winner} 🏆\n"
+                f"🎉 First winner’s payout: {first_winner_payout} chips!"
+            )
         )
-
 
 
 
@@ -4263,13 +4517,13 @@ async def myhorses(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Fetch all upgrades the player has purchased
-    # owned_upgrades = await sync_to_async(list)(
-    #     PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
-    # )
+    owned_upgrades = await sync_to_async(list)(
+        PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+    )
 
-    # if not horses and not owned_upgrades:
-    #     await update.message.reply_text("🐎 You don’t own any horses or upgrades yet.")
-    #     return
+    if not horses and not owned_upgrades:
+        await update.message.reply_text("🐎 You don’t own any horses or spells yet.")
+        return
 
     lines = []
 
@@ -4282,19 +4536,19 @@ async def myhorses(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             applied_names = [ap.upgrade.name for ap in applied]
             emoji_text = f" {h.emoji}" if h.emoji else ""
-            # if applied_names:
-            #     lines.append(f"• Horse {h.horse_number}{emoji_text}  _(Applied: {', '.join(applied_names)})_")
-            # else:
-            lines.append(f"• Horse {h.horse_number}{emoji_text}")
+            if applied_names:
+                lines.append(f"• Horse {h.horse_number}{emoji_text}  _(Applied: {', '.join(applied_names)})_")
+            else:
+                lines.append(f"• Horse {h.horse_number}{emoji_text}")
     else:
         lines.append("🐴 You don’t own any horses.")
 
-    # if owned_upgrades:
-    #     lines.append("\n🔧 *Your Purchased Upgrades:*")
-    #     for pu in owned_upgrades:
-    #         lines.append(f"• {pu.upgrade.name}: {pu.upgrade.description} (Cost: {pu.upgrade.cost} chips)")
-    # else:
-    #     lines.append("\n🔧 You haven’t purchased any upgrades.")
+    if owned_upgrades:
+        lines.append("\n🔧 *Your Purchased spells:*")
+        for pu in owned_upgrades:
+            lines.append(f"• {pu.upgrade.name}: {pu.upgrade.description} (Cost: {pu.upgrade.cost} chips)")
+    else:
+        lines.append("\n🔧 You haven’t purchased any spells.")
 
     message = "\n".join(lines)
     await update.message.reply_text(message, parse_mode="Markdown")
@@ -4305,14 +4559,19 @@ async def shopupgrades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Fetch all defined upgrades
     upgrades = await sync_to_async(list)(HorseUpgrade.objects.all())
     if not upgrades:
-        await update.message.reply_text("No upgrades available right now.")
+        await update.message.reply_text("No spells available right now.")
         return
 
-    lines = ["🏬 *Available Upgrades:*",""]
+    lines = ["🏬 *Available Spells:*",""]
     for up in upgrades:
         lines.append(
-            f"{up.id}. *{up.name}* — {up.cost} chips\n    _{up.description}_\n"
+            f"{up.id}. *{up.name}* — {up.cost} chips\n"
+            f"    _{up.description}_\n"
         )
+
+    # Add instructions at the bottom
+    lines.append("")  # blank line
+    lines.append("ℹ️ To purchase a spell, type `/buyupgrade <spell_id>`.")
 
     await update.message.reply_text(
         "\n".join(lines),
@@ -4328,7 +4587,7 @@ async def buyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Must pass exactly one integer (the upgrade’s ID)
     if len(args) != 1 or not args[0].isdigit():
-        await update.message.reply_text("Usage: /buyupgrade <upgrade_id>")
+        await update.message.reply_text("Usage: /buyspell <spell_id>")
         return
     upgrade_id = int(args[0])
 
@@ -4342,7 +4601,7 @@ async def buyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         upgrade = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
     except HorseUpgrade.DoesNotExist:
-        await update.message.reply_text("❌ Invalid upgrade ID.")
+        await update.message.reply_text("❌ Invalid spell ID.")
         return
 
     # Check if player already owns it
@@ -4350,7 +4609,7 @@ async def buyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         player=player, upgrade=upgrade
     )
     if await sync_to_async(already.exists)():
-        await update.message.reply_text("❌ You already own this upgrade.")
+        await update.message.reply_text("❌ You already own this spell.")
         return
 
     # Check cost
@@ -4376,7 +4635,7 @@ async def applyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
 
     if len(args) != 2:
-        await update.message.reply_text("Usage: /applyupgrade <horse_number> <upgrade_id>")
+        await update.message.reply_text("Usage: /applyspell <horse_number> <spell_id>")
         return
 
     # 1) Parse horse number and upgrade ID
@@ -4389,7 +4648,7 @@ async def applyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         upgrade_id = int(args[1])
     except ValueError:
-        await update.message.reply_text("❌ Upgrade ID must be an integer.")
+        await update.message.reply_text("❌ spell ID must be an integer.")
         return
 
     # 2) Verify that this player actually owns that horse:
@@ -4415,7 +4674,7 @@ async def applyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )()
     if not owns_upgrade_exists:
         await update.message.reply_text(
-            f"❌ You have not purchased the “{upgrade_obj.name}” upgrade (ID {upgrade_id})."
+            f"❌ You have not purchased the “{upgrade_obj.name}” spell (ID {upgrade_id})."
         )
         return
 
@@ -4448,7 +4707,7 @@ async def applyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )()
     if already_applied:
         await update.message.reply_text(
-            f"⚠️ Upgrade “{upgrade_obj.name}” (ID {upgrade_id}) is already applied to Horse {horse_number}."
+            f"⚠️ Spell “{upgrade_obj.name}” (ID {upgrade_id}) is already applied to Horse {horse_number}."
         )
         return
 
@@ -4472,7 +4731,7 @@ async def unapplyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
 
     if len(args) != 2 or not args[0].isdigit() or not args[1].isdigit():
-        await update.message.reply_text("Usage: /unapplyupgrade <horse_number> <upgrade_id>")
+        await update.message.reply_text("Usage: /unapplyspell <horse_number> <upgrade_id>")
         return
     horse_number = int(args[0])
     upgrade_id = int(args[1])
@@ -4499,7 +4758,7 @@ async def unapplyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         upgrade = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
     except HorseUpgrade.DoesNotExist:
-        await update.message.reply_text("❌ Invalid upgrade.")
+        await update.message.reply_text("❌ Invalid spell.")
         return
 
     # Check if applied
@@ -4507,7 +4766,7 @@ async def unapplyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         owner=player, horse=owned_horse, upgrade=upgrade
     )
     if not await sync_to_async(applied_qs.exists)():
-        await update.message.reply_text("❌ That upgrade isn’t applied to this horse.")
+        await update.message.reply_text("❌ That spell isn’t applied to this horse.")
         return
 
     # Remove it
@@ -4517,186 +4776,794 @@ async def unapplyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+def build_main_menu_keyboard():
+    keyboard = [
+        [
+            InlineKeyboardButton("🐎 Buy Horse", callback_data="menu:buy_horse"),
+            InlineKeyboardButton("🎨 Set Emoji", callback_data="menu:set_emoji"),
+        ],
+        [
+            InlineKeyboardButton("🐴 My Horses", callback_data="menu:my_horses"),
+            InlineKeyboardButton("📜 My Spells", callback_data="menu:my_spells"),
+        ],
+        [
+            InlineKeyboardButton("💰 Buy Spell", callback_data="menu:buy_spell"),
+            InlineKeyboardButton("✨ Apply Spell", callback_data="menu:apply_spell"),
+        ],
+        [
+            InlineKeyboardButton("❌ Unapply Spell", callback_data="menu:unapply_spell"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+# ─── /horse: send the top‐level shop menu ───
 async def horse(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = (
-        "*🐎 Horse Racing Bot Commands Overview*\n\n"
-        "• `/horserace`  \n"
-        "    Start a new race in this chat. Players can join once you’ve started.\n\n"
-        "• `/joinrace <horse_number> <bet_amount>`  \n"
-        "    Place your bet on a horse.  \n"
-        "    • `horse_number`: Must be an integer ≥ 2 (Horse 1 is the dealer’s).  \n"
-        "    • `bet_amount`: Positive integer ≤ your current chips.  \n"
-        "    Example: `/joinrace 5 100` \n\n"
-        "• `/startrace`  \n"
-        "    Begin the animation and determine the winner. Payouts are handled automatically.\n\n"
-        "• `/shop`  \n"
-        "    View items available for purchase: horses and emojis.\n\n"
-        "• `/buyhorse <horse_number>`  \n"
-        "    Purchase ownership of a horse (so only you can bet on it).  \n"
-        "    • Cost: 60 000 chips.  \n"
-        "    Once you own a horse, others cannot bet on that number.\n\n"
-        "• `/setemoji <horse_number> <emoji>`  \n"
-        "    Change the emoji for one of your owned horses.  \n"
-        "    • Cost: 9 000 chips.  \n"
-        "    If you don’t set one, the default 🐎 is used in races.\n\n"
-        "• `/myhorses`  \n"
-        "    List all horses you own, their emojis, and any purchased/applied upgrades.\n\n"
-        "• `/shopupgrades`  \n"
-        "    View all available upgrades (Name, Description, Cost).\n\n"
-        "• `/buyupgrade <upgrade_name>`  \n"
-        "    Purchase an upgrade from the shop.  \n"
-        "    • You must have enough chips.  \n"
-        "    • Example: `/buyupgrade Head Start`\n\n"
-        "• `/applyupgrade <horse_number> <upgrade_name>`  \n"
-        "    Apply a purchased upgrade to one of your horses.  \n"
-        "    • You must own both the horse and the upgrade.\n\n"
-        "• `/unapplyupgrade <horse_number> <upgrade_name>`  \n"
-        "    Remove an applied upgrade from your horse (it remains in your inventory).\n\n"
-        "Use these commands to manage your stable, buy and customize horses, and watch the races!\n"
+    await update.message.reply_text(
+        "🏇 *Horse Racing Shop Menu* 🏇\n\n"
+        "Choose an option below:",
+        parse_mode="Markdown",
+        reply_markup=build_main_menu_keyboard()
     )
-    await update.message.reply_text(help_text, parse_mode="Markdown")
 
 
-CRASH_SPEED = 0.6  # seconds per tick
-async def simulate_crash_game(game_id, bot, chat_id):
-    try:
-        game = await sync_to_async(CrashGame.objects.get)(id=game_id)
-    except CrashGame.DoesNotExist:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    # ─── Back to main menu ───
+    if data == "menu:main":
+        context.user_data.pop("awaiting_buy_horse", None)
+        context.user_data.pop("awaiting_set_emoji", None)
+        await query.edit_message_text(
+            "🏇 *Horse Racing Shop Menu* 🏇\n\n"
+            "Choose an option below:",
+            parse_mode="Markdown",
+            reply_markup=build_main_menu_keyboard()
+        )
         return
 
-    multiplier = 0.4
-    crash_point = round(random.uniform(1.3, 2.5), 2)
-    print(f"Crash point: {crash_point}")
+    # ─── Buy Horse submenu ───
+    if data == "menu:buy_horse":
+        text = (
+            "🐎 *Buy Horse*\n\n"
+            "Reply with the exact horse number you want to buy.  Pricing rules:\n\n"
+            "• 1-digit (e.g. 7): 100 000 chips\n"
+            "• 2-digit (e.g. 42):  80 000 chips\n"
+            "• 3-digit (e.g. 123): 60 000 chips\n"
+            "• “All-same” digits (e.g. 11, 777, 2222): 120 000 chips\n\n"
+            "↩️ Back"
+        )
+        context.user_data["awaiting_buy_horse"] = True
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text(
+            text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
 
-    # Send the first message in the group (not in private)
-    msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
+    # ─── Set Emoji submenu: show owned horses ───
+    if data == "menu:set_emoji":
+        user_id = query.from_user.id
+        owned_horses = await sync_to_async(list)(
+            OwnedHorse.objects.filter(user__id=user_id)
+        )
 
-    while multiplier < crash_point:
-        multiplier = round(multiplier + 0.2, 2)
-        await asyncio.sleep(CRASH_SPEED)
-
-        game_exists = await sync_to_async(CrashGame.objects.filter(id=game_id).exists)()
-        if not game_exists:
+        if not owned_horses:
+            text = "🎨 You don’t own any horses to set an emoji on.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
             return
 
-        await sync_to_async(CrashGame.objects.filter(id=game_id).update)(multiplier=multiplier)
+        keyboard = []
+        for h in owned_horses:
+            emoji_text = f"{h.emoji} " if h.emoji else ""
+            btn_text = f"{emoji_text}Horse {h.horse_number}"
+            keyboard.append([
+                InlineKeyboardButton(
+                    btn_text,
+                    callback_data=f"menu:setemoji_choose:{h.horse_number}"
+                )
+            ])
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
 
-        is_cashed_out = await sync_to_async(
-            lambda: CrashGame.objects.filter(id=game_id, cashed_out=True).exists()
+        await query.edit_message_text(
+            "🎨 *Set Emoji* – Choose which horse to change:\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # ─── My Horses submenu (show horses + owned spells) ───
+    if data == "menu:my_horses":
+        user_id = query.from_user.id
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+        except Player.DoesNotExist:
+            await query.edit_message_text("❌ You’re not registered yet.")
+            return
+
+        horses = await sync_to_async(list)(
+            OwnedHorse.objects.filter(user=player)
+        )
+        owned_upgrades = await sync_to_async(list)(
+            PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+        )
+
+        if not horses and not owned_upgrades:
+            text = "🐎 You don’t own any horses yet.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        lines = []
+        if horses:
+            lines.append("🐴 *Your Horses:*")
+            for h in horses:
+                applied = await sync_to_async(list)(
+                    HorseAppliedUpgrade.objects.filter(horse=h).select_related("upgrade")
+                )
+                applied_names = [ap.upgrade.name for ap in applied]
+                emoji_text = f" {h.emoji}" if h.emoji else ""
+                if applied_names:
+                    lines.append(
+                        f"• Horse {h.horse_number}{emoji_text}  _(Applied: {', '.join(applied_names)})_"
+                    )
+                else:
+                    lines.append(f"• Horse {h.horse_number}{emoji_text}")
+        else:
+            lines.append("🐴 You don’t own any horses.")
+
+        # if owned_upgrades:
+        #     lines.append("\n🔧 *Your Purchased Spells:*")
+        #     for pu in owned_upgrades:
+        #         lines.append(
+        #             f"• {pu.upgrade.name} – {pu.upgrade.description} _(Cost: {pu.upgrade.cost})_"
+        #         )
+        # else:
+        #     lines.append("\n🔧 You haven’t purchased any spells.")
+
+        lines.append("\n↩️ Back")
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
+                                      reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+    # ─── “My Spells” submenu (new) ───
+    if data == "menu:my_spells":
+        user_id = query.from_user.id
+
+        # Fetch the Player (if they exist)
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+        except Player.DoesNotExist:
+            await query.edit_message_text("❌ You’re not registered yet.")
+            return
+
+        # Get all spells this player has purchased
+        owned_upgrades = await sync_to_async(list)(
+            PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+        )
+
+        if not owned_upgrades:
+            text = "🔧 You haven’t purchased any spells yet.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # Build a simple list of “name – description (cost)”
+        lines = ["🔧 *Your Purchased Spells:*",""]
+        for pu in owned_upgrades:
+            lines.append(f"• *{pu.upgrade.name}* — {pu.upgrade.description} _(Cost: {pu.upgrade.cost})_")
+        # lines.append("\n↩️ Back")
+
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # ─── Buy Spell submenu ───
+    if data == "menu:buy_spell":
+        upgrades = await sync_to_async(list)(HorseUpgrade.objects.all())
+        if not upgrades:
+            text = "📜 No spells available right now.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        lines = ["📜 *Available Spells:*",""]
+        keyboard = []
+        for up in upgrades:
+            lines.append(f"{up.id}. *{up.name}* – {up.description} _(Cost: {up.cost})_")
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{up.name} (Cost: {up.cost})",
+                    callback_data=f"menu:buy_spell_choose:{up.id}"
+                )
+            ])
+        lines.append("\n↩️ Back")
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
+
+        await query.edit_message_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # ─── Apply Spell submenu ───
+    if data == "menu:apply_spell":
+        user_id = query.from_user.id
+        horses = await sync_to_async(list)(
+            OwnedHorse.objects.filter(user__id=user_id)
+        )
+        if not horses:
+            text = "❌ You don’t own any horses to apply a spell to.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        keyboard = []
+        for h in horses:
+            emoji_text = f"{h.emoji} " if h.emoji else ""
+            btn_text = f"{emoji_text}Horse {h.horse_number}"
+            keyboard.append([
+                InlineKeyboardButton(
+                    btn_text,
+                    callback_data=f"menu:apply_choose_horse:{h.horse_number}"
+                )
+            ])
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
+        await query.edit_message_text(
+            "✨ *Apply Spell* – Choose which horse to enhance:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # ─── Unapply Spell submenu ───
+    if data == "menu:unapply_spell":
+        user_id = query.from_user.id
+        horses = await sync_to_async(list)(
+            OwnedHorse.objects.filter(user__id=user_id)
+        )
+        if not horses:
+            text = "❌ You don’t own any horses to remove a spell from.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        keyboard = []
+        for h in horses:
+            emoji_text = f"{h.emoji} " if h.emoji else ""
+            btn_text = f"{emoji_text}Horse {h.horse_number}"
+            keyboard.append([
+                InlineKeyboardButton(
+                    btn_text,
+                    callback_data=f"menu:unapply_choose_horse:{h.horse_number}"
+                )
+            ])
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
+        await query.edit_message_text(
+            "❌ *Unapply Spell* – Pick a horse:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("menu:setemoji_choose:"):
+        horse_number = int(data.split(":")[2])
+
+        # ── INSERT PRINT HERE ──
+        print("DEBUG: awaiting_set_emoji set to", horse_number)
+        context.user_data["awaiting_set_emoji"] = horse_number
+
+        # Now ask the user to send their new emoji:
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+
+        await query.edit_message_text(
+            f"🎨 *Set Emoji → Horse {horse_number}*\n\n"
+            "Please send the emoji you want to assign to this horse.\n"
+            "Cost: 9 000 chips.\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+    #
+    # ─── SUBMENU: “Buy Spell → Choose Spell” ───
+    #
+    if data.startswith("menu:buy_spell_choose:"):
+        upgrade_id = int(data.split(":")[2])
+        user_id = query.from_user.id
+
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+        except Player.DoesNotExist:
+            await query.edit_message_text("❌ You’re not registered.")
+            return
+
+        try:
+            upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+        except HorseUpgrade.DoesNotExist:
+            await query.edit_message_text("❌ That spell no longer exists.")
+            return
+
+        already = await sync_to_async(
+            PlayerUpgrade.objects.filter(player=player, upgrade=upgrade_obj).exists
         )()
-        if is_cashed_out:
+        if already:
+            await query.edit_message_text(
+                f"⚠️ You already own *{upgrade_obj.name}*.",
+                parse_mode="Markdown"
+            )
+            return
+
+        if player.chips < upgrade_obj.cost:
+            await query.edit_message_text(
+                f"❌ Not enough chips! *{upgrade_obj.name}* costs {upgrade_obj.cost}.",
+                parse_mode="Markdown"
+            )
+            return
+
+        player.chips -= upgrade_obj.cost
+        await sync_to_async(player.save)()
+        await sync_to_async(PlayerUpgrade.objects.create)(player=player, upgrade=upgrade_obj)
+
+        await query.edit_message_text(
+            f"✅ You bought *{upgrade_obj.name}*!",
+            parse_mode="Markdown"
+        )
+        return
+
+    #
+    # ─── SUBMENU: “Apply Spell → Choose Horse” ───
+    #
+    if data.startswith("menu:apply_choose_horse:"):
+        horse_number = int(data.split(":")[2])
+        user_id = query.from_user.id
+
+        # 1) Verify horse ownership
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+            return
+
+        # 2) Check if any upgrade is already applied to this horse
+        existing_count = await sync_to_async(
+            lambda: HorseAppliedUpgrade.objects.filter(horse=owned_horse).count()
+        )()
+        if existing_count > 0:
+            # Only one upgrade allowed per horse
+            text = (
+                f"⚠️ Horse {horse_number} already has an upgrade applied.\n"
+                "You can only apply one upgrade per horse.\n\n↩️ Back"
+            )
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")]]
+            await query.edit_message_text(text, parse_mode="Markdown",
+                                          reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # 3) Fetch all spells the user has purchased
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        owned_spells = await sync_to_async(list)(
+            PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+        )
+        if not owned_spells:
+            text = "🔧 You haven’t purchased any spells to apply.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # 4) Build a keyboard listing each owned spell (no costs shown here)
+        keyboard = []
+        for pu in owned_spells:
+            up = pu.upgrade
+            keyboard.append([InlineKeyboardButton(
+                up.name,
+                callback_data=f"menu:apply_choose_spell:{horse_number}:{up.id}"
+            )])
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")])
+
+        await query.edit_message_text(
+            f"✨ *Apply Spell → Horse {horse_number}*\n\n"
+            "Choose which spell to apply (only one per horse):",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+
+
+
+
+
+
+
+
+    #
+    # ─── SUBMENU: “Apply Spell → Confirm” ───
+    #
+    if data.startswith("menu:apply_choose_spell:"):
+        parts = data.split(":")
+        horse_number = int(parts[2])
+        upgrade_id = int(parts[3])
+        user_id = query.from_user.id
+
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.")
             return
 
         try:
-            await msg.edit_text(f"🚀 {multiplier}x")
-        except RetryAfter as e:
-            await asyncio.sleep(e.retry_after + 1)
-        except Exception:
-            continue
+            upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+        except HorseUpgrade.DoesNotExist:
+            await query.edit_message_text("❌ That spell no longer exists.")
+            return
 
-    await sync_to_async(CrashGame.objects.filter(id=game_id).update)(crashed=True)
+        has_it = await sync_to_async(
+            PlayerUpgrade.objects.filter(player__id=user_id, upgrade=upgrade_obj).exists
+        )()
+        if not has_it:
+            await query.edit_message_text("❌ You haven’t purchased that spell.")
+            return
 
-    final_text = f"💥 Crashed at {crash_point}x! You lost your bet."
-    try:
-        await msg.edit_text(final_text)
-    except RetryAfter as e:
-        await asyncio.sleep(e.retry_after + 1)
+        blocking_pair = {"Double Dash", "Risky Rocket"}
+        if upgrade_obj.name in blocking_pair:
+            other_name = "Risky Rocket" if upgrade_obj.name == "Double Dash" else "Double Dash"
+            existing_names = await sync_to_async(
+                lambda: list(
+                    HorseAppliedUpgrade.objects.filter(horse=owned_horse)
+                                               .values_list("upgrade__name", flat=True)
+                )
+            )()
+            if other_name in existing_names:
+                await query.edit_message_text(
+                    f"❌ You cannot apply *{upgrade_obj.name}* because *{other_name}* is already on Horse {horse_number}.",
+                    parse_mode="Markdown"
+                )
+                return
+
+        already_applied = await sync_to_async(
+            HorseAppliedUpgrade.objects.filter(
+                owner__id=user_id,
+                horse=owned_horse,
+                upgrade=upgrade_obj
+            ).exists
+        )()
+        if already_applied:
+            await query.edit_message_text(
+                f"⚠️ You already applied *{upgrade_obj.name}* to Horse {horse_number}.",
+                parse_mode="Markdown"
+            )
+            return
+
+        player_obj = await sync_to_async(Player.objects.get)(id=user_id)
+        await sync_to_async(HorseAppliedUpgrade.objects.create)(
+            owner=player_obj,
+            horse=owned_horse,
+            upgrade=upgrade_obj
+        )
+        await query.edit_message_text(
+            f"✅ *{upgrade_obj.name}* has been applied to Horse {horse_number}!",
+            parse_mode="Markdown"
+        )
+        return
+
+    #
+    # ─── SUBMENU: “Unapply Spell → Choose Horse” ───
+    #
+    from telegram.error import BadRequest
+
+    if data.startswith("menu:unapply_choose_horse:"):
+        horse_number = int(data.split(":")[2])
+        user_id = query.from_user.id
+
         try:
-            await msg.edit_text(final_text)
-        except Exception:
-            await bot.send_message(chat_id=chat_id, text=final_text)
-    except Exception:
-        await bot.send_message(chat_id=chat_id, text=final_text)
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.")
+            return
 
-    await sync_to_async(CrashGame.objects.filter(id=game_id).delete)()
+        # Fetch all applied upgrades on this horse (wrapped in a lambda)
+        applied_list = await sync_to_async(
+            lambda: list(
+                HorseAppliedUpgrade.objects
+                    .filter(horse=owned_horse)
+                    .select_related("upgrade")
+            )
+        )()
 
-# Your command
-async def crash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not applied_list:
+            text = f"⚠️ Horse {horse_number} has no spells to remove.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:unapply_spell")]]
+            try:
+                await query.edit_message_text(
+                    text,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except BadRequest as e:
+                if "Message is not modified" not in str(e):
+                    raise
+            return
+
+        # Build a list of “Spell Name” buttons for each applied upgrade
+        lines = [f"❌ *Unapply Spell → Horse {horse_number}*",""]
+        keyboard = []
+        for ap in applied_list:
+            up = ap.upgrade
+            callback_str = f"menu:unapply_choose_spell:{horse_number}:{up.id}"
+            lines.append(f"• *{up.name}* — {up.description}")
+            keyboard.append([InlineKeyboardButton(up.name, callback_data=callback_str)])
+
+        # Add a Back button at the bottom
+        lines.append("\n↩️ Back")
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:unapply_spell")])
+
+        await query.edit_message_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+
+
+
+
+
+
+
+
+    #
+    # ─── SUBMENU: “Unapply Spell → Confirm” ───
+    #
+    if data.startswith("menu:unapply_choose_spell:"):
+        parts = data.split(":")
+        horse_number = int(parts[2])
+        upgrade_id = int(parts[3])
+        user_id = query.from_user.id
+
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.")
+            return
+
+        try:
+            upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+        except HorseUpgrade.DoesNotExist:
+            await query.edit_message_text("❌ That spell no longer exists.")
+            return
+
+        applied_qs = await sync_to_async(HorseAppliedUpgrade.objects.filter)(
+            owner__id=user_id, horse=owned_horse, upgrade=upgrade_obj
+        )
+        if not await sync_to_async(applied_qs.exists)():
+            await query.edit_message_text(
+                f"❌ *{upgrade_obj.name}* is not applied to Horse {horse_number}.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # 5) Delete the applied upgrade
+        await sync_to_async(applied_qs.delete)()
+        await query.edit_message_text(
+            f"✅ Unapplied *{upgrade_obj.name}* from Horse {horse_number}.",
+            parse_mode="Markdown"
+        )
+        return
+
+
+    # ─── Fallback → show main menu ───
+    context.user_data.pop("awaiting_buy_horse", None)
+    context.user_data.pop("awaiting_set_emoji", None)
+    await query.edit_message_text(
+        "🏇 *Horse Racing Shop Menu* 🏇\n\n"
+        "Choose an option below:",
+        parse_mode="Markdown",
+        reply_markup=build_main_menu_keyboard()
+    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+async def catch_buy_horse_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("awaiting_set_emoji"):
+        return await catch_set_emoji(update, context)
+
+    # Only run if they clicked “Buy Horse” and we’re waiting for a number
+    if not context.user_data.get("awaiting_buy_horse"):
+        return
+
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    bet = int(context.args[0]) if context.args else 100
+    text = update.message.text.strip()
+    # Clear the “awaiting_buy_horse” flag immediately
+    context.user_data.pop("awaiting_buy_horse", None)
 
-    if not await validate_bet_amount(update, bet):
+    # 1) Validate it's numeric
+    if not text.isdigit():
+        await update.message.reply_text(
+            "❌ That’s not a valid horse number. Aborting. ↩️ Run /horse again."
+        )
         return
 
-    player = await sync_to_async(Player.objects.get)(id=user_id)
-    if player.chips < bet:
-        await update.message.reply_text("❌ Not enough chips.")
+    horse_number = int(text)
+
+    # 2) Reserve 1, 2, 3
+    if horse_number in (1, 2, 3):
+        await update.message.reply_text(
+            "❌ Horse 1, 2, and 3 are reserved and cannot be purchased. ↩️ Run /horse again to pick a different number."
+        )
         return
 
-    already_playing = await sync_to_async(
-        lambda: CrashGame.objects.filter(user_id=user_id, crashed=False, cashed_out=False).exists()
-    )()
-    if already_playing:
-        return await update.message.reply_text("🚫 You already have a crash game running. Use /cashout to end it.")
+    # 3) Check if already owned (any existing record for this number)
+    exists = await sync_to_async(OwnedHorse.objects.filter)(horse_number=horse_number)
+    if await sync_to_async(exists.exists)():
+        await update.message.reply_text("❌ That horse number is already owned. ↩️ /horse")
+        return
 
-    player.chips -= bet
+    # 4) Determine cost according to your rules
+    s = str(horse_number)
+    if len(s) == 1:
+        cost = 100_000
+    elif len(s) == 2:
+        cost = 120_000 if s[0] == s[1] else 80_000
+    elif len(s) == 3:
+        cost = 120_000 if (s[0] == s[1] == s[2]) else 60_000
+    else:
+        cost = 120_000 if all(ch == s[0] for ch in s) else 60_000
+
+    # 5) Fetch player
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text("❌ You’re not registered. ↩️ /horse")
+        return
+
+    # 6) Check if they have enough chips
+    if player.chips < cost:
+        await update.message.reply_text(
+            f"❌ You need {cost} chips to buy Horse {horse_number}, but you have {player.chips}. ↩️ /horse"
+        )
+        return
+
+    # 7) Deduct chips and create the OwnedHorse record
+    player.chips -= cost
     await sync_to_async(player.save)()
-    crash_game = await sync_to_async(CrashGame.objects.create)(user_id=user_id, bet=bet)
+    await sync_to_async(OwnedHorse.objects.create)(
+        user=player,
+        horse_number=horse_number,
+        emoji=None
+    )
 
-    # Don't send "Game started" here – it's now inside simulate_crash_game
-    asyncio.create_task(simulate_crash_game(crash_game.id, context.bot, chat_id))
+    await update.message.reply_text(
+        f"✅ You now own Horse {horse_number}! (−{cost} chips) ↩️ Run /horse again."
+    )
 
+async def catch_set_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Only run if we previously put “awaiting_set_emoji” into user_data
+    print("DEBUG: in catch_set_emoji; flag =", context.user_data.get("awaiting_set_emoji"))
+    if "awaiting_set_emoji" not in context.user_data:
+        return
 
-async def cashout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    horse_number = context.user_data.pop("awaiting_set_emoji")  # pop so we don't stay in this mode
+    new_emoji = update.message.text.strip()
+    EMOJI_COST = 9000
+
+    # 1) Validate they sent something
+    if not new_emoji:
+        await update.message.reply_text(
+            "❌ That’s not a valid emoji. Aborting. ↩️ Run /horse again."
+        )
+        return
+
+    # 2) Fetch Player and OwnedHorse
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text("❌ You’re not registered. ↩️ Run /horse again.")
+        return
 
     try:
-        game = await sync_to_async(CrashGame.objects.get)(
-            user_id=user_id, crashed=False, cashed_out=False
+        horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
         )
-    except CrashGame.DoesNotExist:
-        return await update.message.reply_text("⚠️ You have no active game to cash out from.")
-
-    game.cashed_out = True
-    await sync_to_async(game.save)()
-
-    winnings = int(game.bet * game.multiplier)
-    player = await sync_to_async(Player.objects.get)(id=user_id)
-    player.chips += winnings
-    await sync_to_async(player.save)()
-
-    await update.message.reply_text(f"✅ Cashed out at {game.multiplier}x!\n💰 You won {winnings} chips!")
-
-    # Delete the game
-    await sync_to_async(game.delete)()
-
-
-
-
-async def double_or_nothing(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    # Parse bet amount
-    bet_amount = int(context.args[0]) if context.args else 50
-    if not await validate_bet_amount(update, bet_amount):
-        return
-
-    if not await check_player(update, context):
-        return
-
-    player = await sync_to_async(Player.objects.get)(id=user_id)
-
-    if player.chips < bet_amount:
-        await update.message.reply_text("❌ You don't have enough chips for that bet.")
-        return
-
-    # Deduct the bet
-    player.chips -= bet_amount
-    await sync_to_async(player.save)()
-
-    # await asyncio.sleep(0.5)  # Short suspense
-
-    if random.random() < 0.5:
-        await update.message.reply_text("😵 You lost your bet. Nothing ❌doubled today.")
-    else:
-        winnings = bet_amount * 2
-        player.chips += winnings
-        await sync_to_async(player.save)()
+    except OwnedHorse.DoesNotExist:
         await update.message.reply_text(
-            f"🎉 Lucky! You doubled your bet and won {winnings} chips💰!\n"
-
+            "❌ You do not own that horse. ↩️ Run /horse again."
         )
+        return
+
+    # 3) Check chips
+    if player.chips < EMOJI_COST:
+        await update.message.reply_text(
+            f"❌ Not enough chips! Changing an emoji costs {EMOJI_COST}. ↩️ Run /horse again."
+        )
+        return
+
+    # 4) Deduct and save
+    player.chips -= EMOJI_COST
+    await sync_to_async(player.save)()
+
+    horse.emoji = new_emoji
+    await sync_to_async(horse.save)()
+
+    # 5) Confirm
+    await update.message.reply_text(
+        f"✅ Emoji for Horse {horse_number} updated to {new_emoji}! (−{EMOJI_COST} chips)\n"
+        "↩️ Run /horse again."
+    )
 
 
 
@@ -4712,9 +5579,17 @@ app.add_handler(CommandHandler("double", double_or_nothing))
 app.add_handler(CommandHandler("crash", crash))
 app.add_handler(CommandHandler("cashout", cashout))
 
-
-
 app.add_handler(CommandHandler("horse", horse))
+app.add_handler(
+    CallbackQueryHandler(horse_menu_callback, pattern=r"^menu:")
+)
+# THIS line must come *after* the CallbackQueryHandler:
+app.add_handler(
+    MessageHandler(filters.TEXT & ~filters.COMMAND, catch_buy_horse_number)
+)
+app.add_handler(
+    MessageHandler(filters.TEXT & ~filters.COMMAND, catch_set_emoji)
+)
 app.add_handler(CommandHandler("horserace", horserace))
 app.add_handler(CommandHandler("joinrace", joinrace))
 app.add_handler(CommandHandler("startrace", startrace))
@@ -4722,10 +5597,10 @@ app.add_handler(CommandHandler("shop", shop))
 app.add_handler(CommandHandler("buyhorse", buyhorse))
 app.add_handler(CommandHandler("setemoji", setemoji))
 app.add_handler(CommandHandler("myhorses", myhorses))
-# app.add_handler(CommandHandler("shopupgrades", shopupgrades))
-# app.add_handler(CommandHandler("buyupgrade", buyupgrade))
-# app.add_handler(CommandHandler("applyupgrade", applyupgrade))
-# app.add_handler(CommandHandler("unapplyupgrade", unapplyupgrade))
+app.add_handler(CommandHandler("shopspells", shopupgrades))
+app.add_handler(CommandHandler("buyspell", buyupgrade))
+app.add_handler(CommandHandler("applyspell", applyupgrade))
+app.add_handler(CommandHandler("unapplyspell", unapplyupgrade))
 
 app.add_handler(CommandHandler("admin", admin_help))
 app.add_handler(CommandHandler("listgroups", list_groups))

@@ -6527,6 +6527,30 @@ async def catch_rename_horse(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(
         f"✅ Your horse #{horse_number} is now named “{new_name}”! (−{cost:,} chips)"
     )
+async def richest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 1) Fetch top 5 players ordered by chips descending
+    top_players = await sync_to_async(list)(
+        Player.objects.order_by("-chips")[:5]
+    )
+    if not top_players:
+        await update.message.reply_text("ℹ️ No players found in the database yet.")
+        return
+
+    # 2) Build a praise‐filled message
+    lines = ["🏆 *Top 5 Richest Players* 🏆\n"]
+    medals = ["🥇", "🥈", "🥉", "🏅", "🏅"]  # first three special, others identical
+
+    for idx, player in enumerate(top_players, start=1):
+        medal = medals[idx - 1]
+        name = player.name or f"User {player.id}"
+        chips = f"{player.chips:,}"
+        lines.append(f"{medal} *{name}* — {chips} chips")
+
+    lines.append("\n🎉 Congratulations to our financial titans! 🎉")
+    text = "\n".join(lines)
+
+    # 3) Send with Markdown formatting
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
@@ -6539,6 +6563,7 @@ elif DEBUG == "False":
 app.add_handler(CommandHandler("double", double_or_nothing))
 app.add_handler(CommandHandler("crash", crash))
 app.add_handler(CommandHandler("cashout", cashout))
+app.add_handler(CommandHandler("richest", richest))
 
 app.add_handler(CommandHandler("horse", horse))
 app.add_handler(

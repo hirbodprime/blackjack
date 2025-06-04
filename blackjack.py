@@ -1204,7 +1204,7 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
             (19 <= dealer_value <= 20 and selected_option == 3) or
             (dealer_value == 21 and selected_option == 4) 
         )
-        print(f"Correct guess: {correct_guess}")
+        
 
         if correct_guess:
             player_playerentry = await sync_to_async(lambda: join_entry.player)()
@@ -1212,15 +1212,15 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
             player_stats.correct_dealer_guesses += 1
             await sync_to_async(player_stats.save)()
             player_name = await sync_to_async(lambda: join_entry.player.name)()
-            print(f"Player stats updated for {player_name}.")
+            
 
             pot_amount = game.pot  # Ensure you have access to the pot
-            print(f"Pot amount: {pot_amount}")
+            
 
             bonus = pot_amount // 3  # Calculate 1/3 of the pot
             
             await add_xp(player_playerentry, 50, context)
-            print(f"{player_name} receives a bonus of {bonus} chips!")
+            
 
             # Store player ID in the poll data for later use
             context.bot_data['poll_data'][poll_id]['chips'] = bonus
@@ -1231,28 +1231,28 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             player_name = await sync_to_async(lambda: join_entry.player.name)()
             context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'].append(player_name)
-            print(f"{player_name} guessed incorrectly.")
+            
     else:
-        print("Poll ID does not match.")
+            print("[DEBUG] si")
+async def update_statistics(overall_winners, dealer_won_overall, joined_players, context):
+    """
+    overall_winners: list of Player instances and/or the string 'dealer'
+    dealer_won_overall: True if dealer won the final comparison, False otherwise
+    joined_players: iterable of JoinGame entries (each has .player)
+    """
 
-
-async def update_statistics(winners, dealer_wins, joined_players, context):
-    # Initialize a list for non-winners
-    non_winners = []
-
-    # Update stats for each winner
-    for winner in winners:
-        if winner == 'dealer':
-            dealer = await sync_to_async(Dealer.objects.first)()  # Assuming only one dealer
-            dealer.wins += 1
-            await sync_to_async(dealer.save)()
+    # ─── 1) Handle winners ─────────────────────────────────────────────────────────
+    for winner in overall_winners:
+        if winner == "dealer":
+            await sync_to_async(_increment_dealer_wins)()
         else:
             player = await sync_to_async(Player.objects.get)(id=winner.id)
             stats, _ = await sync_to_async(Stats.objects.get_or_create)(player=player)
             await add_xp(player, 25, context)
-            
+
             stats.wins += 1
             await sync_to_async(stats.save)()
+
             total_games = stats.wins + stats.loses
             if stats.wins >= 100:
                 await unlock_achievement(player, "100_wins", context)
@@ -1261,20 +1261,30 @@ async def update_statistics(winners, dealer_wins, joined_players, context):
             if total_games >= 500:
                 await unlock_achievement(player, "500_games", context)
 
-    # Determine non-winners
-    winners_ids = {winner.id for winner in winners if winner != 'dealer'}
-    non_winners = [await sync_to_async(lambda: join_entry.player)() for join_entry in joined_players 
-                   if await sync_to_async(lambda: join_entry.player.id)() not in winners_ids and join_entry.player != 'dealer']
+    # ─── 2) Build set of winner IDs (excluding the string 'dealer') ─────────────────
+    winner_ids = {w.id for w in overall_winners if w != "dealer"}
 
-    # Remove duplicates in non-winners list
-    non_winners = list(set(non_winners))
+    # ─── 3) Determine non‐winners ─────────────────────────────────────────────────
+    non_winners = []
+    dealer_obj = await sync_to_async(Dealer.objects.first)()
+    dealer_id = dealer_obj.id if dealer_obj else None
 
-    # Update losses for each non-winner
+    for join_entry in joined_players:
+        pid = join_entry.player.id
+        # If the player is not in the winner_ids AND dealer didn't win overall (or this player isn't dealer)
+        if pid not in winner_ids and pid != dealer_id:
+            non_winners.append(join_entry.player)
+
+    # Deduplicate
+    non_winners = list({p.id: p for p in non_winners}.values())
+
+    # ─── 4) Apply losses to each non-winner ─────────────────────────────────────────
     for player in non_winners:
         stats, _ = await sync_to_async(Stats.objects.get_or_create)(player=player)
         stats.loses += 1
         await deduct_xp(player, 25, context)
         await sync_to_async(stats.save)()
+
         total_games = stats.wins + stats.loses
         if stats.loses >= 100:
             await unlock_achievement(player, "100_loses", context)
@@ -1283,12 +1293,25 @@ async def update_statistics(winners, dealer_wins, joined_players, context):
         if total_games >= 500:
             await unlock_achievement(player, "500_games", context)
 
-    # Update dealer's losses if dealer did not win
-    if not dealer_wins:
-        dealer = await sync_to_async(Dealer.objects.first)()  # Assuming only one dealer
-        dealer.loses += 1
-        await sync_to_async(dealer.save)()
+    # ─── 5) Increment dealer losses if dealer did NOT win overall ──────────────────
+    if not dealer_won_overall:
+        await sync_to_async(_increment_dealer_losses)()
 
+
+# ─── Synchronous helper: increment dealer.wins ────────────────────────────────────
+def _increment_dealer_wins():
+    dealer = Dealer.objects.first()
+    if dealer:
+        dealer.wins += 1
+        dealer.save()
+
+
+# ─── Synchronous helper: increment dealer.loses ──────────────────────────────────
+def _increment_dealer_losses():
+    dealer = Dealer.objects.first()
+    if dealer:
+        dealer.loses += 1
+        dealer.save()
 
 
 async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, joined_players):
@@ -1296,128 +1319,133 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
     await asyncio.sleep(3)
 
     if game.current_round > game.total_rounds:
-        # Determine the overall winner
+        # ─── 1) Fetch all RoundWinner rows for this game ──────────────────────────────
         round_winners = await sync_to_async(list)(RoundWinner.objects.filter(game=game))
 
-        # Count wins for each player and the dealer
+        # ─── 2) Count how many rounds each player won ─────────────────────────────────
         winner_count = {}
-        for winner in round_winners:
-            # Fetch the related 'winner' field asynchronously
-            winner_player = await sync_to_async(lambda: winner.winner)()
+        for row in round_winners:
+            winner_player = await sync_to_async(lambda: row.winner)()
             if winner_player:
-                if winner_player in winner_count:
-                    winner_count[winner_player] += 1
-                else:
-                    winner_count[winner_player] = 1
+                winner_count[winner_player] = winner_count.get(winner_player, 0) + 1
 
-        dealer_wins = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True).count)()
-        if dealer_wins > 0:
-            winner_count['dealer'] = dealer_wins
+        # ─── 3) Count how many rounds the dealer won ─────────────────────────────────
+        dealer_rounds_won = await sync_to_async(RoundWinner.objects.filter)(
+            game=game, is_dealer=True
+        )
+        dealer_rounds_won = await sync_to_async(dealer_rounds_won.count)()
+        print(f"[DEBUG] Dealer won {dealer_rounds_won} rounds")
 
+        # If dealer won any rounds, put “dealer” into the map for ease of overall-winner logic:
+        if dealer_rounds_won > 0:
+            winner_count['dealer'] = dealer_rounds_won
 
+        # ─── 4) Determine overall winner(s) ──────────────────────────────────────────
         if winner_count:
-            # Determine the overall winner(s)
             max_wins = max(winner_count.values())
-            overall_winners = [winner for winner, wins in winner_count.items() if wins == max_wins]
+            overall_winners = [w for w, cnt in winner_count.items() if cnt == max_wins]
+
+            # Boolean: did the dealer win the overall game?
+            dealer_won_overall = ('dealer' in overall_winners)
+            print(f"[DEBUG] overall_winners = {overall_winners}; dealer_won_overall = {dealer_won_overall}")
 
             if len(overall_winners) == 1:
-                # One clear winner
-                overall_winner = overall_winners[0]
-
-                if overall_winner == 'dealer':
+                single = overall_winners[0]
+                if single == 'dealer':
                     await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game! 🏆")
                 else:
-                    await context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆")
-            elif len(overall_winners) > 1:
-                # Check if all players and the dealer tied
-                if len(overall_winners) == (len(joined_players) + 1) and dealer_wins == max_wins:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"{single.name} is the overall winner of the game! 🏆"
+                    )
+
+            else:
+                # A tie for top number of rounds
+                if len(overall_winners) == (len(joined_players) + 1) and dealer_won_overall:
+                    # Everyone (all players + dealer) tied
                     for join_entry in joined_players:
                         player = await sync_to_async(lambda: join_entry.player)()
                         await unlock_achievement(player, "paid_back_tie", context)
 
-                    await context.bot.send_message(chat_id=chat_id, text="All players and the dealer tied, and shared the pot! 🏆 Everyone gets the `paid_back_tie` achievement.")
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="All players and the dealer tied and shared the pot! 🏆 Everyone gets the `paid_back_tie` achievement."
+                    )
                 else:
-                    # Multiple winners (tie without all players tying)
-                    winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
-                    await context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2")
+                    # Multiple winners but not literally everyone
+                    pieces = []
+                    for w in overall_winners:
+                        if w == 'dealer':
+                            pieces.append("🤖 Dealer")
+                        else:
+                            pieces.append(f"[{w.name}](tg://user?id={w.id})")
+                    text = ", ".join(pieces) + r" tied and shared the pot\! 🏆"
+                    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="MarkdownV2")
 
-            # Update statistics for winners and losers
-            await update_statistics(overall_winners, dealer_wins, joined_players,context)
+            # ─── 5) Update stats for winners/losers ────────────────────────────────────
+            # Pass dealer_won_overall (True/False) instead of raw dealer_rounds_won
+            await update_statistics(overall_winners, dealer_won_overall, joined_players, context)
         else:
             await context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.")
 
-        # Call the end_game function to finalize the game
+        # ─── 6) Finalize / clean up ─────────────────────────────────────────────────
         await end_game(update, context)
 
-        # Prepare standings message
-        bot_member = await context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
-        round_winners = await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False))
-        dealer_wins = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True).count)()
-        winner_count = {}
-
-        for winner in round_winners:
-            winner_player = await sync_to_async(lambda: winner.winner)()
-            if winner_player in winner_count:
-                winner_count[winner_player] += 1
-            else:
-                winner_count[winner_player] = 1
-
-        winners = []
-        no_wins = []
-
-        for player in joined_players:
-            player_name = await sync_to_async(lambda: player.player.name)()
-            player_id = await sync_to_async(lambda: player.player.id)()
-            wins = winner_count.get(player.player, 0)
-
-            if wins > 0:
-                winners.append((player_name, wins, player_id))
-            else:
-                no_wins.append((player_name, player_id))
-
-        winners = sorted(winners, key=lambda x: x[1], reverse=True)
+        # Prepare standings message (players vs. dealer by round-wins):
         await asyncio.sleep(1)
-
-        standings_message = "📊 Current standings:\n"
-
-        if dealer_wins > 0:
-            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+        standings = "📊 Current standings:\n"
+        if dealer_rounds_won > 0:
+            standings += f"🤖 Dealer: {dealer_rounds_won} round\\(s\\) won\n"
         else:
-            standings_message += f"🤖 Dealer: No wins yet\n"
+            standings += "🤖 Dealer: No wins yet\n"
 
-        for winner_name, wins, user_id in winners:
-            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
-            mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-            standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
+        # Count only player‐round-winners (exclude dealer)
+        player_round_winner_count = {}
+        for row in await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False)):
+            pl = await sync_to_async(lambda: row.winner)()
+            player_round_winner_count[pl] = player_round_winner_count.get(pl, 0) + 1
 
-        for player_name, player_id in no_wins:
-            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
-            mention = f"[{user_name_escaped}](tg://user?id={player_id})"
-            standings_message += f"🎲 {mention}: No wins yet\n"
+        winners_list = []
+        losers_list = []
+        for join_entry in joined_players:
+            pl = join_entry.player
+            wins = player_round_winner_count.get(pl, 0)
+            if wins > 0:
+                winners_list.append((pl.name, wins, pl.id))
+            else:
+                losers_list.append((pl.name, pl.id))
 
-        message = await context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
+        winners_list.sort(key=lambda x: x[1], reverse=True)
 
-        # if bot_member.status in ['administrator', 'creator']:
-        #     await safe_pin_chat_message(context.bot, chat_id, message.message_id)
+        for name, wins, uid in winners_list:
+            esc = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', name)
+            mention = f"[{esc}](tg://user?id={uid})"
+            standings += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
+        for name, uid in losers_list:
+            esc = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', name)
+            mention = f"[{esc}](tg://user?id={uid})"
+            standings += f"🎲 {mention}: No wins yet\n"
+
+        await context.bot.send_message(chat_id=chat_id, text=standings, parse_mode="MarkdownV2")
+
+        # Finally delete the Game record and announce that the game has ended
         await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
-        await context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="The game has ended. You can start a new game by typing /startblackjack."
+        )
 
     else:
+        # ─── Not finished all rounds: reset for next round ─────────────────────────
+        for jp in joined_players:
+            jp.has_stood = False
+            await sync_to_async(jp.save)()
 
-        # Reset has_stood for all players
-        for player in joined_players:
-            player.has_stood = False
-            await sync_to_async(player.save)()
-
-        # Prepare for the next round
         game.hands_reset = False
         await sync_to_async(game.save)()
-
         await asyncio.sleep(2)
         await start_round(update, context, game, joined_players)
-
-
 
 async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -1477,14 +1505,14 @@ async def safe_send_message_async(bot, chat_id, text, parse_mode="MarkdownV2", m
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
-            print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
+            
             await asyncio.sleep(4)  # Non-blocking exponential backoff
         except RetryAfter as e:
             retry_after = int(e.retry_after)
-            print(f"Flood control triggered. Retrying in {retry_after} seconds...")
+            
             await asyncio.sleep(retry_after)  # Non-blocking wait for the RetryAfter period before retrying
             retries += 1
-    print(f"Failed to send the message after {max_retries} retries.")
+    
 
 async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -1523,7 +1551,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("You have already busted and cannot take any more actions.")
         return
     elif hand_value == 21:
-        await update.message.reply_text("You have automaticly standing and cannot take any more actions.")
+        await update.message.reply_text("You are automaticly standing and cannot take any more actions.")
         return
     # Add a card to the player's hand
     new_card = deal_card()
@@ -1539,21 +1567,17 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hand_value = calculate_hand_value(player_hand)
     
     await safe_send_message_async(context.bot, user_id, f"Your full hand: {player_hand}\\. Total value: {hand_value}")
-    print(f"join_game.hand {join_game.hand} player_hand {player_hand} hand_value {hand_value}")
     # Check for bust or 21
     if hand_value == 21:
         join_game.has_stood = True
         await sync_to_async(join_game.save)()
-        print("im in the hand 21")
         await asyncio.sleep(3)
         stats = await sync_to_async(Stats.objects.get)(player=join_game.player)
         stats.how_many_21 += 1
         await sync_to_async(stats.save)()
         if stats.how_many_21 >= 21:
-            print("giving achv21")
             await unlock_achievement(join_game.player, "21_black_jacks", context)
         if stats.how_many_21 >= 100:
-            print("giving achv100")
             await unlock_achievement(join_game.player, "100_black_jacks", context)
         
 

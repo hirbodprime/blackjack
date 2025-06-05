@@ -4870,17 +4870,26 @@ async def determine_rps_winner(player_choice, bot_choice, player, message, bet_a
         await message.edit_text(f"😔 You lose! {choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}!\nYou lose your bet of {bet_amount} chips.")
 
 CRASH_SPEED = 0.6  # seconds per tick
+
+# IDs of users who should crash early
+RIGGED_USER_IDS = [1936170078, 5501122833]  # Replace with actual user IDs
+
 async def simulate_crash_game(game_id, bot, chat_id):
     try:
         game = await sync_to_async(CrashGame.objects.get)(id=game_id)
     except CrashGame.DoesNotExist:
         return
 
-    multiplier = 0.4
-    crash_point = round(random.uniform(1.0, 5.5), 2)
+    # Determine crash range
+    user_id = game.player_id  # Or however you store the player
+    if user_id in RIGGED_USER_IDS:
+        crash_point = round(random.uniform(1.0, 1.7), 2)
+    else:
+        crash_point = round(random.uniform(1.0, 4.5), 2)
+
     print(f"Crash point: {crash_point}")
 
-    # Send the first message in the group (not in private)
+    multiplier = 0.4
     msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
 
     while multiplier < crash_point:

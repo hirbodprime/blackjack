@@ -144,21 +144,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id   = tg_user.id
     user_name = tg_user.first_name
 
+    print(f"➡️ /start from {user_id} - {user_name}")
+    
     try:
-        # Existing player
         player = await sync_to_async(Player.objects.get)(id=user_id)
+        print(f"✅ Player {user_id} already exists")
 
-        # Ensure referral code
         if not player.referral_code:
+            print("🔧 Generating referral code for existing user")
             code = generate_referral_code()
             while await sync_to_async(Player.objects.filter(referral_code=code).exclude(id=user_id).exists)():
                 code = generate_referral_code()
             player.referral_code = code
             await sync_to_async(player.save)()
+            print(f"✅ Referral code set: {player.referral_code}")
 
     except Player.DoesNotExist:
-        # 🛡 If not private chat, ask them to open private chat
+        print(f"🆕 New player: {user_id}")
         if update.message.chat.type != ChatType.PRIVATE:
+            print("❗️ Not in private chat — aborting.")
             await update.message.reply_text(
                 "❗️Please message me in *private* to activate your profile.\nTap below 👇",
                 parse_mode="Markdown",
@@ -168,29 +172,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # ── Brand new player setup ──
         player = Player(id=user_id, name=user_name)
-
-        # Default chips
         base_chips = 20
         bonus_chips = 0
 
         if context.args:
             code = context.args[0].strip().upper()
+            print(f"🔍 Referral code passed: {code}")
             try:
                 referrer = await sync_to_async(Player.objects.get)(referral_code=code)
                 if referrer.id != user_id:
                     player.referrer = referrer
-                    bonus_chips = 400  # Player bonus
-                    referrer.chips += 1000  # Referrer bonus
+                    bonus_chips = 400
+                    referrer.chips += 1000
                     await sync_to_async(referrer.save)()
+                    print(f"🎯 Referral applied! Referrer: {referrer.id}")
+                else:
+                    print("⚠️ Self-referral attempt blocked.")
             except Player.DoesNotExist:
-                pass
+                print("❌ Referral code not valid.")
 
         player.chips = base_chips + bonus_chips
         await sync_to_async(player.save)()
+        print(f"💾 New player saved with {player.chips} chips")
 
-        # Send bonus messages if referred
         if bonus_chips:
             await context.bot.send_message(
                 chat_id=player.id,
@@ -202,18 +207,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=f"🎉 Your friend *{player.name}* joined using your referral! You earned *1000 chips*!",
                 parse_mode="Markdown"
             )
+            print("📨 Referral bonus messages sent")
 
-    # ✅ Always ensure stats exist
     try:
         await sync_to_async(Stats.objects.get)(player=player)
     except Stats.DoesNotExist:
         await sync_to_async(Stats.objects.create)(player=player, wins=0, loses=0, how_many_21=0)
+        print("📊 Stats created")
 
     await update.message.reply_text(
         "*BlackJack Bot Menu* 💥\n\nChoose an option below:",
         parse_mode="Markdown",
         reply_markup=build_main_menu()
     )
+    print("✅ Start complete")
 
 def build_special_passes_menu():
     keyboard = [

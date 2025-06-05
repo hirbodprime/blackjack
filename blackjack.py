@@ -338,14 +338,14 @@ def build_bj_potions_menu():
 def build_bj_boosters_menu():
     keyboard = [
         [
-            InlineKeyboardButton("📈 +500 XP Booster (15k)",    callback_data="shop:xp_booster_500"),
-            InlineKeyboardButton("📈 +2,000 XP Booster (60k)", callback_data="shop:xp_booster_2000"),
+            InlineKeyboardButton("📈 +500 XP Booster (20k)",    callback_data="shop:xp_booster_500"),
+            InlineKeyboardButton("📈 +2,000 XP Booster (100k)", callback_data="shop:xp_booster_2000"),
         ],
         [
-            InlineKeyboardButton("📈 +15,000 XP Booster (80k)", callback_data="shop:xp_booster_15000"),
+            InlineKeyboardButton("📈 +15,000 XP Booster (400k)", callback_data="shop:xp_booster_15000"),
         ],
         [
-            InlineKeyboardButton("📈 +50,000 XP Booster (260k)", callback_data="shop:xp_booster_50000"),
+            InlineKeyboardButton("📈 +50,000 XP Booster (1M)", callback_data="shop:xp_booster_50000"),
         ],
         [
             InlineKeyboardButton("🔙 Back to Shop",   callback_data="menu:shop"),
@@ -1280,10 +1280,10 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         print("[DEBUG] Branch: data == 'shop:bj_boosters'")
         text = (
             "📈 *Blackjack Boosters* 📈\n\n"
-            "• *+500 XP Booster* — 500 XP for 15,000 chips.\n"
-            "• *+2,000 XP Booster* — 2,000 XP for 60,000 chips.\n"
-            "• *+15,000 XP Booster* — 15,000 XP for 80,000 chips.\n"
-            "• *+50,000 XP Booster* — 50,000 XP for 260,000 chips.\n\n"
+            "• *+500 XP Booster* — 500 XP for 20000 chips.\n"
+            "• *+2,000 XP Booster* — 2,000 XP for 100000 chips.\n"
+            "• *+15,000 XP Booster* — 15,000 XP for 400000 chips.\n"
+            "• *+50,000 XP Booster* — 50,000 XP for 1000000 chips.\n\n"
             "Tap a booster below to purchase it."
         )
         await query.edit_message_text(

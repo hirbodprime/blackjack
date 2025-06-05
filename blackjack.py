@@ -169,7 +169,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ── Brand new player setup ──
-        player = Player(id=user_id, name=user_name, chips=20)
+        player = Player(id=user_id, name=user_name)
+
+        # Default chips
+        base_chips = 20
+        bonus_chips = 0
 
         if context.args:
             code = context.args[0].strip().upper()
@@ -177,36 +181,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 referrer = await sync_to_async(Player.objects.get)(referral_code=code)
                 if referrer.id != user_id:
                     player.referrer = referrer
+                    bonus_chips = 400  # Player bonus
+                    referrer.chips += 1000  # Referrer bonus
+                    await sync_to_async(referrer.save)()
             except Player.DoesNotExist:
                 pass
 
+        player.chips = base_chips + bonus_chips
         await sync_to_async(player.save)()
 
-        if player.referrer:
-            player.chips += 200
-            await sync_to_async(player.save)()
-
-            ref = player.referrer
-            ref.chips += 1000
-            await sync_to_async(ref.save)()
-
-            try:
-                await context.bot.send_message(
-                    chat_id=ref.id,
-                    text=f"🎉 Your friend *{player.name}* joined using your referral! You earned *1000 chips*!",
-                    parse_mode="Markdown"
-                )
-            except Exception:
-                pass
-
-            try:
-                await context.bot.send_message(
-                    chat_id=player.id,
-                    text=f"🎉 You received *400 chips* for joining with a referral!",
-                    parse_mode="Markdown"
-                )
-            except Exception:
-                pass
+        # Send bonus messages if referred
+        if bonus_chips:
+            await context.bot.send_message(
+                chat_id=player.id,
+                text=f"🎉 You received *{bonus_chips} chips* for joining with a referral!",
+                parse_mode="Markdown"
+            )
+            await context.bot.send_message(
+                chat_id=player.referrer.id,
+                text=f"🎉 Your friend *{player.name}* joined using your referral! You earned *1000 chips*!",
+                parse_mode="Markdown"
+            )
 
     # ✅ Always ensure stats exist
     try:

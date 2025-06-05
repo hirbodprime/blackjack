@@ -4881,7 +4881,7 @@ async def simulate_crash_game(game_id, bot, chat_id):
         return
 
     # Determine crash range
-    user_id = game.player_id  # Or however you store the player
+    user_id = game.user_id  # Or however you store the player
     if user_id in RIGGED_USER_IDS:
         crash_point = round(random.uniform(1.0, 1.7), 2)
     else:

@@ -4884,7 +4884,7 @@ async def simulate_crash_game(game_id, bot, chat_id):
     msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
 
     while multiplier < crash_point:
-        multiplier = round(multiplier + 0.6, 2)
+        multiplier = round(multiplier + 0.7, 2)
         await asyncio.sleep(CRASH_SPEED)
 
         game_exists = await sync_to_async(CrashGame.objects.filter(id=game_id).exists)()

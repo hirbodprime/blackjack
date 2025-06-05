@@ -4889,8 +4889,13 @@ async def simulate_crash_game(game_id, bot, chat_id):
 
     print(f"Crash point: {crash_point}")
 
-    multiplier = 0.4
-    msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
+    multiplier = 0.6
+    try:
+        msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
+    except Exception as e:
+        print(f"❌ Failed to send start message: {e}")
+        return
+
 
     while multiplier < crash_point:
         multiplier = round(multiplier + 0.7, 2)

@@ -4338,15 +4338,23 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 12e) Bounce Back: if overtaken by ≥2, bounce 5 steps
         for h in all_horses:
+            # Only consider horses that:
+            #  1) Have the “🦘 Bounce Back” spell,
+            #  2) Still haven't used their bounce (if you only want it once per race),
+            #  3) Are still running (position > 0).
             if "🦘 Bounce Back" in upgrades_map.get(h, []) and h not in bounce_used and positions[h] > 0:
-                overtakes = 0
-                for o in all_horses:
-                    if o == h:
-                        continue
-                    if prev_positions[o] > prev_positions[h] and positions[o] < positions[h]:
-                        overtakes += 1
-                if overtakes >= 2:
+                # Count how many horses are currently ahead of h (positions[o] < positions[h])
+                ahead_count = sum(
+                    1
+                    for o in all_horses
+                    if o != h and positions[o] < positions[h] and positions[o] > 0
+                )
+
+                if ahead_count >= 2:
+                    # Move this horse 5 steps forward (closer to finish)
                     positions[h] = max(0, positions[h] - 5)
+                    # If you only want the bounce‐forward to happen once per race, uncomment:
+                    # bounce_used.add(h)
 
         # 12f) Build the “race_display” string (25‐dash track)
         race_display = ""

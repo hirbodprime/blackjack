@@ -446,14 +446,24 @@ def deal_card():
 def calculate_hand_value(hand):
     value = 0
     aces = 0
-
     for card in hand:
-        if card in ['J', 'Q', 'K']:
-            value += 10
+        if card == 'K':
+            value += 9
+        elif card == 'Q':
+            value += 8
+        elif card == 'J':
+            value += 7
         elif card == 'A':
             aces += 1  # Count Aces separately
         else:
             value += card
+    # for card in hand:
+    #     if card in ['J', 'Q', 'K']:
+    #         value += 10
+    #     elif card == 'A':
+    #         aces += 1  # Count Aces separately
+    #     else:
+    #         value += card
 
     # Now calculate the value of Aces
     for _ in range(aces):

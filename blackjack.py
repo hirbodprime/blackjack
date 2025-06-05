@@ -453,7 +453,7 @@ ITEM_COSTS = {
     "10x_chip_potion":    100000,
     # Boosters
     "xp_booster_500":     20000,
-    "xp_booster_2000":    80000,
+    "xp_booster_2000":    100000,
     "xp_booster_15000":   400000,
     "xp_booster_50000":   1000000,
     # Special Passes

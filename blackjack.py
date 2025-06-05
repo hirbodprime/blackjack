@@ -4877,7 +4877,7 @@ async def simulate_crash_game(game_id, bot, chat_id):
         return
 
     multiplier = 0.4
-    crash_point = round(random.uniform(1.0, 3.5), 2)
+    crash_point = round(random.uniform(1.0, 5.5), 2)
     print(f"Crash point: {crash_point}")
 
     # Send the first message in the group (not in private)

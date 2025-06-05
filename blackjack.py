@@ -173,7 +173,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         player = Player(id=user_id, name=user_name)
-        base_chips = 20
+        base_chips = 200
         bonus_chips = 0
 
         if context.args:

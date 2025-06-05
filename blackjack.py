@@ -177,7 +177,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bonus_chips = 0
 
         if context.args:
-            code = context.args[0].strip().upper()
+            code = context.args[0].strip()
             print(f"🔍 Referral code passed: {code}")
             try:
                 referrer = await sync_to_async(Player.objects.get)(referral_code__iexact=code)

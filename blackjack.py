@@ -4874,7 +4874,7 @@ async def simulate_crash_game(game_id, bot, chat_id):
     except CrashGame.DoesNotExist:
         return
 
-    multiplier = 0.2
+    multiplier = 0.4
     crash_point = round(random.uniform(1.0, 3.5), 2)
     print(f"Crash point: {crash_point}")
 

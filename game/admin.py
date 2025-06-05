@@ -20,8 +20,52 @@ from .models import (
     HorseAppliedUpgrade,
     HorseSale,
     CrashGame,
-    HorseRaceWin
+    HorseRaceWin,
+    PlayerItem, PlayerActiveItem
 )
+@admin.register(PlayerItem)
+class PlayerItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "player",
+        "item_type",
+        "quantity",
+    )
+    list_editable = ("quantity",)
+    list_filter = ("item_type",)
+    search_fields = (
+        "player__name",
+        "item_type",
+    )
+    autocomplete_fields = ("player",)
+    ordering = ("player__name", "item_type")
+
+
+@admin.register(PlayerActiveItem)
+class PlayerActiveItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "player",
+        "item_type",
+        "activated_at",
+        "is_active",
+    )
+    list_filter = (
+        "item_type",
+        "is_active",
+    )
+    search_fields = (
+        "player__name",
+        "item_type",
+    )
+    readonly_fields = ("activated_at",)
+    autocomplete_fields = ("player",)
+    ordering = ("-activated_at",)
+
+
+
+
+
+
+
 
 @admin.register(HorseRaceWin)
 class HorseRaceWinAdmin(admin.ModelAdmin):
@@ -216,6 +260,7 @@ class HorseAppliedUpgradeAdmin(admin.ModelAdmin):
         "owner",
         "horse",
         "upgrade",
+        "uses_remaining",
     )
     list_filter = ("upgrade",)
     search_fields = ("owner__name", "horse__horse_number", "upgrade__name")
@@ -228,6 +273,8 @@ class HorseAppliedUpgradeAdmin(admin.ModelAdmin):
                     "owner",
                     "horse",
                     "upgrade",
+                    "uses_remaining",
+
                 ),
             },
         ),

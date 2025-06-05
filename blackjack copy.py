@@ -1,5 +1,5 @@
 import random
-from telegram import Update, Bot
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes, MessageHandler, filters,CallbackQueryHandler
 from telegram.helpers import escape_markdown
@@ -12,21 +12,849 @@ import django
 
 # Set the environment variable to point to your Django settings module
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
+from django.db.models import Sum, Avg, Count
 
 # Initialize Django
 django.setup()
 from dotenv import load_dotenv
 import time
 import re
-from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification,Achievement,PlayerAchievement
+from game.models import (Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,
+                         NextGameNotification,Achievement,ReferralEarning,
+                         PlayerAchievement,HorseRaceWin,OwnedHorse,
+                         HorseAppliedUpgrade,HorseSale,CrashGame,PlayerUpgrade,HorseUpgrade,generate_referral_code)
+
 from django.core.exceptions import ObjectDoesNotExist
 from asgiref.sync import sync_to_async
+from game.models import HorseRace, HorseBet, Player
 
 
 from datetime import datetime, timedelta
 from django.utils import timezone
 
 load_dotenv()
+from asgiref.sync import sync_to_async
+
+async def apply_referral_bonus(
+    winner: Player,
+    won_amount: int,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    """
+    If `winner` was referred by someone, give that referrer 10% of won_amount
+    (rounded down). Do NOT deduct from winner. Record the earning, and
+    send the referrer a private Telegram message.
+    """
+    # ── (1) Fetch the referrer safely in a thread (no direct `winner.referrer` access)
+    ref = await sync_to_async(lambda: winner.referrer)()
+    if ref is None:
+        return  # no referrer, no bonus
+
+    bonus = int(won_amount * 0.10)
+    if bonus <= 0:
+        return
+
+    # ── (2) Add bonus to referrer’s chips and total_referral_bonus
+    # We already have `ref` as a Player instance; updating fields is fine in memory.
+    ref.chips += bonus
+    ref.total_referral_bonus += bonus
+    # Persist it asynchronously
+    await sync_to_async(ref.save)()
+
+    # ── (3) Create the ReferralEarning record in a thread
+    await sync_to_async(ReferralEarning.objects.create)(
+        referrer=ref,
+        referred=winner,
+        amount=bonus
+    )
+
+    # ── (4) Finally, DM the referrer in a safe async call
+    try:
+        await context.bot.send_message(
+            chat_id=ref.id,
+            text=(
+                f"🎉 Hey {ref.name}! You just earned *{bonus} chips* "
+                f"because {winner.name} won {won_amount} chips. Congrats! 🎁"
+            ),
+            parse_mode="Markdown"
+        )
+    except Exception:
+        # If the bot can’t DM (user didn’t open a private chat), fail silently.
+        pass
+
+
+
+# NEW MENU
+
+
+
+
+
+
+
+
+
+def build_main_menu():
+    keyboard = [
+
+        [
+        InlineKeyboardButton("👤 Profile", callback_data="menu:profile"),
+        InlineKeyboardButton("🏆 Leaderboards", callback_data="menu:leaderboards")
+        ],
+        [
+        InlineKeyboardButton("🛍️ Shop", callback_data="menu:shop"),
+        InlineKeyboardButton("🗣️ Social", callback_data="menu:social")
+        ],
+        [
+        InlineKeyboardButton("🎯 Quests & Rewards", callback_data="menu:quests"),
+        InlineKeyboardButton("🏁 Tournaments & Events", callback_data="menu:tournaments")
+        ],
+        [
+        InlineKeyboardButton("⚙️ Settings", callback_data="menu:settings"),
+        InlineKeyboardButton("❓ Support", callback_data="menu:support")
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_user   = update.message.from_user
+    user_id   = tg_user.id
+    user_name = tg_user.first_name
+
+    # ── DEBUG (optional) ─────────────────────────────────────────────────────
+    # if context.args:
+    #     await update.message.reply_text(f"DEBUG: context.args = {context.args}")
+    # else:
+    #     await update.message.reply_text("DEBUG: context.args is empty.")
+
+    try:
+        # If this user already has a Player record, just show the menu
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+
+        # If for any reason their referral_code is still blank, generate one now
+        if not player.referral_code:
+            code = generate_referral_code()
+            # Ensure uniqueness
+            while await sync_to_async(Player.objects.filter(referral_code=code).exclude(id=user_id).exists)():
+                code = generate_referral_code()
+            player.referral_code = code
+            await sync_to_async(player.save)()
+
+    except Player.DoesNotExist:
+        # ── This is a brand‐new user ───────────────────────────────────────────
+        # Give them 20 base chips, plus 200 bonus if they used a valid referral code
+        player = Player(id=user_id, name=user_name, chips=20)
+
+        if context.args:
+            code = context.args[0].strip().upper()
+            try:
+                referrer_player = await sync_to_async(Player.objects.get)(referral_code=code)
+                # Don’t let someone refer themselves
+                if referrer_player.id != user_id:
+                    player.referrer = referrer_player
+            except Player.DoesNotExist:
+                # Invalid code → treat as no referrer
+                pass
+
+        # Saving here auto‐generates player.referral_code via Player.save()
+        await sync_to_async(player.save)()
+
+        # ── (A) If they joined via someone’s referral, give bonuses ─────────────
+        if player.referrer:
+            # 1) Give the new user +200 chips
+            player.chips += 200
+            await sync_to_async(player.save)()
+
+            # 2) Give the referrer +1000 chips
+            ref = player.referrer
+            ref.chips += 1000
+            await sync_to_async(ref.save)()
+
+            # 3) DM the referrer to notify them
+            try:
+                await context.bot.send_message(
+                    chat_id=ref.id,
+                    text=(
+                        f"🎉 Hey {ref.name}! Your friend *{player.name}* just joined using "
+                        f"your referral code. You’ve been awarded *1000 chips*! 🏆"
+                    ),
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                # If referrer never opened a private chat, Telegram will reject the DM.
+                pass
+
+            # 4) DM the new user to notify them of their 200‐chip bonus
+            try:
+                await context.bot.send_message(
+                    chat_id=player.id,
+                    text=(
+                        f"🎉 Welcome, {player.name}!"
+                        "you’ve received a bonus of *400 chips*! 💰\n"
+                        "Enjoy the game!"
+                    ),
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+
+    # ── Finally, send the main menu to either the new or returning user ─────────
+    await update.message.reply_text(
+        "*BlackJack Bot Menu* 💥\n\nChoose an option below:",
+        parse_mode="Markdown",
+        reply_markup=build_main_menu()
+    )
+
+
+# 1. Profile submenu
+def build_profile_menu():
+    keyboard = [
+        [
+            InlineKeyboardButton("🏅 Achievements", callback_data="profile:achievements"),
+            InlineKeyboardButton("📊 Stats",        callback_data="profile:stats"),
+        ],
+        [
+            InlineKeyboardButton("💎 My Tokens",    callback_data="profile:mytokens"),
+            # Change this line ↓ to match your handler
+            InlineKeyboardButton("🐎 My Races",     callback_data="profile:myraces"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def build_leaderboards_menu():
+    keyboard = [
+        [
+            InlineKeyboardButton("🐎 Horse Leaderboard", callback_data="menu:horse_leaderboard"),
+            InlineKeyboardButton("🌍 Global Leaderboard", callback_data="menu:global_leaderboard"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# 2. Shop submenu (placeholder)
+def build_shop_menu():
+    keyboard = [
+        [
+            InlineKeyboardButton("🛒 Browse Items", callback_data="shop:browse"),
+            InlineKeyboardButton("💰 Buy Tokens", callback_data="shop:buytokens"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+
+# 4. Tournaments & Events submenu
+def build_tournaments_menu():
+    keyboard = [
+        [
+            InlineKeyboardButton("🏁 Upcoming Races", callback_data="tournaments:upcoming_races"),
+        ],
+        [
+            InlineKeyboardButton("🎫 Join Tournament", callback_data="tournaments:join"),
+            InlineKeyboardButton("🏅 My Tournament History", callback_data="tournaments:history"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# 5. Quests & Rewards submenu
+def build_quests_menu():
+    keyboard = [
+        [
+            InlineKeyboardButton("💎 Daily Bonus", callback_data="quests:daily_bonus"),
+            InlineKeyboardButton("📆 Daily Quests", callback_data="quests:daily_quests"),
+        ],
+        [
+            InlineKeyboardButton("📅 Weekly Challenges", callback_data="quests:weekly_challenges"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# 6. Social submenu
+def build_social_menu():
+    keyboard = [
+        [
+            InlineKeyboardButton("👥 Invite a Friend", callback_data="social:invite"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# 7. Settings submenu
+def build_settings_menu():
+    keyboard = [
+        [
+            InlineKeyboardButton("🔔 Notification Preferences", callback_data="settings:notifications"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# 8. Support submenu
+def build_support_menu():
+    keyboard = [
+        [
+            InlineKeyboardButton("✉️ Contact Support", callback_data="support:contact"),
+            InlineKeyboardButton("📖 Help & FAQs", callback_data="support:help_faqs"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+def build_back_to_profile_button():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Profile", callback_data="menu:profile")]])
+
+async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    await query.answer()
+# Inside your handle_menu_callback(...) function:
+
+    # ── (Social submenu) ─────────────────────────────────────────────────────────
+    if data == "menu:social":
+        user_id = query.from_user.id
+
+        # 1) Ensure this Player exists and has a referral_code
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+        except Player.DoesNotExist:
+            # If the user somehow has no Player record, prompt them to /start
+            await query.edit_message_text(
+                text="You don’t have a player profile yet. Type /start to create one.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")]
+                ])
+            )
+            return
+
+        # If for any reason referral_code is blank (unlikely if save() logic is correct), generate and save one
+        if not player.referral_code:
+            from .models import generate_referral_code  # Or import at top if preferred
+            code = generate_referral_code()
+            # Make sure it's unique
+            while await sync_to_async(Player.objects.filter(referral_code=code).exclude(id=user_id).exists)():
+                code = generate_referral_code()
+            player.referral_code = code
+            await sync_to_async(player.save)()
+        else:
+            code = player.referral_code
+
+        # 2) Build the user’s personal referral link
+        bot_username  = context.bot.username  # e.g. "MyBlackjackBot"
+        referral_link = f"https://t.me/{bot_username}?start={code}"
+
+        # 3) Fetch all friends this user has referred
+        referred_qs = await sync_to_async(
+            lambda: list(
+                Player.objects.filter(referrer__id=user_id).values("id", "name")
+            )
+        )()
+
+        # 4) Start composing the Social menu text
+        lines = [
+            "🤝 *Social Menu* 🤝",
+            "",
+            f"Your referral code: *`{code}`*",
+            f"Share this link to invite friends and earn 1000:\n`{referral_link}`\n",
+            "Friends you referred:"
+        ]
+
+        total_bonus = 0
+        if referred_qs:
+            # For each referred friend, sum the ReferralEarning amounts
+            for friend in referred_qs:
+                fid   = friend["id"]
+                fname = friend["name"]
+
+                bonus_q = await sync_to_async(
+                    lambda: ReferralEarning.objects.filter(
+                        referrer__id=user_id,
+                        referred__id=fid
+                    ).aggregate(total=Sum("amount"))
+                )()
+                friend_bonus = bonus_q["total"] or 0
+                total_bonus += friend_bonus
+
+                lines.append(f" • {fname:<10} (earned you {friend_bonus} chips)")
+
+            lines.append("")  # blank line before total
+            lines.append(f"Total referral bonus: *{total_bonus}* chips")
+        else:
+            lines.append(" • (you haven’t referred anyone yet)\n")
+            lines.append("Total referral bonus: *0* chips")
+
+        text = "\n".join(lines)
+
+        # 5) Send (edit) the message with a “Back to Main” button
+        keyboard = [
+            [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")]
+        ]
+        await query.edit_message_text(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data == "menu:horse_leaderboard":
+        # 1) Annotate wins & chips per player from HorseRaceWin
+        leaderboard_qs = await sync_to_async(
+            lambda: list(
+                HorseRaceWin.objects
+                    .filter(user__isnull=False)
+                    .values("user__id", "user__name")
+                    .annotate(
+                        wins=Count("id"),
+                        chips=Sum("amount")
+                    )
+                    .order_by("-wins", "-chips")
+            )
+        )()
+
+        # Show only top 5
+        top5 = leaderboard_qs[:5]
+        user_id = query.from_user.id
+
+        # Find the calling user’s index (0-based) in the full leaderboard list
+        user_index = next(
+            (idx for idx, e in enumerate(leaderboard_qs) if e["user__id"] == user_id),
+            None
+        )
+
+        lines = ["🐎 *Horse Leaderboard* 🐎", ""]  # renamed header
+
+        # (A.1) Top 5 entries
+        for idx, entry in enumerate(top5, start=1):
+            name = entry["user__name"] or f"User {entry['user__id']}"
+            wins = entry["wins"]
+            chips_amt = entry["chips"] or 0
+            # Fixed‐width padding for name (~12 chars) so columns align
+            lines.append(
+                f"{idx:>2}. {name:<12}  🏆 Wins: {wins:<3}  💰 Chips: {chips_amt}"
+            )
+
+        lines.append("")  # blank line before “Your Position”
+
+        # (A.2) Your Position in the full leaderboard
+        if user_index is None:
+            lines.append("🏅 *Your Position* (Not Ranked Yet):")
+            lines.append("   • No wins recorded.")
+        else:
+            user_rank = user_index + 1
+            lines.append(f"🏅 *Your Position* (Rank {user_rank}):")
+
+            # Show two above and two below the user (if they exist)
+            start = max(0, user_index - 2)
+            end = min(len(leaderboard_qs), user_index + 3)
+            for idx2 in range(start, end):
+                e = leaderboard_qs[idx2]
+                name = e["user__name"] or f"User {e['user__id']}"
+                wins = e["wins"]
+                chips_amt = e["chips"] or 0
+                display_rank = idx2 + 1
+                prefix = "👉" if e["user__id"] == user_id else "   "
+                lines.append(
+                    f"{prefix}{display_rank:>2}. {name:<12}  🏆 Wins: {wins:<3}  💰 Chips: {chips_amt}"
+                )
+
+        text = "\n".join(lines)
+
+        # Single “Back to Main” button
+        keyboard = [[InlineKeyboardButton("🔙 Back to Leaderboards", callback_data="menu:leaderboards")]]
+
+        await query.edit_message_text(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # ── (B) Global Leaderboard ────────────────────────────────────────────────────
+    if data == "menu:global_leaderboard":
+        user_id = query.from_user.id
+
+        # (A) Fetch top 5 players by total wins from Stats
+        top_players = await sync_to_async(list)(
+            Stats.objects.select_related("player")
+                         .annotate(total_wins=F("wins"))
+                         .order_by("-total_wins")[:5]
+        )
+
+        # Build plain-text lines for Top 5
+        lines = ["🌍 Global Leaderboard 🌍", ""]
+        if top_players:
+            for idx, stats in enumerate(top_players, start=1):
+                # Truncate names longer than 8 chars
+                name = stats.player.name
+                if len(name) > 8:
+                    name = name[:5] + "..."
+                # Format: "1. Reza     🏆 Wins: 19   💰 Chips: 3750"
+                line = f"{idx:<2}. {name:<8} 🏆 Wins: {stats.wins:<3}   💰 Chips: {stats.player.chips}"
+                lines.append(line)
+            lines.append("")  # blank separator
+        else:
+            lines.append("No players have ranked yet.")
+            lines.append("")
+
+        # (B) Fetch every player ordered by wins to find this user’s rank & neighbors
+        all_players = await sync_to_async(list)(
+            Stats.objects.select_related("player")
+                         .annotate(total_wins=F("wins"))
+                         .order_by("-total_wins")
+        )
+
+        user_rank = None
+        nearby_lines = []
+        for idx, stats in enumerate(all_players, start=1):
+            if stats.player.id == user_id:
+                user_rank = idx
+                start = max(idx - 2, 0)
+                end = min(idx + 2, len(all_players))
+                slice_players = all_players[start:end]
+                for r, pstats in enumerate(slice_players, start=start + 1):
+                    name = pstats.player.name
+                    if len(name) > 8:
+                        name = name[:5] + "..."
+                    prefix = "👉" if pstats.player.id == user_id else "  "
+                    line = (
+                        f"{prefix}{r:<2}. {name:<8} 🏆 Wins: {pstats.wins:<3}   "
+                        f"💰 Chips: {pstats.player.chips}"
+                    )
+                    nearby_lines.append(line)
+                break
+
+        if user_rank:
+            lines.append(f"🏅 Your Position (Rank {user_rank}):")
+            lines.extend(nearby_lines)
+        else:
+            lines.append("🏅 Your Position (Not Ranked Yet):")
+            lines.append("   • No wins recorded.")
+
+        # Join into a single Markdown string
+        text = "\n".join(lines)
+
+        # “Back to Leaderboards” button
+        keyboard = [[InlineKeyboardButton("🔙 Back to Leaderboards", callback_data="menu:leaderboards")]]
+
+        await query.edit_message_text(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # ── (C) Fall‐through to other submenus (Shop, Quests, etc.) ──────────────────
+    if data == "menu:shop":
+        await query.edit_message_text(
+            text="🛍️ *Shop Menu* 🛍️\n\nChoose an option below:",
+            parse_mode="Markdown",
+            reply_markup=build_shop_menu()
+        )
+        return
+
+    # ── (1) Main Menu (reset text + buttons) ────────────────────────────────────
+    if data == "menu:main":
+        await query.edit_message_text(
+            text="*BlackJack Bot Menu* 💥\n\nChoose an option below:",
+            parse_mode="Markdown",
+            reply_markup=build_main_menu()
+        )
+        return
+
+    # ── (2) Profile submenu selected (reset text → “Profile Menu” + buttons) ────
+    if data == "menu:profile":
+        await query.edit_message_text(
+            text="👤 *Profile Menu* 👤\n\nSelect an action:",
+            parse_mode="Markdown",
+            reply_markup=build_profile_menu()
+        )
+        return
+
+    # ── (3) Achievements (Profile → Achievements) ───────────────────────────────
+    if data == "profile:achievements":
+        user_id    = query.from_user.id
+        user_first = query.from_user.first_name
+
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+        except Player.DoesNotExist:
+            await query.edit_message_text(
+                text=f"{user_first}, you don't have a player profile. Start a game first!",
+                reply_markup=build_back_to_profile_button()
+            )
+            return
+
+        player_achievements = await sync_to_async(list)(
+            PlayerAchievement.objects.filter(player=player).select_related("achievement")
+        )
+        total_achievements = await sync_to_async(Achievement.objects.count)()
+
+        if not player_achievements:
+            await query.edit_message_text(
+                text=(
+                    f"{user_first}, you haven't unlocked any achievements yet.\n\n"
+                    f"0/{total_achievements} achievements unlocked."
+                ),
+                reply_markup=build_back_to_profile_button()
+            )
+            return
+
+        unlocked_count = len(player_achievements)
+        achievements_list = "\n".join([
+            f"🏅 *{pa.achievement.name}*: {pa.achievement.description}"
+            for pa in player_achievements
+        ])
+
+        await query.edit_message_text(
+            text=(
+                f"🎉 *{user_first}'s Achievements* 🎉\n\n"
+                f"Progress: {unlocked_count}/{total_achievements} achievements unlocked.\n\n"
+                f"{achievements_list}"
+            ),
+            parse_mode="Markdown",
+            reply_markup=build_back_to_profile_button()
+        )
+        return
+
+    # ── (4) Stats (Profile → Stats) ──────────────────────────────────────────────
+    if data == "profile:stats":
+        user_id    = query.from_user.id
+        user_first = query.from_user.first_name
+
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+            stats  = await sync_to_async(Stats.objects.get)(player=player)
+
+            # Normalize XP/Level before calculating
+            await normalize_player_level_xp(player)
+
+            xp         = player.xp
+            level      = player.level
+            threshold  = xp_for_next_level(level)
+            xp_to_next = threshold - xp
+
+            text = (
+                f"🎮 *Your Stats* 🎮\n\n"
+                f"🏆 *Wins*: {stats.wins}\n"
+                f"❌ *Losses*: {stats.loses}\n"
+                f"💥 *Blackjacks*: {stats.how_many_21}\n"
+                f"💪 *XP (this level)*: {xp}\n"
+                f"📈 *Level*: {level}\n"
+                f"🔜 *XP to next level*: {xp_to_next} XP\n"
+            )
+        except ObjectDoesNotExist:
+            # First-time user: create Player & Stats
+            player = await sync_to_async(Player.objects.create)(
+                id=user_id, name=user_first, chips=200, xp=0, level=1
+            )
+            stats  = await sync_to_async(Stats.objects.create)(
+                wins=0, loses=0, how_many_21=0, player=player
+            )
+            text = (
+                f"Welcome to Blackjack, {user_first}! You have been given 20 💰 chips to start.\n\n"
+                f"🎮 *Your Stats* 🎮\n\n"
+                f"🏆 *Wins*: {stats.wins}\n"
+                f"❌ *Losses*: {stats.loses}\n"
+                f"💥 *Blackjacks*: {stats.how_many_21}\n"
+                f"💪 *XP (this level)*: 0\n"
+                f"📈 *Level*: 1\n"
+                f"🔜 *XP to next level*: 50 XP\n\n"
+                "Keep playing to earn XP and level up!"
+            )
+
+        await query.edit_message_text(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=build_back_to_profile_button()
+        )
+        return
+
+    # ── (5) My Tokens (Profile → My Tokens) ───────────────────────────────────────
+    if data == "profile:mytokens":
+        user_id = query.from_user.id
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+            text = (
+                f"💰 *Chips*: {player.chips}\n"
+                f"💵 *Real Tokens*: {player.real_tokens}\n"
+            )
+        except ObjectDoesNotExist:
+            text = "You don't have a player profile yet. Start the bot in private to create one."
+
+        await query.edit_message_text(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=build_back_to_profile_button()
+        )
+        return
+
+    # ── (6) My Races (Profile → My Races) ────────────────────────────────────────
+    if data == "profile:myraces":
+        user_id = query.from_user.id
+
+        # 1) Distinct races participated
+        races_participated = await sync_to_async(
+            lambda: HorseBet.objects.filter(user_id=user_id)
+                                     .values_list("race", flat=True)
+                                     .distinct()
+                                     .count()
+        )()
+
+        # 2) Total chips wagered
+        total_wagered_q = await sync_to_async(
+            lambda: HorseBet.objects.filter(user_id=user_id)
+                                     .aggregate(total=Sum("bet_amount"))
+        )()
+        total_wagered = total_wagered_q["total"] or 0
+
+        # 3) Average bet size
+        avg_bet_q = await sync_to_async(
+            lambda: HorseBet.objects.filter(user_id=user_id)
+                                     .aggregate(avg=Avg("bet_amount"))
+        )()
+        avg_bet = avg_bet_q["avg"] or 0
+
+        # 4) Total horses owned
+        horses_owned = await sync_to_async(
+            lambda: OwnedHorse.objects.filter(user__id=user_id).count()
+        )()
+
+        # 5) Total wins
+        total_wins = await sync_to_async(
+            lambda: HorseRaceWin.objects.filter(user__id=user_id).count()
+        )()
+
+        # 6) Total chips earned
+        total_earned_q = await sync_to_async(
+            lambda: HorseRaceWin.objects.filter(user__id=user_id)
+                                         .aggregate(total=Sum("amount"))
+        )()
+        total_earned = total_earned_q["total"] or 0
+
+        # 7) Horse‐Level Win Rate
+        horse_nums = await sync_to_async(
+            lambda: list(
+                OwnedHorse.objects.filter(user__id=user_id)
+                                  .values_list("horse_number", flat=True)
+            )
+        )()
+
+        if horse_nums:
+            win_rate_list = []
+            for hnum in horse_nums:
+                wins_for_horse = await sync_to_async(
+                    lambda: HorseRaceWin.objects.filter(
+                        user__id=user_id, horse_number=hnum
+                    ).count()
+                )()
+                bets_on_horse = await sync_to_async(
+                    lambda: HorseBet.objects.filter(
+                        user_id=user_id, horse_number=hnum
+                    ).count()
+                )()
+                if bets_on_horse > 0:
+                    win_rate_list.append(wins_for_horse / bets_on_horse)
+                else:
+                    win_rate_list.append(0.0)
+
+            horse_win_rate = (sum(win_rate_list) / len(win_rate_list)) * 100
+        else:
+            horse_win_rate = 0.0
+
+        # 8) Player Win Rate
+        races_won = await sync_to_async(
+            lambda: HorseRaceWin.objects.filter(user__id=user_id)
+                                        .values_list("race", flat=True)
+                                        .distinct()
+                                        .count()
+        )()
+
+        if races_participated > 0:
+            player_win_rate = (races_won / races_participated) * 100
+        else:
+            player_win_rate = 0.0
+
+        lines = [
+            "🎮 *Your Horse‐Racing Stats* 🎮",
+            "",
+            f"🐎 Races participated: *{races_participated}*",
+            f"💰 Total chips wagered: *{total_wagered:,}* chips",
+            f"📊 Avg. bet size: *{avg_bet:.2f}* chips",
+            f"🏠 Horses owned: *{horses_owned}*",
+            f"🏆 Total wins: *{total_wins}*",
+            f"🎉 Total chips earned: *{total_earned:,}* chips",
+            f"🐴 Horse‐level win rate: *{horse_win_rate:.1f}%*",
+            f"🎲 Player win rate: *{player_win_rate:.1f}%*",
+        ]
+        text = "\n".join(lines)
+
+        await query.edit_message_text(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back to Profile", callback_data="menu:profile")]
+            ])
+        )
+        return
+
+    # ── (7) Other submenus (Shop, Leaderboards, etc.) ───────────────────────────
+    if data == "menu:shop":
+        await query.edit_message_text(
+            text="🛍️ *Shop Menu* 🛍️\n\nChoose an option:",
+            parse_mode="Markdown",
+            reply_markup=build_shop_menu()
+        )
+        return
+
+    if data == "menu:leaderboards":
+        await query.edit_message_text(
+            text="🏆 *Leaderboards* 🏆\n\nChoose one:",
+            parse_mode="Markdown",
+            reply_markup=build_leaderboards_menu()
+        )
+        return
+
+    if data == "menu:tournaments":
+        await query.edit_message_text(
+            text="🏁 *Tournaments & Events* 🏁\n\nChoose an action:",
+            parse_mode="Markdown",
+            reply_markup=build_tournaments_menu()
+        )
+        return
+
+    if data == "menu:quests":
+        await query.edit_message_text(
+            text="🎯 *Quests & Rewards* 🎯\n\nChoose an action:",
+            parse_mode="Markdown",
+            reply_markup=build_quests_menu()
+        )
+        return
+
+    if data == "menu:social":
+        await query.edit_message_text(
+            text="🗣️ *Social* 🗣️\n\nChoose an option:",
+            parse_mode="Markdown",
+            reply_markup=build_social_menu()
+        )
+        return
+
+    if data == "menu:settings":
+        await query.edit_message_text(
+            text="⚙️ *Settings* ⚙️\n\nChoose an option:",
+            parse_mode="Markdown",
+            reply_markup=build_settings_menu()
+        )
+        return
+
+    if data == "menu:support":
+        await query.edit_message_text(
+            text="❓ *Support* ❓\n\nChoose an option:",
+            parse_mode="Markdown",
+            reply_markup=build_support_menu()
+        )
+        return
+
 
 
 
@@ -353,25 +1181,25 @@ async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
-    user_name = update.message.from_user.first_name
+# async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     user_id = update.message.from_user.id
+#     user_name = update.message.from_user.first_name
 
-    try:
-        # Check if the player already exists (using sync_to_async)
-        player = await sync_to_async(Player.objects.get)(id=user_id)
-        await update.message.reply_text("Welcome back to Blackjack!")
+#     try:
+#         # Check if the player already exists (using sync_to_async)
+#         player = await sync_to_async(Player.objects.get)(id=user_id)
+#         await update.message.reply_text("Welcome back to Blackjack!")
 
-    except ObjectDoesNotExist:
-        # If the player does not exist, create the Player and Stats instance (using sync_to_async)
-        player = await sync_to_async(Player.objects.create)(id=user_id, name=user_name, chips=200)
-        await sync_to_async(Stats.objects.create)(wins=0, loses=0, how_many_21=0, player=player)
+#     except ObjectDoesNotExist:
+#         # If the player does not exist, create the Player and Stats instance (using sync_to_async)
+#         player = await sync_to_async(Player.objects.create)(id=user_id, name=user_name, chips=200)
+#         await sync_to_async(Stats.objects.create)(wins=0, loses=0, how_many_21=0, player=player)
         
-        # Send a welcome message and suggest using /help
-        await update.message.reply_text(
-            f"Welcome to Blackjack, {user_name}! You have been given 200 💰chips to start.\n"
-            "Type /help to see all available commands."
-        )
+#         # Send a welcome message and suggest using /help
+#         await update.message.reply_text(
+#             f"Welcome to Blackjack, {user_name}! You have been given 200 💰chips to start.\n"
+#             "Type /help to see all available commands."
+#         )
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id   = update.message.from_user.id
     user_name = update.message.from_user.first_name
@@ -444,7 +1272,17 @@ def deal_card():
 def calculate_hand_value(hand):
     value = 0
     aces = 0
-
+    # for card in hand:
+    #     if card == 'K':
+    #         value += 9
+    #     elif card == 'Q':
+    #         value += 8
+    #     elif card == 'J':
+    #         value += 7
+    #     elif card == 'A':
+    #         aces += 1  # Count Aces separately
+    #     else:
+    #         value += card
     for card in hand:
         if card in ['J', 'Q', 'K']:
             value += 10
@@ -1203,7 +2041,7 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
             (19 <= dealer_value <= 20 and selected_option == 3) or
             (dealer_value == 21 and selected_option == 4) 
         )
-        print(f"Correct guess: {correct_guess}")
+        
 
         if correct_guess:
             player_playerentry = await sync_to_async(lambda: join_entry.player)()
@@ -1211,15 +2049,15 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
             player_stats.correct_dealer_guesses += 1
             await sync_to_async(player_stats.save)()
             player_name = await sync_to_async(lambda: join_entry.player.name)()
-            print(f"Player stats updated for {player_name}.")
+            
 
             pot_amount = game.pot  # Ensure you have access to the pot
-            print(f"Pot amount: {pot_amount}")
+            
 
             bonus = pot_amount // 3  # Calculate 1/3 of the pot
             
             await add_xp(player_playerentry, 50, context)
-            print(f"{player_name} receives a bonus of {bonus} chips!")
+            
 
             # Store player ID in the poll data for later use
             context.bot_data['poll_data'][poll_id]['chips'] = bonus
@@ -1230,28 +2068,28 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             player_name = await sync_to_async(lambda: join_entry.player.name)()
             context.bot_data['poll_data'][poll_id]['wrong_guess_player_ids'].append(player_name)
-            print(f"{player_name} guessed incorrectly.")
+            
     else:
-        print("Poll ID does not match.")
+            print("[DEBUG] si")
+async def update_statistics(overall_winners, dealer_won_overall, joined_players, context):
+    """
+    overall_winners: list of Player instances and/or the string 'dealer'
+    dealer_won_overall: True if dealer won the final comparison, False otherwise
+    joined_players: iterable of JoinGame entries (each has .player)
+    """
 
-
-async def update_statistics(winners, dealer_wins, joined_players, context):
-    # Initialize a list for non-winners
-    non_winners = []
-
-    # Update stats for each winner
-    for winner in winners:
-        if winner == 'dealer':
-            dealer = await sync_to_async(Dealer.objects.first)()  # Assuming only one dealer
-            dealer.wins += 1
-            await sync_to_async(dealer.save)()
+    # ─── 1) Handle winners ─────────────────────────────────────────────────────────
+    for winner in overall_winners:
+        if winner == "dealer":
+            await sync_to_async(_increment_dealer_wins)()
         else:
             player = await sync_to_async(Player.objects.get)(id=winner.id)
             stats, _ = await sync_to_async(Stats.objects.get_or_create)(player=player)
             await add_xp(player, 25, context)
-            
+
             stats.wins += 1
             await sync_to_async(stats.save)()
+
             total_games = stats.wins + stats.loses
             if stats.wins >= 100:
                 await unlock_achievement(player, "100_wins", context)
@@ -1260,20 +2098,30 @@ async def update_statistics(winners, dealer_wins, joined_players, context):
             if total_games >= 500:
                 await unlock_achievement(player, "500_games", context)
 
-    # Determine non-winners
-    winners_ids = {winner.id for winner in winners if winner != 'dealer'}
-    non_winners = [await sync_to_async(lambda: join_entry.player)() for join_entry in joined_players 
-                   if await sync_to_async(lambda: join_entry.player.id)() not in winners_ids and join_entry.player != 'dealer']
+    # ─── 2) Build set of winner IDs (excluding the string 'dealer') ─────────────────
+    winner_ids = {w.id for w in overall_winners if w != "dealer"}
 
-    # Remove duplicates in non-winners list
-    non_winners = list(set(non_winners))
+    # ─── 3) Determine non‐winners ─────────────────────────────────────────────────
+    non_winners = []
+    dealer_obj = await sync_to_async(Dealer.objects.first)()
+    dealer_id = dealer_obj.id if dealer_obj else None
 
-    # Update losses for each non-winner
+    for join_entry in joined_players:
+        pid = join_entry.player.id
+        # If the player is not in the winner_ids AND dealer didn't win overall (or this player isn't dealer)
+        if pid not in winner_ids and pid != dealer_id:
+            non_winners.append(join_entry.player)
+
+    # Deduplicate
+    non_winners = list({p.id: p for p in non_winners}.values())
+
+    # ─── 4) Apply losses to each non-winner ─────────────────────────────────────────
     for player in non_winners:
         stats, _ = await sync_to_async(Stats.objects.get_or_create)(player=player)
         stats.loses += 1
         await deduct_xp(player, 25, context)
         await sync_to_async(stats.save)()
+
         total_games = stats.wins + stats.loses
         if stats.loses >= 100:
             await unlock_achievement(player, "100_loses", context)
@@ -1282,12 +2130,25 @@ async def update_statistics(winners, dealer_wins, joined_players, context):
         if total_games >= 500:
             await unlock_achievement(player, "500_games", context)
 
-    # Update dealer's losses if dealer did not win
-    if not dealer_wins:
-        dealer = await sync_to_async(Dealer.objects.first)()  # Assuming only one dealer
-        dealer.loses += 1
-        await sync_to_async(dealer.save)()
+    # ─── 5) Increment dealer losses if dealer did NOT win overall ──────────────────
+    if not dealer_won_overall:
+        await sync_to_async(_increment_dealer_losses)()
 
+
+# ─── Synchronous helper: increment dealer.wins ────────────────────────────────────
+def _increment_dealer_wins():
+    dealer = Dealer.objects.first()
+    if dealer:
+        dealer.wins += 1
+        dealer.save()
+
+
+# ─── Synchronous helper: increment dealer.loses ──────────────────────────────────
+def _increment_dealer_losses():
+    dealer = Dealer.objects.first()
+    if dealer:
+        dealer.loses += 1
+        dealer.save()
 
 
 async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, joined_players):
@@ -1295,128 +2156,133 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
     await asyncio.sleep(3)
 
     if game.current_round > game.total_rounds:
-        # Determine the overall winner
+        # ─── 1) Fetch all RoundWinner rows for this game ──────────────────────────────
         round_winners = await sync_to_async(list)(RoundWinner.objects.filter(game=game))
 
-        # Count wins for each player and the dealer
+        # ─── 2) Count how many rounds each player won ─────────────────────────────────
         winner_count = {}
-        for winner in round_winners:
-            # Fetch the related 'winner' field asynchronously
-            winner_player = await sync_to_async(lambda: winner.winner)()
+        for row in round_winners:
+            winner_player = await sync_to_async(lambda: row.winner)()
             if winner_player:
-                if winner_player in winner_count:
-                    winner_count[winner_player] += 1
-                else:
-                    winner_count[winner_player] = 1
+                winner_count[winner_player] = winner_count.get(winner_player, 0) + 1
 
-        dealer_wins = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True).count)()
-        if dealer_wins > 0:
-            winner_count['dealer'] = dealer_wins
+        # ─── 3) Count how many rounds the dealer won ─────────────────────────────────
+        dealer_rounds_won = await sync_to_async(RoundWinner.objects.filter)(
+            game=game, is_dealer=True
+        )
+        dealer_rounds_won = await sync_to_async(dealer_rounds_won.count)()
+        print(f"[DEBUG] Dealer won {dealer_rounds_won} rounds")
 
+        # If dealer won any rounds, put “dealer” into the map for ease of overall-winner logic:
+        if dealer_rounds_won > 0:
+            winner_count['dealer'] = dealer_rounds_won
 
+        # ─── 4) Determine overall winner(s) ──────────────────────────────────────────
         if winner_count:
-            # Determine the overall winner(s)
             max_wins = max(winner_count.values())
-            overall_winners = [winner for winner, wins in winner_count.items() if wins == max_wins]
+            overall_winners = [w for w, cnt in winner_count.items() if cnt == max_wins]
+
+            # Boolean: did the dealer win the overall game?
+            dealer_won_overall = ('dealer' in overall_winners)
+            print(f"[DEBUG] overall_winners = {overall_winners}; dealer_won_overall = {dealer_won_overall}")
 
             if len(overall_winners) == 1:
-                # One clear winner
-                overall_winner = overall_winners[0]
-
-                if overall_winner == 'dealer':
+                single = overall_winners[0]
+                if single == 'dealer':
                     await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer is the overall winner of the game! 🏆")
                 else:
-                    await context.bot.send_message(chat_id=chat_id, text=f"{overall_winner.name} is the overall winner of the game! 🏆")
-            elif len(overall_winners) > 1:
-                # Check if all players and the dealer tied
-                if len(overall_winners) == (len(joined_players) + 1) and dealer_wins == max_wins:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"{single.name} is the overall winner of the game! 🏆"
+                    )
+
+            else:
+                # A tie for top number of rounds
+                if len(overall_winners) == (len(joined_players) + 1) and dealer_won_overall:
+                    # Everyone (all players + dealer) tied
                     for join_entry in joined_players:
                         player = await sync_to_async(lambda: join_entry.player)()
                         await unlock_achievement(player, "paid_back_tie", context)
 
-                    await context.bot.send_message(chat_id=chat_id, text="All players and the dealer tied, and shared the pot! 🏆 Everyone gets the `paid_back_tie` achievement.")
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="All players and the dealer tied and shared the pot! 🏆 Everyone gets the `paid_back_tie` achievement."
+                    )
                 else:
-                    # Multiple winners (tie without all players tying)
-                    winner_names = ', '.join([f"[{winner.name}](tg://user?id={winner.id})" if winner != 'dealer' else "🤖 Dealer" for winner in overall_winners])
-                    await context.bot.send_message(chat_id=chat_id, text=f"{winner_names} tied and shared the pot\\! 🏆", parse_mode="MarkdownV2")
+                    # Multiple winners but not literally everyone
+                    pieces = []
+                    for w in overall_winners:
+                        if w == 'dealer':
+                            pieces.append("🤖 Dealer")
+                        else:
+                            pieces.append(f"[{w.name}](tg://user?id={w.id})")
+                    text = ", ".join(pieces) + r" tied and shared the pot\! 🏆"
+                    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="MarkdownV2")
 
-            # Update statistics for winners and losers
-            await update_statistics(overall_winners, dealer_wins, joined_players,context)
+            # ─── 5) Update stats for winners/losers ────────────────────────────────────
+            # Pass dealer_won_overall (True/False) instead of raw dealer_rounds_won
+            await update_statistics(overall_winners, dealer_won_overall, joined_players, context)
         else:
             await context.bot.send_message(chat_id=chat_id, text="No overall winner was determined.")
 
-        # Call the end_game function to finalize the game
+        # ─── 6) Finalize / clean up ─────────────────────────────────────────────────
         await end_game(update, context)
 
-        # Prepare standings message
-        bot_member = await context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
-        round_winners = await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False))
-        dealer_wins = await sync_to_async(RoundWinner.objects.filter(game=game, is_dealer=True).count)()
-        winner_count = {}
-
-        for winner in round_winners:
-            winner_player = await sync_to_async(lambda: winner.winner)()
-            if winner_player in winner_count:
-                winner_count[winner_player] += 1
-            else:
-                winner_count[winner_player] = 1
-
-        winners = []
-        no_wins = []
-
-        for player in joined_players:
-            player_name = await sync_to_async(lambda: player.player.name)()
-            player_id = await sync_to_async(lambda: player.player.id)()
-            wins = winner_count.get(player.player, 0)
-
-            if wins > 0:
-                winners.append((player_name, wins, player_id))
-            else:
-                no_wins.append((player_name, player_id))
-
-        winners = sorted(winners, key=lambda x: x[1], reverse=True)
+        # Prepare standings message (players vs. dealer by round-wins):
         await asyncio.sleep(1)
-
-        standings_message = "📊 Current standings:\n"
-
-        if dealer_wins > 0:
-            standings_message += f"🤖 Dealer: {dealer_wins} round\\(s\\) won\n"
+        standings = "📊 Current standings:\n"
+        if dealer_rounds_won > 0:
+            standings += f"🤖 Dealer: {dealer_rounds_won} round\\(s\\) won\n"
         else:
-            standings_message += f"🤖 Dealer: No wins yet\n"
+            standings += "🤖 Dealer: No wins yet\n"
 
-        for winner_name, wins, user_id in winners:
-            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner_name)
-            mention = f"[{user_name_escaped}](tg://user?id={user_id})"
-            standings_message += f"🏆 {mention}: {wins} round\\(s\\) won\n"
+        # Count only player‐round-winners (exclude dealer)
+        player_round_winner_count = {}
+        for row in await sync_to_async(list)(RoundWinner.objects.filter(game=game, is_dealer=False)):
+            pl = await sync_to_async(lambda: row.winner)()
+            player_round_winner_count[pl] = player_round_winner_count.get(pl, 0) + 1
 
-        for player_name, player_id in no_wins:
-            user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player_name)
-            mention = f"[{user_name_escaped}](tg://user?id={player_id})"
-            standings_message += f"🎲 {mention}: No wins yet\n"
+        winners_list = []
+        losers_list = []
+        for join_entry in joined_players:
+            pl = join_entry.player
+            wins = player_round_winner_count.get(pl, 0)
+            if wins > 0:
+                winners_list.append((pl.name, wins, pl.id))
+            else:
+                losers_list.append((pl.name, pl.id))
 
-        message = await context.bot.send_message(chat_id=chat_id, text=standings_message, parse_mode="MarkdownV2")
+        winners_list.sort(key=lambda x: x[1], reverse=True)
 
-        # if bot_member.status in ['administrator', 'creator']:
-        #     await safe_pin_chat_message(context.bot, chat_id, message.message_id)
+        for name, wins, uid in winners_list:
+            esc = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', name)
+            mention = f"[{esc}](tg://user?id={uid})"
+            standings += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
+        for name, uid in losers_list:
+            esc = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', name)
+            mention = f"[{esc}](tg://user?id={uid})"
+            standings += f"🎲 {mention}: No wins yet\n"
+
+        await context.bot.send_message(chat_id=chat_id, text=standings, parse_mode="MarkdownV2")
+
+        # Finally delete the Game record and announce that the game has ended
         await sync_to_async(Game.objects.filter(chat_id=chat_id).delete)()
-        await context.bot.send_message(chat_id=chat_id, text="The game has ended. You can start a new game by typing /startblackjack.")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="The game has ended. You can start a new game by typing /startblackjack."
+        )
 
     else:
+        # ─── Not finished all rounds: reset for next round ─────────────────────────
+        for jp in joined_players:
+            jp.has_stood = False
+            await sync_to_async(jp.save)()
 
-        # Reset has_stood for all players
-        for player in joined_players:
-            player.has_stood = False
-            await sync_to_async(player.save)()
-
-        # Prepare for the next round
         game.hands_reset = False
         await sync_to_async(game.save)()
-
         await asyncio.sleep(2)
         await start_round(update, context, game, joined_players)
-
-
 
 async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -1476,14 +2342,14 @@ async def safe_send_message_async(bot, chat_id, text, parse_mode="MarkdownV2", m
             return  # Exit the loop if the message is sent successfully
         except TimedOut:
             retries += 1
-            print(f"Timeout occurred while sending message. Retrying {retries}/{max_retries}...")
+            
             await asyncio.sleep(4)  # Non-blocking exponential backoff
         except RetryAfter as e:
             retry_after = int(e.retry_after)
-            print(f"Flood control triggered. Retrying in {retry_after} seconds...")
+            
             await asyncio.sleep(retry_after)  # Non-blocking wait for the RetryAfter period before retrying
             retries += 1
-    print(f"Failed to send the message after {max_retries} retries.")
+    
 
 async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -1522,7 +2388,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("You have already busted and cannot take any more actions.")
         return
     elif hand_value == 21:
-        await update.message.reply_text("You have automaticly standing and cannot take any more actions.")
+        await update.message.reply_text("You are automaticly standing and cannot take any more actions.")
         return
     # Add a card to the player's hand
     new_card = deal_card()
@@ -1538,21 +2404,17 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hand_value = calculate_hand_value(player_hand)
     
     await safe_send_message_async(context.bot, user_id, f"Your full hand: {player_hand}\\. Total value: {hand_value}")
-    print(f"join_game.hand {join_game.hand} player_hand {player_hand} hand_value {hand_value}")
     # Check for bust or 21
     if hand_value == 21:
         join_game.has_stood = True
         await sync_to_async(join_game.save)()
-        print("im in the hand 21")
         await asyncio.sleep(3)
         stats = await sync_to_async(Stats.objects.get)(player=join_game.player)
         stats.how_many_21 += 1
         await sync_to_async(stats.save)()
         if stats.how_many_21 >= 21:
-            print("giving achv21")
             await unlock_achievement(join_game.player, "21_black_jacks", context)
         if stats.how_many_21 >= 100:
-            print("giving achv100")
             await unlock_achievement(join_game.player, "100_black_jacks", context)
         
 
@@ -1683,7 +2545,7 @@ async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         next_player_id = game.turn_order[0]
         next_player = await sync_to_async(Player.objects.get)(id=next_player_id)
         user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', next_player.name)
-
+            
         mention = f"[{user_name_escaped}](tg://user?id={next_player_id})"
         await asyncio.sleep(3)  # Non-blocking sleep
         await safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
@@ -1893,7 +2755,12 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(2)
             try:
                 # Try to tag the winner using their name
-                mention = f"[{winner.name}](tg://user?id={winner.id})"
+                escaped_name = re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', winner.name)
+                mention = f"[{escaped_name}](tg://user?id={winner.id})"
+                # user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner.name)
+                # mention = f"[{user_name_escaped}](tg://user?id={winner.id})"
+
+                # mention = f"[{winner.name}](tg://user?id={winner.id})"
             except Exception as e:
                 # Fallback to just using the player's name if tagging fails
                 mention = winner.name
@@ -1909,143 +2776,6 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Proceed to the next round or end the game if all rounds are done
     game.current_round += 1
     await check_for_next_round(update, context, game, joined_players)
-
-# async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-#     chat_id = update.message.chat_id
-
-#     try:
-#         game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
-#     except Game.DoesNotExist:
-#         await safe_send_message_dealer(context.bot, chat_id, "No active game or the game has not started.")
-#         return
-#     if game.current_round == 1:
-#         await send_vote_results(update, context,chat_id,game.poll_id)
-
-#     await asyncio.sleep(2)
-#     await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
-
-#     dealer_hand = game.dealer_hand
-#     dealer_value = calculate_hand_value(dealer_hand)
-
-#     # Fetch all active players who have joined the game
-#     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
-
-#     # Check if all players have busted
-#     all_players_busted = True
-#     highest_player_hand = 0
-
-#     for join_entry in joined_players:
-#         player_hand_value = calculate_hand_value(join_entry.hand)
-#         if player_hand_value <= 21:  # If a player has a valid hand
-#             all_players_busted = False  # At least one player hasn't busted
-#             highest_player_hand = max(highest_player_hand, player_hand_value)  # Track the highest valid hand
-
-#     # If all players are busted, dealer automatically wins and stands
-#     if all_players_busted:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, "🤖 All players have busted\\.")
-#         await asyncio.sleep(2)
-
-#         reaction = random.choice(all_players_bust_reactions)
-#         await safe_send_reaction(context.bot, chat_id, reaction)
-#         await asyncio.sleep(2)
-
-#         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
-        
-#         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
-        
-#         # Move to next round or end game
-#         game.current_round += 1
-#         await sync_to_async(game.save)()
-#         await check_for_next_round(update, context, game, joined_players)
-#         return  # Exit early since no more actions are needed
-
-#     # Dealer's logic: drawing until beating or matching the highest player hand
-#     while dealer_value < highest_player_hand and dealer_value < 21:
-#         new_card = deal_card()
-#         dealer_hand.append(new_card)
-#         dealer_value = calculate_hand_value(dealer_hand)
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
-#         if dealer_value == 21:
-#             reaction = random.choice(blackjack_reactions)
-#             await safe_send_reaction(context.bot, chat_id, reaction)
-#             break
-#     # If dealer busts (> 21)
-#     if dealer_value > 21:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
-#         reaction = random.choice(bust_reactions)
-#         await asyncio.sleep(2)
-#         await safe_send_reaction(context.bot, chat_id, reaction)
-#         dealer_busted = True
-#     elif dealer_value == 21:
-#         await asyncio.sleep(2)
-#         # reaction = random.choice(blackjack_reactions)
-#         # await safe_send_message_dealer(context.bot, chat_id, reaction)
-#         dealer_busted = False
-#     else:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
-#         dealer_busted = False
-
-#     # Save the updated dealer hand
-#     game.dealer_hand = dealer_hand
-#     await sync_to_async(game.save)()
-
-#     # Fetch all active players who have joined the game
-#     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
-
-#     # Track the player(s) who win this round
-#     highest_valid_score = 0
-#     round_winners = []
-
-#     for join_entry in joined_players:
-#         # Fetch the player asynchronously
-#         player = await sync_to_async(lambda: join_entry.player)()
-        
-#         player_hand_value = calculate_hand_value(join_entry.hand)
-        
-#         # If player busted, skip them
-#         if player_hand_value > 21:
-#             continue
-        
-#         # Track the highest valid hand that beats the dealer (if dealer didn't bust)
-#         if dealer_busted or player_hand_value > dealer_value:
-#             if player_hand_value > highest_valid_score:
-#                 highest_valid_score = player_hand_value
-#                 round_winners = [player]
-#             elif player_hand_value == highest_valid_score:
-#                 round_winners.append(player)
-#     # Announce the winner(s)
-#     if not round_winners:
-#         await asyncio.sleep(2)
-#         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
-#         reaction = random.choice(win_reactions)
-#         await safe_send_reaction(context.bot, chat_id, reaction)
-#         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
-#     else:
-#         for winner in round_winners:
-#             await asyncio.sleep(2)
-#             try:
-#                 # Try to tag the winner using their name
-#                 mention = f"[{winner.name}](tg://user?id={winner.id})"
-#             except Exception as e:
-#                 # Fallback to just using the player's name if tagging fails
-#                 mention = winner.name
-#                 print(f"Error tagging player {winner.name}: {str(e)}")
-#             await add_xp(winner, 5, context)
-
-#             await safe_send_message_dealer(context.bot, chat_id, f"{mention} 🥇wins this round with a hand of {highest_valid_score}\\!")
-#             if highest_valid_score == 10:
-#                 await unlock_achievement(winner, "win_with_10", context)
-
-#             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=winner)
-
-#     # Proceed to the next round or end the game if all rounds are done
-#     game.current_round += 1
-#     await check_for_next_round(update, context, game, joined_players)
 
 
 # Asynchronous version of reset_game
@@ -2142,6 +2872,9 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 winner.chips += split_pot
 
             await sync_to_async(winner.save)()
+            await apply_referral_bonus(winner, split_pot, context)
+
+
             await context.bot.send_message(chat_id=chat_id, text=f"{winner.name} wins {split_pot} {currency_type}!")
 
     else:
@@ -2753,6 +3486,8 @@ async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if winnings > 0:
         player.chips += winnings
         await save_player(player)  # Save after updating winnings
+        await apply_referral_bonus(player, winnings, context)
+
         await message.edit_text(f"🎰 {result_text} 🎰\nYou win {winnings} chips! 🎉")
     else:
         await message.edit_text(f"🎰 {result_text} 🎰\nNo match! You lose your bet. 😢")
@@ -2801,7 +3536,10 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if flip_result == guess:
         winnings = bet_amount * 2
         player.chips += winnings
+
         await sync_to_async(player.save)()
+        await apply_referral_bonus(player, winnings, context)
+
         await message.edit_text(f"🪙 Coin landed on {flip_result.capitalize()}! You win {winnings} chips!")
     else:
         await message.edit_text(f"🪙 Coin landed on {flip_result.capitalize()}! You lose your bet.")
@@ -2857,6 +3595,8 @@ async def lucky_draw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         winnings = bet_amount * 2
         player.chips += winnings
         await sync_to_async(player.save)()
+        await apply_referral_bonus(player, winnings, context)
+
         await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}\n\nYou win {winnings} chips!")
     elif player_card_value == bot_card_value:
         player.chips += bet_amount  # Return the bet for a tie
@@ -2910,11 +3650,11 @@ async def rps_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.edit_text(f"👊 You chose {choice_emojis[player_choice]} {player_choice.capitalize()}!\n🤖 Dealer chose {choice_emojis[bot_choice]} {bot_choice.capitalize()}!")
 
     # Compare choices and determine the outcome
-    await determine_rps_winner(player_choice, bot_choice, player, message, bet_amount)
+    await determine_rps_winner(player_choice, bot_choice, player, message, bet_amount,context)
 
 
 # Determine the winner of the Rock-Paper-Scissors game
-async def determine_rps_winner(player_choice, bot_choice, player, message, bet_amount):
+async def determine_rps_winner(player_choice, bot_choice, player, message, bet_amount,context):
     # Rules of Rock-Paper-Scissors
     win_conditions = {
         'rock': 'scissors',
@@ -2933,11 +3673,156 @@ async def determine_rps_winner(player_choice, bot_choice, player, message, bet_a
         player.chips += winnings
         await sync_to_async(player.save)()
         await asyncio.sleep(2)
+        await apply_referral_bonus(player, winnings, context)
+
         await message.edit_text(f"🎉 You win! {choice_emojis[player_choice]} beats {choice_emojis[bot_choice]}!\nYou win {winnings} chips!")
     else:
         await asyncio.sleep(2)
         await message.edit_text(f"😔 You lose! {choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}!\nYou lose your bet of {bet_amount} chips.")
 
+CRASH_SPEED = 0.6  # seconds per tick
+async def simulate_crash_game(game_id, bot, chat_id):
+    try:
+        game = await sync_to_async(CrashGame.objects.get)(id=game_id)
+    except CrashGame.DoesNotExist:
+        return
+
+    multiplier = 0.2
+    crash_point = round(random.uniform(1.0, 1.5), 2)
+    print(f"Crash point: {crash_point}")
+
+    # Send the first message in the group (not in private)
+    msg = await bot.send_message(chat_id=chat_id, text=f"🚀 Starting at {multiplier}x")
+
+    while multiplier < crash_point:
+        multiplier = round(multiplier + 0.1, 2)
+        await asyncio.sleep(CRASH_SPEED)
+
+        game_exists = await sync_to_async(CrashGame.objects.filter(id=game_id).exists)()
+        if not game_exists:
+            return
+
+        await sync_to_async(CrashGame.objects.filter(id=game_id).update)(multiplier=multiplier)
+
+        is_cashed_out = await sync_to_async(
+            lambda: CrashGame.objects.filter(id=game_id, cashed_out=True).exists()
+        )()
+        if is_cashed_out:
+            return
+
+        try:
+            await msg.edit_text(f"🚀 {multiplier}x")
+        except RetryAfter as e:
+            await asyncio.sleep(e.retry_after + 1)
+        except Exception:
+            continue
+
+    await sync_to_async(CrashGame.objects.filter(id=game_id).update)(crashed=True)
+
+    final_text = f"💥 Crashed at {crash_point}x! You lost your bet."
+    try:
+        await msg.edit_text(final_text)
+    except RetryAfter as e:
+        await asyncio.sleep(e.retry_after + 1)
+        try:
+            await msg.edit_text(final_text)
+        except Exception:
+            await bot.send_message(chat_id=chat_id, text=final_text)
+    except Exception:
+        await bot.send_message(chat_id=chat_id, text=final_text)
+
+    await sync_to_async(CrashGame.objects.filter(id=game_id).delete)()
+
+# Your command
+async def crash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    bet = int(context.args[0]) if context.args else 100
+
+    if not await validate_bet_amount(update, bet):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < bet:
+        await update.message.reply_text("❌ Not enough chips.")
+        return
+
+    already_playing = await sync_to_async(
+        lambda: CrashGame.objects.filter(user_id=user_id, crashed=False, cashed_out=False).exists()
+    )()
+    if already_playing:
+        return await update.message.reply_text("🚫 You already have a crash game running. Use /cashout to end it.")
+
+    player.chips -= bet
+    await sync_to_async(player.save)()
+    crash_game = await sync_to_async(CrashGame.objects.create)(user_id=user_id, bet=bet)
+
+    # Don't send "Game started" here – it's now inside simulate_crash_game
+    asyncio.create_task(simulate_crash_game(crash_game.id, context.bot, chat_id))
+
+
+async def cashout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    try:
+        game = await sync_to_async(CrashGame.objects.get)(
+            user_id=user_id, crashed=False, cashed_out=False
+        )
+    except CrashGame.DoesNotExist:
+        return await update.message.reply_text("⚠️ You have no active game to cash out from.")
+
+    game.cashed_out = True
+    await sync_to_async(game.save)()
+
+    winnings = int(game.bet * game.multiplier)
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    player.chips += winnings
+
+    await sync_to_async(player.save)()
+    await apply_referral_bonus(player, winnings, context)
+
+    await update.message.reply_text(f"✅ Cashed out at {game.multiplier}x!\n💰 You won {winnings} chips!")
+
+    # Delete the game
+    await sync_to_async(game.delete)()
+
+
+
+
+async def double_or_nothing(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # Parse bet amount
+    bet_amount = int(context.args[0]) if context.args else 50
+    if not await validate_bet_amount(update, bet_amount):
+        return
+
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    if player.chips < bet_amount:
+        await update.message.reply_text("❌ You don't have enough chips for that bet.")
+        return
+
+    # Deduct the bet
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # await asyncio.sleep(0.5)  # Short suspense
+
+    if random.random() < 0.5:
+        await update.message.reply_text("😵 You lost your bet. Nothing ❌doubled today.")
+    else:
+        winnings = bet_amount * 2
+        player.chips += winnings
+        await sync_to_async(player.save)()
+        await apply_referral_bonus(player, winnings, context)
+        await update.message.reply_text(
+            f"🎉 Lucky! You doubled your bet and won {winnings} chips💰!\n"
+
+        )
 
 async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(0.9)
@@ -2971,6 +3856,8 @@ async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         winnings = bet_amount * 2
         player.chips += winnings
         await sync_to_async(player.save)()
+        await apply_referral_bonus(player, winnings, context)
+
         await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou win {winnings} chips!")
     else:
         await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou lose your bet of {bet_amount} chips.")
@@ -3074,24 +3961,35 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Send the formatted leaderboard message
     await update.message.reply_text(message)
 
-
 async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.message.chat_id
     text = (
         "🎮 *Available Minigames* 🎮\n\n"
-        "🎲 /dice - Roll a dice and test your luck! (/dice [chips amount])\n\n"
-        "🎰 /slot - Try your luck at the slot machine. Will you hit the jackpot? (/slot [chips amount])\n\n"
-        "🪙 /coin - Flip a coin and see if it’s heads or tails. (/coin [heads/tails] [chips amount])\n\n"
-        "🎟 /draw - Participate in a lucky draw. Will you be the lucky one? (/draw [chips amount])\n\n"
-        "🎯 /dart - Play dart twice a day to win 200 chips.\n\n"
-        "✊🖐✌️ /rps - Play Rock, Paper, Scissors against the bot. (/rps [rock/paper/scissors] [chips amount])\n\n"
-        "🎡 /spin - Spin the wheel once a day for a chance to win chips, XP, or levels! Type /spin <low/mid/high> and let the wheel decide your fate.\n\n"
-        "🎲 /roulette - Bet on red, black, or a number (0-36). Usage: /roulette <red|black|0-36> <bet amount>. "
-        "If you guess the color, you win double; if you guess the number, you win 35 times your bet! Good luck!\n\n"
+        "🎲 `/dice` – Roll a dice and test your luck! (`/dice [chips amount]`)\n\n"
+        "🎰 `/slot` – Try your luck at the slot machine. Will you hit the jackpot? (`/slot [chips amount]`)\n\n"
+        "🪙 `/coin` – Flip a coin and see if it’s heads or tails. (`/coin [heads/tails] [chips amount]`)\n\n"
+        "🎟 `/draw` – Participate in a lucky draw. Will you be the lucky one? (`/draw [chips amount]`)\n\n"
+        "🎯 `/dart` – Play dart twice a day to win 200 chips.\n\n"
+        "✊🖐✌️ `/rps` – Play Rock, Paper, Scissors against the bot. (`/rps [rock/paper/scissors] [chips amount]`)\n\n"
+        "🎡 `/spin` – Spin the wheel once a day for a chance to win chips, XP, or levels! Type `/spin <low/mid/high>` and let the wheel decide your fate.\n\n"
+        "🎲 `/roulette` – Bet on red, black, or a number (`0–36`).\n"
+        "Usage: `/roulette <red|black|0–36> <bet amount>`.\n"
+        "If you guess the color, you win double; if you guess the number, you win 35× your bet. Good luck!\n\n"
+        "📈 `/crash` – Bet chips and watch the multiplier rise. Type `/cashout` before it crashes to lock in your winnings!\n\n"
+        "🟥 `/double` – Feeling lucky? Bet to win double your chips or lose it all. (`/double [amount]`)\n\n"
+        "🐎 `/horserace` – Start a new horse race.\n"
+        "🐎 `/joinrace` – Join the ongoing race with your horse. (`/joinrace <horse_number> <amount>`)\n"
+        "🐎 `/startrace` – Start the race and watch it live!"
     )
-    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode="Markdown",
+    )
 
 async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
     user_id = update.message.from_user.id
     loan_amount = int(context.args[0]) if context.args else 0
 
@@ -3141,6 +4039,8 @@ async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("You need to register with /start first.")
 
 async def repay_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
     user_id = update.message.from_user.id
 
     try:
@@ -3458,6 +4358,8 @@ async def _spin_sequence_longer(bot, chat_id, message_id, user_id, slices):
 
 
 async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
     """
     /spin <tier>
     Tiers: low (cost 200), mid (cost 2 000), high (cost 20 000)
@@ -3508,6 +4410,8 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── New /spinrewards command: list each tier, its cost, and possible outcomes ───
 async def spinrewards(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
     """
     /spinrewards
     Lists each tier’s cost and all possible outcomes (including negative-chip penalties).
@@ -3587,6 +4491,8 @@ async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_am
     await bot.send_message(chat_id=chat_id, text=result_text, parse_mode="Markdown")
 
 async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
     args = context.args
     if len(args) != 2:
         return await update.message.reply_text("Usage: /roulette <red|black|0-36> <bet>")
@@ -3615,6 +4521,8 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def give_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
     # Command format: reply to someone's message with /givechips <amount>
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
@@ -3943,27 +4851,2817 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
-async def changemode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ─── Helper: Escape MarkdownV2 ───
+def escape_markdown_v2(text: str) -> str:
+    escape_chars = r'[_*\[\]()~`>#+\-=\|{}.!]'
+    return re.sub(escape_chars, r'\\\g<0>', text)
+
+# ─── Helper: Safe send message with flood control ───
+async def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", max_retries=10):
+    escaped_text = escape_markdown_v2(text)
+    retries = 0
+    while retries < max_retries:
+        try:
+            await bot.send_message(chat_id=chat_id, text=escaped_text, parse_mode=parse_mode)
+            return
+        except TimedOut:
+            retries += 1
+            await asyncio.sleep(4)
+        except RetryAfter as e:
+            await asyncio.sleep(int(e.retry_after) + 1)
+            retries += 1
+        await asyncio.sleep(0.3)  # flood control
+    print("❌ Failed to send message after retries.")
+
+# ─── /horserace: Start a new race ───
+async def horserace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+    chat_id = update.effective_chat.id
+
+    existing_race = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, race_started=False)
+    if await sync_to_async(existing_race.exists)():
+        await update.message.reply_text("❗️ A race is already active in this chat!")
+        return
+
+    race = await sync_to_async(HorseRace.objects.create)(chat_id=chat_id)
+    await update.message.reply_text(
+        "🐎 A new horse race has started!\n"
+        "Join with /joinrace <horse_number> <bet_amount> (no bets on Horse 1!)"
+    )
+
+# ─── /joinrace: Players place their bets ───
+async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+    user_id = update.effective_user.id
+    username = update.effective_user.username or update.effective_user.first_name
+    chat_id = update.effective_chat.id
+    args = context.args
+
+    if len(args) != 2:
+        await update.message.reply_text("Usage: /joinrace <horse_number> <bet_amount>")
+        return
+
+    horse_number = int(args[0])
+    bet_amount = int(args[1])
+
+    # Prevent negative or zero bets
+    if bet_amount <= 0:
+        await update.message.reply_text("❌ Bet amount must be a positive number.")
+        return
+
+    if horse_number == 1:
+        await update.message.reply_text("❌ You can’t bet on the dealer’s horse!")
+        return
+    owned_entry = await sync_to_async(OwnedHorse.objects.filter)(horse_number=horse_number)
+    owned_entry = await sync_to_async(owned_entry.first)()
+
+    if owned_entry:
+        owner_id = await sync_to_async(lambda: owned_entry.user.id)()
+        if owner_id != user_id:
+            try:
+                owner_player = await sync_to_async(Player.objects.get)(id=owner_id)
+                owner_name = owner_player.name or "another player"
+            except:
+                owner_name = "another player"
+
+            await update.message.reply_text(
+                f"❌ This horse is already owned by {owner_name} and cannot be bet on by others."
+            )
+            return
+
+
+
+    # First: find the active race
+    race = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, race_started=False)
+    race = await sync_to_async(race.first)()
+    if not race:
+        await update.message.reply_text("❌ No active race! Start one with /horserace")
+        return
+
+    # Then: check if the user has already placed a bet in this race
+    existing_bet = await sync_to_async(HorseBet.objects.filter)(race=race, user_id=user_id)
+    if await sync_to_async(existing_bet.exists)():
+        await update.message.reply_text("❌ You have already placed a bet in this race!")
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < bet_amount:
+        await update.message.reply_text("❌ Not enough chips!")
+        return
+
+    # Deduct chips
+    player.chips -= bet_amount
+    await sync_to_async(player.save)()
+
+    # Add bet
+    await sync_to_async(HorseBet.objects.create)(
+        race=race,
+        user_id=user_id,
+        horse_number=horse_number,
+        bet_amount=bet_amount,
+        username=username
+    )
+    if owned_entry and owned_entry.name:
+        label = f"{owned_entry.name} ({horse_number})"
+    else:
+        label = f"Horse {horse_number}"
+
+    await update.message.reply_text(
+        f"✅ Bet placed on {label} for {bet_amount} chips!"
+    )
+
+
+
+MAX_NAME_LEN     = 20       # max characters per horse name
+MAX_MESSAGE_LEN  = 4000     # Telegram’s ~4096-char limit
+
+def is_rtl(text: str) -> bool:
+    """
+    Return True if any character is in the Arabic/Persian Unicode block.
+    """
+    for ch in text:
+        if '\u0600' <= ch <= '\u06FF' or '\u0750' <= ch <= '\u077F':
+            return True
+    return False
+
+
+
+async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 1) Ensure the user has a Player profile
     if not await check_player(update, context):
         return
 
-    if not context.args:
-        return await update.message.reply_text(
-            "Usage: /changemode <classic|raise>"
+    chat_id = update.effective_chat.id
+
+    # 2) FETCH THE ACTIVE RACE (must not have started yet)
+    race_qs = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, race_started=False)
+    race    = await sync_to_async(race_qs.first)()
+    if not race:
+        await update.message.reply_text("❌ No active race!")
+        return
+
+    # 3) GATHER ALL BETS FOR THIS RACE
+    bets = await sync_to_async(list)(HorseBet.objects.filter(race=race))
+    if not bets:
+        await update.message.reply_text("❌ No bets placed!")
+        return
+
+    # 4) MARK THE RACE AS “STARTED”
+    race.race_started = True
+    await sync_to_async(race.save)()
+
+    dealer_horse = 1
+
+    # 5) PICK TWO RANDOM “HOUSE” HORSES FROM 2..4
+    random_horses = [2, 3]
+
+    # 6) COLLECT ANY HORSE NUMBERS THAT PLAYERS SPECIFICALLY BET ON (excluding dealer=1)
+    player_horses = list({bet.horse_number for bet in bets if bet.horse_number != dealer_horse})
+
+    # 7) BUILD FULL LIST: [dealer=1] + two random + any extra player‐chosen horses
+    all_horses = [dealer_horse] + random_horses
+    for h in player_horses:
+        if h not in all_horses:
+            all_horses.append(h)
+
+    distance  = race.race_distance  # e.g. 20
+    positions = {h: distance for h in all_horses}
+
+    # ─── LOAD OWNEDHORSE NAMES ──────────────────────────────────────────────────────
+    owned_list = await sync_to_async(list)(
+        OwnedHorse.objects.filter(horse_number__in=all_horses)
+    )
+    name_map = {h: f"Horse {h}" for h in all_horses}
+    for oh in owned_list:
+        if oh.name:
+            name_map[oh.horse_number] = oh.name
+
+    # 8) FETCH ALL APPLIED UPGRADES (“spells”) FOR THESE HORSES
+    applied_list = await sync_to_async(
+        lambda: list(
+            HorseAppliedUpgrade.objects.filter(horse__horse_number__in=all_horses)
+        )
+    )()
+
+    # Build a mapping: horse_number → list of upgrade names
+    upgrades_map = {}
+    for au in applied_list:
+        horse_number = await sync_to_async(lambda: au.horse.horse_number)()
+        upgrade_name = await sync_to_async(lambda: au.upgrade.name)()
+        upgrades_map.setdefault(horse_number, []).append(upgrade_name)
+
+    # 9) LOAD ANY CUSTOM EMOJI THAT OWNERS HAVE SET ON THEIR OwnedHorse
+    owned_horses = await sync_to_async(list)(
+        OwnedHorse.objects.filter(horse_number__in=all_horses)
+    )
+    horse_emojis = {oh.horse_number: oh.emoji for oh in owned_horses if oh.emoji}
+
+    # 10) APPLY “🏁 Head Start” INITIAL POSITION BONUS
+    for h in all_horses:
+        if "🏁 Head Start" in upgrades_map.get(h, []):
+            positions[h] = max(0, positions[h] - 4)
+
+    # 11) INITIALIZE PER‐HORSE STATE FOR SPELLS THAT NEED IT
+    tick_count       = 0
+    last_movements   = {h: 1 for h in all_horses}
+    freeze_used      = set()
+    frozen_for_one   = set()
+    bounce_used      = set()
+    broken           = set()
+
+    # 12) SEND INITIAL MESSAGE, THEN EDIT EACH TICK
+    msg    = await update.message.reply_text("🏁 The race begins! 🐎")
+    winner = None
+
+    # ─── MAIN ANIMATION LOOP ────────────────────────────────────────────────────────
+    while not winner:
+        tick_count += 1
+        frozen_for_one.clear()
+
+        # 12a) “Freeze Ray”: each horse with that spell freezes one random rival (once per race)
+        for h in all_horses:
+            if "🧊 Freeze Ray" in upgrades_map.get(h, []):
+                rivals = [r for r in all_horses if r != h and positions[r] > 0]
+                if rivals:
+                    victim = random.choice(rivals)
+                    frozen_for_one.add(victim)
+
+        # 12b) Compute each horse's movement this tick
+        new_movements = {}
+        for h in sorted(all_horses):
+            if positions[h] <= 0:
+                new_movements[h] = 0
+                continue
+
+            if h in frozen_for_one:
+                new_movements[h] = 0
+                continue
+
+            spells = upgrades_map.get(h, [])
+
+            # Mirror Trick
+            if "🔮 Mirror Trick" in spells:
+                others = [o for o in all_horses if o != h]
+                if others:
+                    chosen = random.choice(others)
+                    new_movements[h] = last_movements.get(chosen, random.randint(1, 3))
+                else:
+                    new_movements[h] = random.randint(1, 3)
+                continue
+
+            # Steady Stride
+            if "⚖️ Steady Stride" in spells:
+                new_movements[h] = random.randint(1, 5)
+                continue
+
+            # Power Burst
+            if "⚡ Power Burst" in spells:
+                new_movements[h] = 4 if random.random() < 0.1 else 1
+                continue
+
+            # Triple Dash
+            if "💨 Triple Dash" in spells:
+                new_movements[h] = 3
+                continue
+
+            # Cursed Sprint
+            if "🛠 Cursed Sprint" in spells:
+                if random.random() < 0.4:
+                    broken.add(h)
+                    new_movements[h] = 0
+                else:
+                    new_movements[h] = 5
+                continue
+
+            # Head Start
+            if "🏁 Head Start" in spells:
+                new_movements[h] = 2
+                continue
+
+            # Mutation
+            if "🧬 Mutation" in spells:
+                choice = random.choice([
+                    "🔮 Mirror Trick",
+                    "⚖️ Steady Stride",
+                    "⚡ Power Burst",
+                    "💨 Triple Dash",
+                    "🛠 Cursed Sprint",
+                    "🏁 Head Start"
+                ])
+                if choice == "🔮 Mirror Trick":
+                    others = [o for o in all_horses if o != h]
+                    if others:
+                        pick = random.choice(others)
+                        new_movements[h] = last_movements.get(pick, random.randint(1, 3))
+                    else:
+                        new_movements[h] = random.randint(1, 3)
+                elif choice == "⚖️ Steady Stride":
+                    new_movements[h] = random.randint(1, 5)
+                elif choice == "⚡ Power Burst":
+                    new_movements[h] = 4 if random.random() < 0.1 else 1
+                elif choice == "💨 Triple Dash":
+                    new_movements[h] = 3
+                elif choice == "🛠 Cursed Sprint":
+                    if random.random() < 0.4:
+                        broken.add(h)
+                        new_movements[h] = 0
+                    else:
+                        new_movements[h] = 5
+                elif choice == "🏁 Head Start":
+                    new_movements[h] = 2
+                continue
+
+            # Default: random 1–3
+            new_movements[h] = random.randint(1, 3)
+
+        # 12c) Apply all movements to positions
+        prev_positions = positions.copy()
+        for h, move in new_movements.items():
+            positions[h] = max(0, positions[h] - move)
+
+        # 12d) Magnet Pull: on every 3rd tick, horses with that spell slow all others by 1
+        if tick_count % 3 == 0:
+            for h in all_horses:
+                if "🧲 Magnet Pull" in upgrades_map.get(h, []):
+                    for other in all_horses:
+                        if other != h and positions[other] > 0:
+                            positions[other] = max(0, positions[other] + 1)
+
+        # 12e) Bounce Back: if overtaken by ≥2, bounce 5 steps
+        for h in all_horses:
+            # Only consider horses that:
+            #  1) Have the “🦘 Bounce Back” spell,
+            #  2) Still haven't used their bounce (if you only want it once per race),
+            #  3) Are still running (position > 0).
+            if "🦘 Bounce Back" in upgrades_map.get(h, []) and h not in bounce_used and positions[h] > 0:
+                # Count how many horses are currently ahead of h (positions[o] < positions[h])
+                ahead_count = sum(
+                    1
+                    for o in all_horses
+                    if o != h and positions[o] < positions[h] and positions[o] > 0
+                )
+
+                if ahead_count >= 2:
+                    # Move this horse 5 steps forward (closer to finish)
+                    positions[h] = max(0, positions[h] - 5)
+                    # If you only want the bounce‐forward to happen once per race, uncomment:
+                    # bounce_used.add(h)
+
+        # 12f) Build the “race_display” string (25‐dash track)
+        race_display = ""
+        for h in sorted(all_horses):
+            emoji = horse_emojis.get(h, "🐎")
+            label = name_map[h].replace(" ", "\u00A0")
+            if len(label) > MAX_NAME_LEN:
+                label = label[: MAX_NAME_LEN - 1] + "…"
+
+            dash_count  = max(1, (positions[h] * 25) // distance)
+            trail_count = max(1, 25 - dash_count)
+            leading  = "-" * dash_count
+            trailing = "-" * trail_count
+            raw_track = f"{leading}\u200E{emoji}\u200E{trailing}"
+            track = "\u202A" + raw_track + "\u202C"
+
+            if is_rtl(label):
+                rtl_label = "\u202B" + label + "\u202C"
+            else:
+                rtl_label = label
+
+            combined = "\u202A" + track + "\u200E" + " " + rtl_label + "\u202C"
+
+            if h in broken:
+                race_display += f"🚫 | 💥 {combined} (broken!)\n"
+            elif positions[h] == 0:
+                race_display += f"🏆 | 🏁 {combined}\n"
+                if winner is None:
+                    winner = h
+            else:
+                race_display += f"🏆 | {combined}\n"
+
+        # 12g) Truncate if too long
+        if len(race_display) > MAX_MESSAGE_LEN:
+            race_display = race_display[: MAX_MESSAGE_LEN - 1] + "\n…"
+
+        # 12h) Attempt to edit the message; handle flood control
+        try:
+            await msg.edit_text(race_display)
+        except RetryAfter as e:
+            await asyncio.sleep(int(e.retry_after) + 1)
+            continue
+
+        # 12i) Pause before next tick
+        await asyncio.sleep(0.8)
+        last_movements = new_movements.copy()
+
+    # ─── Once “winner” is set ───────────────────────────────────────────────────────
+    if winner == dealer_horse:
+        total_pot = sum(bet.bet_amount for bet in bets)
+
+        # Record dealer’s win
+        await sync_to_async(HorseRaceWin.objects.create)(
+            race=race,
+            user=None,
+            horse_number=dealer_horse,
+            horse_name="Dealer",
+            amount=total_pot
         )
 
-    mode = context.args[0].lower()
-    if mode not in ["classic", "raise"]:
-        return await update.message.reply_text("Invalid mode. Choose `classic` or `raise`.")
+        await update.message.reply_text(
+            "🏆 Dealer's horse 1 wins! All players lose their bets."
+        )
+        return
 
-    chat_id = update.message.chat_id
+    # ─── Players won ───────────────────────────────────────────────────────────────
+    winning_bets      = [bet for bet in bets if bet.horse_number == winner]
+    total_losing_bets = sum(bet.bet_amount for bet in bets if bet.horse_number != winner)
 
-    # Fetch the group record and update the default_game_mode
-    group, created = await sync_to_async(Group.objects.get_or_create)(group_chat_id=chat_id)
-    group.default_game_mode = mode
-    await sync_to_async(group.save)()
+    if not winning_bets:
+        total_pot = sum(bet.bet_amount for bet in bets)
+        dealer_obj, _ = await sync_to_async(Dealer.objects.get_or_create)(id=1)
+        dealer_obj.chips += total_pot
+        dealer_obj.wins  += 1
+        dealer_obj.games += 1
+        await sync_to_async(dealer_obj.save)()
 
-    await update.message.reply_text(f"✅ Game mode changed to **{mode}** for all future games in this group.")
+        # Record dealer’s win when no players bet
+        horse_obj = await sync_to_async(lambda: OwnedHorse.objects.filter(horse_number=winner).first())()
+        horse_name = horse_obj.name if (horse_obj and horse_obj.name) else ""
+        await sync_to_async(HorseRaceWin.objects.create)(
+            race=race,
+            user=None,
+            horse_number=winner,
+            horse_name=horse_name,
+            amount=total_pot
+        )
+
+        await safe_send_message(
+            context.bot,
+            chat_id,
+            (
+                f"🏆 Horse {winner} won, but no players bet on it!\n"
+                f"🎰 Casino (Dealer) takes the pot: {total_pot:,} chips!"
+            )
+        )
+    else:
+        oh = await sync_to_async(lambda: OwnedHorse.objects.filter(horse_number=winner).first())()
+        horse_label = oh.name if (oh and oh.name) else f"Horse {winner}"
+
+        # Record each player’s win
+        for bet in winning_bets:
+            share_of_losing_pot = total_losing_bets // len(winning_bets)
+            payout = bet.bet_amount * 2 + share_of_losing_pot
+
+            player_obj = await sync_to_async(Player.objects.get)(id=bet.user_id)
+            player_obj.chips += payout
+            await sync_to_async(player_obj.save)()
+
+            await sync_to_async(HorseRaceWin.objects.create)(
+                race=race,
+                user=player_obj,
+                horse_number=winner,
+                horse_name=(oh.name if (oh and oh.name) else ""),
+                amount=payout
+            )
+
+            await safe_send_message(
+                context.bot,
+                bet.user_id,
+                f"🎉 You won {payout:,} chips on {horse_label}!"
+            )
+
+        first_share = total_losing_bets // len(winning_bets) + winning_bets[0].bet_amount * 2
+        await safe_send_message(
+            context.bot,
+            chat_id,
+            (
+                f"🏆 Race finished! Winner: {horse_label} (#{winner}) 🏆\n"
+                f"🎉 First winner’s payout: {first_share:,} chips!"
+            )
+        )
+
+    # ─── Do not delete the race; we keep it for history ─────────────────────────────
+
+
+
+
+
+
+
+
+
+
+
+
+
+async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+    await update.message.reply_text(
+        "🏪 Shop Menu:\n"
+        "/buyhorse <number> - Buy a horse number,(Costs 60000)\n"
+        "/setemoji <horse_number> <emoji> - Set emoji for your horse(Costs 9000)\n"
+        "/myhorses - View your owned horses"
+    )
+
+
+
+
+async def buyhorse(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+    chat_id = update.effective_chat.id
+
+    args = context.args
+    if len(args) != 1 or not args[0].isdigit():
+        await update.message.reply_text("Usage: /buyhorse <horse_number>")
+        return
+
+    horse_number = int(args[0])
+    if horse_number == 1:
+        await update.message.reply_text("❌ Horse 1 is reserved for the dealer.")
+        return
+
+    # Check if already owned
+    existing = await sync_to_async(OwnedHorse.objects.filter(horse_number=horse_number).exists)()
+    if existing:
+        await update.message.reply_text("❌ This horse is already owned.")
+        return
+
+    # Get the player
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text("❌ You’re not registered.")
+        return
+
+    cost = 60000
+    if player.chips < cost:
+        await update.message.reply_text("❌ Not enough chips! Horse costs 60,000.")
+        return
+
+    # Deduct chips and assign horse
+    player.chips -= cost
+    await sync_to_async(player.save)()
+
+    
+
+    await sync_to_async(OwnedHorse.objects.create)(
+        user=player,
+        horse_number=horse_number,
+        emoji=None
+    )
+
+
+    await update.message.reply_text(f"✅ You now own Horse {horse_number}!")
+async def setemoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+
+    user_id = update.effective_user.id
+    args = context.args
+
+    if len(args) != 2:
+        await update.message.reply_text("Usage: /setemoji <horse_number> <emoji>")
+        return
+
+    try:
+        horse_number = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Horse number must be a valid number.")
+        return
+
+    emoji = args[1]
+    emoji_cost = 9000
+
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        horse = await sync_to_async(OwnedHorse.objects.get)(horse_number=horse_number)
+
+        horse_owner_id = await sync_to_async(lambda: horse.user.id)()
+
+        if horse_owner_id != player.id:
+            await update.message.reply_text("❌ You don’t own this horse.")
+            return
+
+        if player.chips < emoji_cost:
+            await update.message.reply_text("❌ Not enough chips to change the emoji.")
+            return
+
+        # Deduct chips and update emoji
+        player.chips -= emoji_cost
+        await sync_to_async(player.save)()
+
+        horse.emoji = emoji
+        await sync_to_async(horse.save)()
+
+        await update.message.reply_text(
+            f"✅ Emoji updated to {emoji} for horse {horse_number}!\n💸 Cost: {emoji_cost} chips"
+        )
+
+    except OwnedHorse.DoesNotExist:
+        await update.message.reply_text("❌ You don’t own this horse.")
+
+
+# ─── /myhorses: Show owned horses, their emojis, and owned/applied upgrades ───
+async def myhorses(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+
+    user_id = update.effective_user.id
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    # Fetch all horses owned by this player
+    horses = await sync_to_async(list)(
+        OwnedHorse.objects.filter(user=player)
+    )
+
+    # Fetch all upgrades the player has purchased
+    owned_upgrades = await sync_to_async(list)(
+        PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+    )
+
+    if not horses and not owned_upgrades:
+        await update.message.reply_text("🐎 You don’t own any horses or spells yet.")
+        return
+
+    lines = []
+
+    if horses:
+        lines.append("🐴 *Your Horses:*")
+        for h in horses:
+            # For each horse, list applied upgrades
+            applied = await sync_to_async(list)(
+                HorseAppliedUpgrade.objects.filter(horse=h).select_related("upgrade")
+            )
+            applied_names = [ap.upgrade.name for ap in applied]
+            emoji_text = f" {h.emoji}" if h.emoji else ""
+            if applied_names:
+                lines.append(f"• Horse {h.horse_number}{emoji_text}  _(Applied: {', '.join(applied_names)})_")
+            else:
+                lines.append(f"• Horse {h.horse_number}{emoji_text}")
+    else:
+        lines.append("🐴 You don’t own any horses.")
+
+    if owned_upgrades:
+        lines.append("\n🔧 *Your Purchased spells:*")
+        for pu in owned_upgrades:
+            lines.append(f"• {pu.upgrade.name}: {pu.upgrade.description} (Cost: {pu.upgrade.cost} chips)")
+    else:
+        lines.append("\n🔧 You haven’t purchased any spells.")
+
+    message = "\n".join(lines)
+    await update.message.reply_text(message, parse_mode="Markdown")
+
+
+# ─── /shopupgrades: List available upgrades ───
+async def shopupgrades(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Fetch all defined upgrades
+    upgrades = await sync_to_async(list)(HorseUpgrade.objects.all())
+    if not upgrades:
+        await update.message.reply_text("No spells available right now.")
+        return
+
+    lines = ["🏬 *Available Spells:*",""]
+    for up in upgrades:
+        lines.append(
+            f"{up.id}. *{up.name}* — {up.cost} chips\n"
+            f"    _{up.description}_\n"
+        )
+
+    # Add instructions at the bottom
+    lines.append("")  # blank line
+    lines.append("ℹ️ To purchase a spell, type `/buyupgrade <spell_id>`.")
+
+    await update.message.reply_text(
+        "\n".join(lines),
+        parse_mode="Markdown"
+    )
+
+# ─── /buyupgrade <upgrade_id>: Purchase an upgrade ───
+async def buyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+    user_id = update.effective_user.id
+    args = context.args
+
+    # Must pass exactly one integer (the upgrade’s ID)
+    if len(args) != 1 or not args[0].isdigit():
+        await update.message.reply_text("Usage: /buyspell <spell_id>")
+        return
+    upgrade_id = int(args[0])
+
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text("❌ You’re not registered.")
+        return
+
+    # Validate upgrade exists
+    try:
+        upgrade = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+    except HorseUpgrade.DoesNotExist:
+        await update.message.reply_text("❌ Invalid spell ID.")
+        return
+
+    # Check if player already owns it
+    already = await sync_to_async(PlayerUpgrade.objects.filter)(
+        player=player, upgrade=upgrade
+    )
+    if await sync_to_async(already.exists)():
+        await update.message.reply_text("❌ You already own this spell.")
+        return
+
+    # Check cost
+    if player.chips < upgrade.cost:
+        await update.message.reply_text(f"❌ Not enough chips! This costs {upgrade.cost}.")
+        return
+
+    # Deduct & create PlayerUpgrade
+    player.chips -= upgrade.cost
+    await sync_to_async(player.save)()
+    await sync_to_async(PlayerUpgrade.objects.create)(player=player, upgrade=upgrade)
+
+    await update.message.reply_text(
+        f"✅ You bought *{upgrade.name}*! You can now apply it to any of your horses.",
+        parse_mode="Markdown"
+    )
+
+async def applyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+
+    user_id = update.effective_user.id
+    args = context.args
+
+    if len(args) != 2:
+        await update.message.reply_text("Usage: /applyspell <horse_number> <spell_id>")
+        return
+
+    # 1) Parse horse number and upgrade ID
+    try:
+        horse_number = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Horse number must be an integer.")
+        return
+
+    try:
+        upgrade_id = int(args[1])
+    except ValueError:
+        await update.message.reply_text("❌ spell ID must be an integer.")
+        return
+
+    # 2) Verify that this player actually owns that horse:
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id,
+            horse_number=horse_number
+        )
+    except OwnedHorse.DoesNotExist:
+        await update.message.reply_text(f"❌ You do not own a horse numbered {horse_number}.")
+        return
+
+    # 3) Verify that the desired HorseUpgrade exists by ID:
+    try:
+        upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(pk=upgrade_id)
+    except HorseUpgrade.DoesNotExist:
+        await update.message.reply_text(f"❌ No upgrade found with ID {upgrade_id}.")
+        return
+
+    # 4) Check that the player has purchased this upgrade (PlayerUpgrade must exist)
+    owns_upgrade_exists = await sync_to_async(
+        lambda: PlayerUpgrade.objects.filter(player__id=user_id, upgrade=upgrade_obj).exists()
+    )()
+    if not owns_upgrade_exists:
+        await update.message.reply_text(
+            f"❌ You have not purchased the “{upgrade_obj.name}” spell (ID {upgrade_id})."
+        )
+        return
+
+    # 5) Fetch all upgrade names already applied to this horse in one go (synchronously wrapped):
+    existing_names = await sync_to_async(
+        lambda: list(
+            HorseAppliedUpgrade.objects.filter(horse=owned_horse)
+                                     .values_list("upgrade__name", flat=True)
+        )
+    )()
+
+    # 6) Prevent “Double Dash” and “Risky Rocket” from coexisting:
+    blocking_pair = {"Double Dash", "Risky Rocket"}
+    if upgrade_obj.name in blocking_pair:
+        other_name = "Risky Rocket" if upgrade_obj.name == "Double Dash" else "Double Dash"
+        if other_name in existing_names:
+            await update.message.reply_text(
+                f"❌ You cannot apply “{upgrade_obj.name}” (ID {upgrade_id}) to Horse {horse_number} "
+                f"because it already has “{other_name}” applied."
+            )
+            return
+
+    # 7) Check if this exact upgrade is already applied to that horse:
+    already_applied = await sync_to_async(
+        lambda: HorseAppliedUpgrade.objects.filter(
+            owner__id=user_id,
+            horse=owned_horse,
+            upgrade=upgrade_obj
+        ).exists()
+    )()
+    if already_applied:
+        await update.message.reply_text(
+            f"⚠️ Spell “{upgrade_obj.name}” (ID {upgrade_id}) is already applied to Horse {horse_number}."
+        )
+        return
+
+    # 8) Finally, create the HorseAppliedUpgrade record:
+    player_obj = await sync_to_async(Player.objects.get)(id=user_id)
+    await sync_to_async(HorseAppliedUpgrade.objects.create)(
+        owner=player_obj,
+        horse=owned_horse,
+        upgrade=upgrade_obj
+    )
+
+    await update.message.reply_text(
+        f"✅ “{upgrade_obj.name}” (ID {upgrade_id}) has been applied to Horse {horse_number}!"
+    )
+
+# ─── /unapplyupgrade <horse_number> <upgrade_id> ───
+async def unapplyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_player(update, context):
+        return
+    user_id = update.effective_user.id
+    args = context.args
+
+    if len(args) != 2 or not args[0].isdigit() or not args[1].isdigit():
+        await update.message.reply_text("Usage: /unapplyspell <horse_number> <upgrade_id>")
+        return
+    horse_number = int(args[0])
+    upgrade_id = int(args[1])
+
+    # Fetch player
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text("❌ You’re not registered.")
+        return
+
+    # Check horse
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(horse_number=horse_number)
+    except OwnedHorse.DoesNotExist:
+        await update.message.reply_text("❌ You don’t own that horse.")
+        return
+    owner_id = await sync_to_async(lambda: owned_horse.user.id)()
+    if owner_id != user_id:
+        await update.message.reply_text("❌ You don’t own this horse.")
+        return
+
+    # Fetch upgrade
+    try:
+        upgrade = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+    except HorseUpgrade.DoesNotExist:
+        await update.message.reply_text("❌ Invalid spell.")
+        return
+
+    # Check if applied
+    applied_qs = await sync_to_async(HorseAppliedUpgrade.objects.filter)(
+        owner=player, horse=owned_horse, upgrade=upgrade
+    )
+    if not await sync_to_async(applied_qs.exists)():
+        await update.message.reply_text("❌ That spell isn’t applied to this horse.")
+        return
+
+    # Remove it
+    await sync_to_async(applied_qs.delete)()
+    await update.message.reply_text(
+        f"✅ Unapplied *{upgrade.name}* from Horse {horse_number}.",
+        parse_mode="Markdown"
+    )
+
+def build_main_menu_keyboard():
+    keyboard = [
+        [
+            InlineKeyboardButton("🐎 Buy Horse", callback_data="menu:buy_horse"),
+            InlineKeyboardButton("🎨 Set Emoji", callback_data="menu:set_emoji"),
+        ],
+        [
+            InlineKeyboardButton("🐴 My Horses", callback_data="menu:my_horses"),
+            InlineKeyboardButton("📜 My Spells", callback_data="menu:my_spells"),
+        ],
+        [
+            InlineKeyboardButton("💰 Buy Spell", callback_data="menu:buy_spell"),
+            InlineKeyboardButton("✨ Apply Spell", callback_data="menu:apply_spell"),
+        ],
+        [InlineKeyboardButton("❌ Unapply Spell", callback_data="menu:unapply_spell"),],
+        [ 
+        InlineKeyboardButton("✏️ Name Horse", callback_data="menu:rename_horse"),
+        InlineKeyboardButton("🎁 Gift Horse",      callback_data="menu:gift_horse") 
+        ],
+        [
+        InlineKeyboardButton("🐴 Leaderboard", callback_data="menu:global_horse_leaderboard"),
+        InlineKeyboardButton("📈 Race Stats", callback_data="menu:my_horse_statsrace"),
+        ],
+
+        
+
+        [ InlineKeyboardButton("📈 List Horse For Sale",        callback_data="menu:list_horse") ],
+        [ InlineKeyboardButton("🛒 Horses on Sale",       callback_data="menu:sale_horses") ],
+
+        
+
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+# ─── /horse: send the top‐level shop menu ───
+async def horse(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🏇 *Horse Racing Shop Menu* 🏇\n\n"
+        "Choose an option below:",
+        parse_mode="Markdown",
+        reply_markup=build_main_menu_keyboard()
+    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    # ─── Back to main menu ───
+    if data == "menu:main":
+        context.user_data.pop("awaiting_buy_horse", None)
+        context.user_data.pop("awaiting_set_emoji", None)
+        await query.edit_message_text(
+            "🏇 *Horse Racing Shop Menu* 🏇\n\n"
+            "Choose an option below:",
+            parse_mode="Markdown",
+            reply_markup=build_main_menu_keyboard()
+        )
+        return
+
+    # ─── Buy Horse submenu ───
+    # ─── Buy Horse submenu (now shows sale listings, too) ───
+    if data == "menu:buy_horse":
+        # ─── 1) Static pricing rules text ───
+        lines = [
+            "🐎 *Buy Horse*\n",
+            "• Reply with the exact horse number you want to buy (unowned). Pricing rules:\n",
+            "  – 1-digit (e.g. 7): 100 000 chips",
+            "  – 2-digit (e.g. 42):  80 000 chips",
+            "  – 3-digit (e.g. 123): 60 000 chips",
+            "  – “All-same” digits (e.g. 11, 777, 2222): 120 000 chips\n"
+        ]
+
+        # ─── 2) Fetch all active sale listings ───
+        sale_list = await sync_to_async(list)(
+            HorseSale.objects
+                .select_related("horse__user", "horse")
+                .all()
+        )
+
+        if sale_list:
+            lines.append("🛒 *Horses for Sale:*")
+            # Collect OwnedHorse instances to query applied upgrades in bulk
+            owned_horses = [listing.horse for listing in sale_list]
+
+            # ─── 3) Bulk fetch all applied upgrades for these horses ───
+            applied_list = await sync_to_async(list)(
+                HorseAppliedUpgrade.objects
+                    .filter(horse__in=owned_horses)
+                    .select_related("upgrade", "horse")
+            )
+
+            # ─── 4) Build a mapping: horse_number → [list of spell names] ───
+            spells_map = {oh.horse_number: [] for oh in owned_horses}
+            for au in applied_list:
+                num = au.horse.horse_number
+                spells_map[num].append(au.upgrade.name)
+
+            # ─── 5) Append each sale to the text block ───
+            for listing in sale_list:
+                oh = listing.horse
+                price = listing.price
+                number = oh.horse_number
+
+                # (a) Base label: custom name or “Horse <number>”
+                if oh.name:
+                    display_label = f"{oh.name} ({number})"
+                else:
+                    display_label = f"Horse {number}"
+
+                # (b) Emoji if set
+                emoji_text = f"{oh.emoji} " if oh.emoji else ""
+
+                # (c) Spells from spells_map
+                spell_names = spells_map.get(number, [])
+                if spell_names:
+                    spells_text = " – Applied: " + ", ".join(spell_names)
+                else:
+                    spells_text = ""
+
+                lines.append(f"  – {emoji_text}{display_label}{spells_text} — {price:,} chips")
+
+            lines.append("")  # blank line before “↩️ Back”
+
+        lines.append("↩️ Back")
+
+        # ─── 6) Mark that a raw number should run the unowned‐purchase logic ───
+        context.user_data["awaiting_buy_horse"] = True
+
+        # ─── 7) Build the keyboard: one button per sale listing, plus Back ───
+        keyboard = []
+        if sale_list:
+            for listing in sale_list:
+                oh = listing.horse
+                price = listing.price
+                number = oh.horse_number
+
+                if oh.name:
+                    display_label = f"{oh.name} ({number})"
+                else:
+                    display_label = f"Horse {number}"
+
+                emoji_text = f"{oh.emoji} " if oh.emoji else ""
+                spell_names = spells_map.get(number, [])
+                if spell_names:
+                    spells_text = " – Applied: " + ", ".join(spell_names)
+                else:
+                    spells_text = ""
+
+                btn_text = f"{emoji_text}{display_label}{spells_text} — {price:,} chips"
+                keyboard.append([
+                    InlineKeyboardButton(
+                        btn_text,
+                        callback_data=f"menu:buy_sale:{number}"
+                    )
+                ])
+
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
+
+        await query.edit_message_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # ─── Global Horse‐Racing Leaderboard (no backticks) ─────────────────────────
+    if data == "menu:global_horse_leaderboard":
+        # 1) Annotate wins & chips per player
+        leaderboard_qs = await sync_to_async(
+            lambda: list(
+                HorseRaceWin.objects
+                    .filter(user__isnull=False)
+                    .values("user__id", "user__name")
+                    .annotate(
+                        wins=Count("id"),
+                        chips=Sum("amount")
+                    )
+                    .order_by("-wins", "-chips")
+            )
+        )()
+
+        top5 = leaderboard_qs[:5]
+        user_id = query.from_user.id
+
+        # Find calling user’s index
+        user_index = next(
+            (idx for idx, e in enumerate(leaderboard_qs) if e["user__id"] == user_id),
+            None
+        )
+
+        # Build lines without backticks:
+        lines = ["🌍 *Global Leaderboard* 🌍", ""]
+
+        # Top 5 entries
+        for idx, entry in enumerate(top5, start=1):
+            name = entry["user__name"] or f"User {entry['user__id']}"
+            wins = entry["wins"]
+            chips_amt = entry["chips"] or 0
+            # Format: "1 . Alice      🏆 Wins: 12   💰 Chips: 4800"
+            # Use fixed‐width fields by padding/truncating name to ~10 chars
+            lines.append(
+                f"{idx:>2} . {name:<12}   🏆 Wins: {wins:<3}   💰 Chips: {chips_amt}"
+            )
+
+        lines.append("")  # blank separator
+
+        # “Your Position” section
+        if user_index is None:
+            lines.append("🏅 *Your Position* (Not Ranked Yet):")
+            lines.append("   • No wins recorded.")
+        else:
+            user_rank = user_index + 1
+            lines.append(f"🏅 *Your Position* (Rank {user_rank}):")
+
+            # Show up to two above and two below
+            start = max(0, user_index - 2)
+            end = min(len(leaderboard_qs), user_index + 3)
+            for idx in range(start, end):
+                e = leaderboard_qs[idx]
+                name = e["user__name"] or f"User {e['user__id']}"
+                wins = e["wins"]
+                chips_amt = e["chips"] or 0
+                display_rank = idx + 1
+                prefix = "👉" if e["user__id"] == user_id else "  "
+                lines.append(
+                    f"{prefix}{display_rank:>2} . {name:<12}   🏆 Wins: {wins:<3}   💰 Chips: {chips_amt}"
+                )
+
+        text = "\n".join(lines)
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text(
+            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+    # ─── Race Stats ───────────────────────────────────────────────────────────────
+    # ─── My Horse‐Racing Stats ─────────────────────────────────────────────────
+    if data == "menu:my_horse_statsrace":
+        user_id = query.from_user.id
+
+        # 1) Total races this user has participated in (i.e. placed ≥1 bet)
+        races_participated = await sync_to_async(
+            lambda: HorseBet.objects.filter(user_id=user_id)
+                                     .values_list("race", flat=True)
+                                     .distinct()
+                                     .count()
+        )()
+
+        # 2) Total chips wagered by this user (sum of all their HorseBet.bet_amount)
+        total_wagered_q = await sync_to_async(
+            lambda: HorseBet.objects.filter(user_id=user_id)
+                                     .aggregate(total=Sum("bet_amount"))
+        )()
+        total_wagered = total_wagered_q["total"] or 0
+
+        # 3) Average bet size for this user
+        avg_bet_q = await sync_to_async(
+            lambda: HorseBet.objects.filter(user_id=user_id)
+                                     .aggregate(avg=Avg("bet_amount"))
+        )()
+        avg_bet = avg_bet_q["avg"] or 0
+
+        # 4) Total horses owned by this user
+        horses_owned = await sync_to_async(
+            lambda: OwnedHorse.objects.filter(user__id=user_id).count()
+        )()
+
+        # 5) Total wins (number of times this user appears in HorseRaceWin)
+        total_wins = await sync_to_async(
+            lambda: HorseRaceWin.objects.filter(user__id=user_id).count()
+        )()
+
+        # 6) Total chips earned (sum of HorseRaceWin.amount where user=this user)
+        total_earned_q = await sync_to_async(
+            lambda: HorseRaceWin.objects.filter(user__id=user_id)
+                                         .aggregate(total=Sum("amount"))
+        )()
+        total_earned = total_earned_q["total"] or 0
+
+        # 7) Horse‐Level Win Rate: For each horse this user owns,
+        #    compute (wins_of_that_horse) / (bets_on_that_horse by this user).
+        #    Then average across all their horses. If user has no horses, skip.
+        horse_ids = await sync_to_async(
+            lambda: list(
+                OwnedHorse.objects.filter(user__id=user_id)
+                                  .values_list("horse_number", flat=True)
+            )
+        )()
+
+        if horse_ids:
+            win_rate_list = []
+            for hnum in horse_ids:
+                wins_for_horse = await sync_to_async(
+                    lambda: HorseRaceWin.objects.filter(
+                        user__id=user_id, horse_number=hnum
+                    ).count()
+                )()
+                bets_on_horse = await sync_to_async(
+                    lambda: HorseBet.objects.filter(
+                        user_id=user_id, horse_number=hnum
+                    ).count()
+                )()
+                if bets_on_horse > 0:
+                    win_rate_list.append(wins_for_horse / bets_on_horse)
+                else:
+                    win_rate_list.append(0.0)
+
+            # Average across all horses
+            horse_win_rate = (sum(win_rate_list) / len(win_rate_list)) * 100  # as percentage
+        else:
+            horse_win_rate = 0.0
+
+        # 8) Player Win Rate: (# races in which they bet AND won) / (# races participated)
+        #    “Races in which they won” = distinct race IDs from HorseRaceWin for this user
+        races_won = await sync_to_async(
+            lambda: HorseRaceWin.objects.filter(user__id=user_id)
+                                        .values_list("race", flat=True)
+                                        .distinct()
+                                        .count()
+        )()
+
+        if races_participated > 0:
+            player_win_rate = (races_won / races_participated) * 100
+        else:
+            player_win_rate = 0.0
+
+        # ─── Build a Markdown block using the same “🎮 Your Stats 🎮” style ────────
+        lines = [
+            "🎮 *Your Horse‐Racing Stats* 🎮",
+            "",
+            f"🐎 Races participated: *{races_participated}*",
+            f"💰 Total chips wagered: *{total_wagered:,}* chips",
+            f"📊 Avg. bet size: *{avg_bet:.2f}* chips",
+            f"🏠 Horses owned: *{horses_owned}*",
+            f"🏆 Total wins: *{total_wins}*",
+            f"🎉 Total chips earned: *{total_earned:,}* chips",
+            f"🐴 Horse‐level win rate: *{horse_win_rate:.1f}%*",
+            f"🎲 Player win rate: *{player_win_rate:.1f}%*",
+        ]
+        text = "\n".join(lines)
+
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+
+
+
+
+
+
+    if data == "menu:set_emoji":
+        user_id = query.from_user.id
+        owned_horses = await sync_to_async(list)(
+            OwnedHorse.objects.filter(user__id=user_id)
+        )
+
+        if not owned_horses:
+            text = "🎨 You don’t own any horses to set an emoji on.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        keyboard = []
+        for h in owned_horses:
+            # Determine display label: “Name (number)” if name exists, else “Horse <number>”
+            if h.name:
+                display_label = f"{h.name} ({h.horse_number})"
+            else:
+                display_label = f"Horse {h.horse_number}"
+
+            emoji_text = f"{h.emoji} " if h.emoji else ""
+            btn_text = f"{emoji_text}{display_label}"
+            keyboard.append([
+                InlineKeyboardButton(
+                    btn_text,
+                    callback_data=f"menu:setemoji_choose:{h.horse_number}"
+                )
+            ])
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
+
+        await query.edit_message_text(
+            "🎨 *Set Emoji* – Choose which horse to change:\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+        #
+    # ─── “Sale Horses” submenu ───
+    #
+    #
+    # ─── “Sale Horses” submenu — show spells + name/emoji + price ───
+    #
+    if data == "menu:sale_horses":
+        # 1) Fetch all active listings (with select_related to grab the OwnedHorse itself)
+        sale_list = await sync_to_async(list)(
+            HorseSale.objects
+                .select_related("horse__user", "horse")
+                .all()
+        )
+
+        if not sale_list:
+            text = "🛒 There are currently no horses listed for sale.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # 2) Build a list of just the OwnedHorse objects for these listings
+        owned_horses = [listing.horse for listing in sale_list]
+
+        # 3) In one bulk call, fetch all HorseAppliedUpgrade records for those OwnedHorse IDs
+        #    We use `horse__in=owned_horses` and select_related("upgrade") so we get each upgrade name.
+        applied_list = await sync_to_async(list)(
+            HorseAppliedUpgrade.objects
+                .filter(horse__in=owned_horses)
+                .select_related("upgrade", "horse")
+        )
+
+        # 4) Build a mapping: horse_number → [list of spell names]
+        spells_map = {}
+        for h in owned_horses:
+            spells_map[h.horse_number] = []
+        for au in applied_list:
+            num = au.horse.horse_number
+            spells_map[num].append(au.upgrade.name)
+
+        # 5) Now build the keyboard—pure Python from here on (no more ORM calls)
+        keyboard = []
+        for listing in sale_list:
+            oh = listing.horse
+            price = listing.price
+            number = oh.horse_number
+
+            # (a) Display label: custom name or “Horse <number>”
+            if oh.name:
+                display_label = f"{oh.name} ({number})"
+            else:
+                display_label = f"Horse {number}"
+
+            # (b) Emoji (if any)
+            emoji_text = f"{oh.emoji} " if oh.emoji else ""
+
+            # (c) Spells (look up in spells_map)
+            spell_names = spells_map.get(number, [])
+            if spell_names:
+                spells_text = " – Applied: " + ", ".join(spell_names)
+            else:
+                spells_text = ""
+
+            # (d) Construct button text
+            btn_text = f"{emoji_text}{display_label}{spells_text} — {price:,} chips"
+            keyboard.append([
+                InlineKeyboardButton(
+                    btn_text,
+                    callback_data=f"menu:buy_sale:{number}"
+                )
+            ])
+
+        # 6) Add the Back button at the bottom
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
+
+        # 7) Finally, edit the message
+        await query.edit_message_text(
+            "🛒 *Horses for Sale:*  (Tap to buy)\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+    #
+    # ─── “Buy Sale Listing” handler ───
+    #
+    if data.startswith("menu:buy_sale:"):
+        horse_number = int(data.split(":")[2])
+        buyer_id = query.from_user.id
+
+        # 1) Fetch the listing & related OwnedHorse
+        try:
+            sale = await sync_to_async(HorseSale.objects.select_related("horse__user").get)(
+                horse__horse_number=horse_number
+            )
+        except HorseSale.DoesNotExist:
+            await query.edit_message_text("❌ That listing no longer exists.\n\n↩️ Back")
+            return
+
+        owned_horse = sale.horse
+        seller = owned_horse.user
+        price = sale.price
+
+        # 2) Prevent self-purchase
+        if seller.id == buyer_id:
+            await query.edit_message_text(
+                "❌ You cannot buy your own listing.\n\n↩️ Back"
+            )
+            return
+
+        # 3) Check buyer has enough chips
+        buyer = await sync_to_async(Player.objects.get)(id=buyer_id)
+        if buyer.chips < price:
+            await query.edit_message_text(
+                f"❌ Not enough chips! You need {price:,} but you have {buyer.chips:,}.\n\n↩️ Back"
+            )
+            return
+
+        # 4) Transfer chips: deduct from buyer, add to seller
+        buyer.chips -= price
+        await sync_to_async(buyer.save)()
+
+        seller_player = await sync_to_async(Player.objects.get)(id=seller.id)
+        seller_player.chips += price
+        await sync_to_async(seller_player.save)()
+
+        # 5) Transfer ownership: change OwnedHorse.user → buyer
+        owned_horse.user = buyer
+        await sync_to_async(owned_horse.save)()
+
+        # 6) Delete the sale listing
+        await sync_to_async(sale.delete)()
+
+        # 7) Notify both parties
+        if owned_horse.name:
+            display_label = f"{owned_horse.name} ({horse_number})"
+        else:
+            display_label = f"Horse {horse_number}"
+
+        await query.edit_message_text(
+            f"✅ You bought {display_label} from {seller_player.name or seller_player.id} "
+            f"for {price:,} chips!"
+        )
+        # Notify seller via DM if possible
+        try:
+            await context.bot.send_message(
+                chat_id=seller_player.id,
+                text=(
+                    f"🎉 Your horse {display_label} was purchased by "
+                    f"{buyer.name or buyer.id} for {price:,} chips!"
+                )
+            )
+        except Exception:
+            pass
+
+        return
+
+    # ─── My Horses submenu (show horses + owned spells) ───
+        # ─── “List Horse” submenu ───
+    #
+    if data == "menu:list_horse":
+        user_id = query.from_user.id
+        # Fetch all horses this user owns that are NOT already listed
+        owned_horses = await sync_to_async(list)(
+            OwnedHorse.objects
+                      .filter(user__id=user_id)
+                      .exclude(sale_listing__isnull=False)
+        )
+        if not owned_horses:
+            text = "📈 You don’t have any horses available to list for sale.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # Build a keyboard listing each owned horse (showing name(number) or “Horse <number>”)
+        keyboard = []
+        for h in owned_horses:
+            if h.name:
+                display_label = f"{h.name} ({h.horse_number})"
+            else:
+                display_label = f"Horse {h.horse_number}"
+            emoji_text = f"{h.emoji} " if h.emoji else ""
+            btn_text = f"{emoji_text}{display_label}"
+            keyboard.append([
+                InlineKeyboardButton(
+                    btn_text,
+                    callback_data=f"menu:list_choose:{h.horse_number}"
+                )
+            ])
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
+
+        await query.edit_message_text(
+            "📈 *List Horse for Sale* – Choose which of your horses to list:\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    #
+    # ─── “List Horse → Pick Horse” ───
+    #
+    if data.startswith("menu:list_choose:"):
+        horse_number = int(data.split(":")[2])
+        user_id = query.from_user.id
+
+        # Verify user still owns that horse and it’s not already listed
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+            return
+
+        # Make sure it isn't already listed
+        if await sync_to_async(
+            HorseSale.objects.filter(horse=owned_horse).exists
+        )():
+            await query.edit_message_text(
+                f"⚠️ That horse is already listed for sale.\n\n↩️ Back",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]])
+            )
+            return
+
+        # Save in user_data so text‐handler knows we’re in “awaiting_list_price” mode
+        context.user_data["awaiting_list_horse"] = horse_number
+
+        # Ask the user for the price
+        if owned_horse.name:
+            display_label = f"{owned_horse.name} ({horse_number})"
+        else:
+            display_label = f"Horse {horse_number}"
+
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text(
+            f"📈 *List → {display_label}*\n\n"
+            "Please reply with the price (in chips) at which you want to list this horse for sale.\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    if data == "menu:my_horses":
+        user_id = query.from_user.id
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+        except Player.DoesNotExist:
+            await query.edit_message_text("❌ You’re not registered yet.")
+            return
+
+        horses = await sync_to_async(list)(
+            OwnedHorse.objects.filter(user=player)
+        )
+        owned_upgrades = await sync_to_async(list)(
+            PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+        )
+
+        if not horses and not owned_upgrades:
+            text = "🐎 You don’t own any horses yet.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        lines = []
+        if horses:
+            lines.append("🐴 *Your Horses:*")
+            for h in horses:
+                # Fetch any applied upgrades
+                applied = await sync_to_async(list)(
+                    HorseAppliedUpgrade.objects.filter(horse=h).select_related("upgrade")
+                )
+                applied_names = [ap.upgrade.name for ap in applied]
+
+                # Determine display label: if custom name exists, show "Name(number)"
+                if h.name:
+                    display_label = f"{h.name} ({h.horse_number})"
+                else:
+                    display_label = f"Horse {h.horse_number}"
+
+                emoji_text = f" {h.emoji}" if h.emoji else ""
+
+                if applied_names:
+                    lines.append(
+                        f"• {display_label}{emoji_text}  _(Applied: {', '.join(applied_names)})_"
+                    )
+                else:
+                    lines.append(f"• {display_label}{emoji_text}")
+        else:
+            lines.append("🐴 You don’t own any horses.")
+
+        lines.append("\n↩️ Back")
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
+                                      reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+
+        # if owned_upgrades:
+        #     lines.append("\n🔧 *Your Purchased Spells:*")
+        #     for pu in owned_upgrades:
+        #         lines.append(
+        #             f"• {pu.upgrade.name} – {pu.upgrade.description} _(Cost: {pu.upgrade.cost})_"
+        #         )
+        # else:
+        #     lines.append("\n🔧 You haven’t purchased any spells.")
+
+        # lines.append("\n↩️ Back")
+        # keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        # await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
+        #                               reply_markup=InlineKeyboardMarkup(keyboard))
+        # return
+    if data == "menu:rename_horse":
+        user_id = query.from_user.id
+        # Fetch all horses owned by this user
+        owned_horses = await sync_to_async(list)(
+            OwnedHorse.objects.filter(user__id=user_id)
+        )
+
+        if not owned_horses:
+            text = "✏️ You don’t own any horses to rename.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # Build a keyboard listing each horse (show name if set, else “Horse <number>”)
+        lines = ["✏️ *Rename Horse* (60 000 chips) – Choose which horse to rename:",""]
+        keyboard = []
+        for h in owned_horses:
+            display = h.name if h.name else f"Horse {h.horse_number}"
+            keyboard.append([
+                InlineKeyboardButton(
+                    display,
+                    callback_data=f"menu:rename_choose:{h.horse_number}"
+                )
+            ])
+
+        # Back button
+        keyboard.append([ InlineKeyboardButton("↩️ Back", callback_data="menu:main") ])
+
+        await query.edit_message_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    if data == "menu:gift_horse":
+        user_id = query.from_user.id
+
+        # Offer two choices: gift an owned horse, or buy+gift a new one
+        keyboard = [
+            [InlineKeyboardButton("🎁 Gift Owned Horse",    callback_data="menu:gift_owned")],
+            [InlineKeyboardButton("🎁 Buy & Gift Horse",    callback_data="menu:buy_and_gift")],
+            [InlineKeyboardButton("↩️ Back",                 callback_data="menu:main")],
+        ]
+        await query.edit_message_text(
+            "🎁 *Gift Horse* – Choose an option:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    #
+    # ─── Gift Owned Horse → Show List of Owned Horses ───
+    #
+    if data == "menu:gift_owned":
+        user_id = query.from_user.id
+        # Fetch all horses the user owns:
+        owned_horses = await sync_to_async(list)(
+            OwnedHorse.objects.filter(user__id=user_id)
+        )
+        if not owned_horses:
+            text = "❌ You don’t own any horses to gift.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # Build a keyboard listing each owned horse (show name(number) or Horse <number>)
+        keyboard = []
+        for h in owned_horses:
+            if h.name:
+                display_label = f"{h.name} ({h.horse_number})"
+            else:
+                display_label = f"Horse {h.horse_number}"
+            emoji_text = f"{h.emoji} " if h.emoji else ""
+            btn_text = f"{emoji_text}{display_label}"
+            keyboard.append([
+                InlineKeyboardButton(btn_text, callback_data=f"menu:gift_owned_choose:{h.horse_number}")
+            ])
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")])
+
+        await query.edit_message_text(
+            "🎁 *Gift Owned Horse* – Choose which horse to gift:\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    #
+    # ─── Gift Owned → Picked a Horse to Gift ───
+    #
+    if data.startswith("menu:gift_owned_choose:"):
+        horse_number = int(data.split(":")[2])
+        user_id = query.from_user.id
+
+        # Verify the user still owns that horse
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+            return
+
+        # Save flag + which horse they intend to gift
+        context.user_data["awaiting_gift_owned"] = horse_number
+
+        # Ask them for the recipient’s Telegram @username or ID
+        if owned_horse.name:
+            display_label = f"{owned_horse.name} ({horse_number})"
+        else:
+            display_label = f"Horse {horse_number}"
+
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")]]
+        await query.edit_message_text(
+            f"🎁 *Gift → {display_label}*\n\n"
+            "Please reply with the recipient’s numeric user ID (they can run /myid to see it).\n"
+            "Fee: 10 000 chips.\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    #
+    # ─── Buy & Gift Horse → Ask for the horse number to buy & gift ───
+    #
+    if data == "menu:buy_and_gift":
+        # Mark that we’re in “buy and gift” mode
+        context.user_data["awaiting_buy_and_gift"] = True
+
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")]]
+        await query.edit_message_text(
+            "🎁 *Buy & Gift Horse* – Please reply with the horse number you want to purchase and gift.\n\n"
+            "Cost = normal purchase cost for that number. ↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # ─── “My Spells” submenu (new) ───
+    if data == "menu:my_spells":
+        user_id = query.from_user.id
+
+        # Fetch the Player (if they exist)
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+        except Player.DoesNotExist:
+            await query.edit_message_text("❌ You’re not registered yet.")
+            return
+
+        # Get all spells this player has purchased
+        owned_upgrades = await sync_to_async(list)(
+            PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+        )
+
+        if not owned_upgrades:
+            text = "🔧 You haven’t purchased any spells yet.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # Build a simple list of “name – description (cost)”
+        lines = ["🔧 *Your Purchased Spells:*",""]
+        for pu in owned_upgrades:
+            lines.append(f"• *{pu.upgrade.name}* — {pu.upgrade.description} _(Cost: {pu.upgrade.cost})_")
+        # lines.append("\n↩️ Back")
+
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # ─── Buy Spell submenu ───
+    if data == "menu:buy_spell":
+        upgrades = await sync_to_async(list)(HorseUpgrade.objects.all())
+        if not upgrades:
+            text = "📜 No spells available right now.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        lines = ["📜 *Available Spells:*",""]
+        keyboard = []
+        for up in upgrades:
+            lines.append(f"{up.id}. *{up.name}* – {up.description} _(Cost: {up.cost})_\n")
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{up.name} (Cost: {up.cost})",
+                    callback_data=f"menu:buy_spell_choose:{up.id}"
+                )
+            ])
+        lines.append("\n↩️ Back")
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
+
+        await query.edit_message_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # ─── Apply Spell submenu ───
+    if data == "menu:apply_spell":
+        user_id = query.from_user.id
+        horses = await sync_to_async(list)(
+            OwnedHorse.objects.filter(user__id=user_id)
+        )
+        if not horses:
+            text = "❌ You don’t own any horses to apply a spell to.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        keyboard = []
+        for h in horses:
+            # Build display label: “Name (number)” if name exists, else “Horse <number>”
+            if h.name:
+                display_label = f"{h.name} ({h.horse_number})"
+            else:
+                display_label = f"Horse {h.horse_number}"
+
+            emoji_text = f"{h.emoji} " if h.emoji else ""
+            btn_text = f"{emoji_text}{display_label}"
+            keyboard.append([
+                InlineKeyboardButton(
+                    btn_text,
+                    callback_data=f"menu:apply_choose_horse:{h.horse_number}"
+                )
+            ])
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
+        await query.edit_message_text(
+            "✨ *Apply Spell* – Choose which horse to enhance:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+
+
+
+
+
+
+
+
+    if data == "menu:unapply_spell":
+        user_id = query.from_user.id
+        horses = await sync_to_async(list)(
+            OwnedHorse.objects.filter(user__id=user_id)
+        )
+        if not horses:
+            text = "❌ You don’t own any horses to remove a spell from.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        keyboard = []
+        for h in horses:
+            # Build display label: “Name (number)” if name exists, else “Horse <number>”
+            if h.name:
+                display_label = f"{h.name} ({h.horse_number})"
+            else:
+                display_label = f"Horse {h.horse_number}"
+
+            emoji_text = f"{h.emoji} " if h.emoji else ""
+            btn_text = f"{emoji_text}{display_label}"
+            keyboard.append([
+                InlineKeyboardButton(
+                    btn_text,
+                    callback_data=f"menu:unapply_choose_horse:{h.horse_number}"
+                )
+            ])
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:main")])
+        await query.edit_message_text(
+            "❌ *Unapply Spell* – Pick a horse:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("menu:rename_choose:"):
+        horse_number = int(data.split(":")[2])
+        user_id = query.from_user.id
+
+        # Verify they own that horse
+        try:
+            await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+            return
+
+        # Set the flag so catch_all_text knows we’re in “rename” mode
+        context.user_data["awaiting_rename_horse"] = horse_number
+
+        keyboard = [[ InlineKeyboardButton("↩️ Back", callback_data="menu:main") ]]
+        await query.edit_message_text(
+            f"✏️ *Rename → Horse {horse_number}*\n\n"
+            "Please send the new name for your horse.\n"
+            "Cost: 60 000 chips.\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("menu:setemoji_choose:"):
+        horse_number = int(data.split(":")[2])
+
+        # Fetch the OwnedHorse so we can show its label in the prompt
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=query.from_user.id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+            return
+
+        if owned_horse.name:
+            display_label = f"{owned_horse.name} ({horse_number})"
+        else:
+            display_label = f"Horse {horse_number}"
+
+        # ── INSERT PRINT HERE ──
+        print("DEBUG: awaiting_set_emoji set to", horse_number)
+        context.user_data["awaiting_set_emoji"] = horse_number
+
+        # Now ask the user to send their new emoji:
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text(
+            f"🎨 *Set Emoji → {display_label}*\n\n"
+            "Please send the emoji you want to assign to this horse.\n"
+            "Cost: 9 000 chips.\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+
+
+
+
+
+
+
+
+
+    #
+    # ─── SUBMENU: “Buy Spell → Choose Spell” ───
+    #
+    if data.startswith("menu:buy_spell_choose:"):
+        upgrade_id = int(data.split(":")[2])
+        user_id = query.from_user.id
+
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+        except Player.DoesNotExist:
+            await query.edit_message_text("❌ You’re not registered.")
+            return
+
+        try:
+            upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+        except HorseUpgrade.DoesNotExist:
+            await query.edit_message_text("❌ That spell no longer exists.")
+            return
+
+        already = await sync_to_async(
+            PlayerUpgrade.objects.filter(player=player, upgrade=upgrade_obj).exists
+        )()
+        if already:
+            await query.edit_message_text(
+                f"⚠️ You already own *{upgrade_obj.name}*.",
+                parse_mode="Markdown"
+            )
+            return
+
+        if player.chips < upgrade_obj.cost:
+            await query.edit_message_text(
+                f"❌ Not enough chips! *{upgrade_obj.name}* costs {upgrade_obj.cost}.",
+                parse_mode="Markdown"
+            )
+            return
+
+        player.chips -= upgrade_obj.cost
+        await sync_to_async(player.save)()
+        await sync_to_async(PlayerUpgrade.objects.create)(player=player, upgrade=upgrade_obj)
+
+        await query.edit_message_text(
+            f"✅ You bought *{upgrade_obj.name}*!",
+            parse_mode="Markdown"
+        )
+        return
+
+        #
+    # ─── SUBMENU: “Apply Spell → Choose Horse” ───
+    #
+    if data.startswith("menu:apply_choose_horse:"):
+        horse_number = int(data.split(":")[2])
+        user_id = query.from_user.id
+
+        # 1) Verify horse ownership
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+            return
+
+        # Build display_label = "Name (66)" if name exists, else "Horse 66"
+        if owned_horse.name:
+            display_label = f"{owned_horse.name} ({horse_number})"
+        else:
+            display_label = f"Horse {horse_number}"
+
+        # 2) Check if any upgrade is already applied to this horse
+        existing_count = await sync_to_async(
+            lambda: HorseAppliedUpgrade.objects.filter(horse=owned_horse).count()
+        )()
+        if existing_count > 0:
+            # Only one upgrade allowed per horse
+            text = (
+                f"⚠️ {display_label} already has an upgrade applied.\n"
+                "You can only apply one upgrade per horse.\n\n↩️ Back"
+            )
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")]]
+            await query.edit_message_text(text, parse_mode="Markdown",
+                                          reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # 3) Fetch all spells the user has purchased
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        owned_spells = await sync_to_async(list)(
+            PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+        )
+        if not owned_spells:
+            text = f"🔧 You haven’t purchased any spells to apply to {display_label}.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # 4) Build a keyboard listing each owned spell
+        keyboard = []
+        for pu in owned_spells:
+            up = pu.upgrade
+            keyboard.append([InlineKeyboardButton(
+                up.name,
+                callback_data=f"menu:apply_choose_spell:{horse_number}:{up.id}"
+            )])
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")])
+
+        # Use display_label in the header
+        await query.edit_message_text(
+            f"✨ *Apply Spell → {display_label}*\n\n"
+            "Choose which spell to apply (only one per horse):",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+
+
+
+
+
+
+
+
+    #
+    # ─── SUBMENU: “Apply Spell → Confirm” ───
+    #
+    if data.startswith("menu:apply_choose_spell:"):
+        parts = data.split(":")
+        horse_number = int(parts[2])
+        upgrade_id = int(parts[3])
+        user_id = query.from_user.id
+
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.")
+            return
+
+        try:
+            upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+        except HorseUpgrade.DoesNotExist:
+            await query.edit_message_text("❌ That spell no longer exists.")
+            return
+
+        has_it = await sync_to_async(
+            PlayerUpgrade.objects.filter(player__id=user_id, upgrade=upgrade_obj).exists
+        )()
+        if not has_it:
+            await query.edit_message_text("❌ You haven’t purchased that spell.")
+            return
+
+        blocking_pair = {"Double Dash", "Risky Rocket"}
+        if upgrade_obj.name in blocking_pair:
+            other_name = "Risky Rocket" if upgrade_obj.name == "Double Dash" else "Double Dash"
+            existing_names = await sync_to_async(
+                lambda: list(
+                    HorseAppliedUpgrade.objects.filter(horse=owned_horse)
+                                               .values_list("upgrade__name", flat=True)
+                )
+            )()
+            if other_name in existing_names:
+                await query.edit_message_text(
+                    f"❌ You cannot apply *{upgrade_obj.name}* because *{other_name}* is already on Horse {horse_number}.",
+                    parse_mode="Markdown"
+                )
+                return
+
+        already_applied = await sync_to_async(
+            HorseAppliedUpgrade.objects.filter(
+                owner__id=user_id,
+                horse=owned_horse,
+                upgrade=upgrade_obj
+            ).exists
+        )()
+        if already_applied:
+            await query.edit_message_text(
+                f"⚠️ You already applied *{upgrade_obj.name}* to Horse {horse_number}.",
+                parse_mode="Markdown"
+            )
+            return
+
+        player_obj = await sync_to_async(Player.objects.get)(id=user_id)
+        await sync_to_async(HorseAppliedUpgrade.objects.create)(
+            owner=player_obj,
+            horse=owned_horse,
+            upgrade=upgrade_obj
+        )
+        await query.edit_message_text(
+            f"✅ *{upgrade_obj.name}* has been applied to Horse {horse_number}!",
+            parse_mode="Markdown"
+        )
+        return
+
+       #
+    # ─── SUBMENU: “Unapply Spell → Choose Horse” ───
+    #
+    from telegram.error import BadRequest
+
+    if data.startswith("menu:unapply_choose_horse:"):
+        horse_number = int(data.split(":")[2])
+        user_id = query.from_user.id
+
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.")
+            return
+
+        # Build display_label = "Name (66)" if name exists, else "Horse 66"
+        if owned_horse.name:
+            display_label = f"{owned_horse.name} ({horse_number})"
+        else:
+            display_label = f"Horse {horse_number}"
+
+        # Fetch all applied upgrades on this horse
+        applied_list = await sync_to_async(
+            lambda: list(
+                HorseAppliedUpgrade.objects
+                    .filter(horse=owned_horse)
+                    .select_related("upgrade")
+            )
+        )()
+
+        if not applied_list:
+            text = f"⚠️ {display_label} has no spells to remove.\n\n↩️ Back"
+            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:unapply_spell")]]
+            try:
+                await query.edit_message_text(
+                    text,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except BadRequest as e:
+                if "Message is not modified" not in str(e):
+                    raise
+            return
+
+        # Build a list of “Spell Name” buttons for each applied upgrade
+        lines = [f"❌ *Unapply Spell → {display_label}*",""]
+        keyboard = []
+        for ap in applied_list:
+            up = ap.upgrade
+            callback_str = f"menu:unapply_choose_spell:{horse_number}:{up.id}"
+            lines.append(f"• *{up.name}* — {up.description}")
+            keyboard.append([InlineKeyboardButton(up.name, callback_data=callback_str)])
+
+        # Add a Back button at the bottom
+        lines.append("\n↩️ Back")
+        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:unapply_spell")])
+
+        await query.edit_message_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+
+
+
+
+
+
+
+
+    #
+    # ─── SUBMENU: “Unapply Spell → Confirm” ───
+    #
+    if data.startswith("menu:unapply_choose_spell:"):
+        parts = data.split(":")
+        horse_number = int(parts[2])
+        upgrade_id = int(parts[3])
+        user_id = query.from_user.id
+
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await query.edit_message_text("❌ You do not own that horse.")
+            return
+
+        try:
+            upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+        except HorseUpgrade.DoesNotExist:
+            await query.edit_message_text("❌ That spell no longer exists.")
+            return
+
+        applied_qs = await sync_to_async(HorseAppliedUpgrade.objects.filter)(
+            owner__id=user_id, horse=owned_horse, upgrade=upgrade_obj
+        )
+        if not await sync_to_async(applied_qs.exists)():
+            await query.edit_message_text(
+                f"❌ *{upgrade_obj.name}* is not applied to Horse {horse_number}.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # 5) Delete the applied upgrade
+        await sync_to_async(applied_qs.delete)()
+        await query.edit_message_text(
+            f"✅ Unapplied *{upgrade_obj.name}* from Horse {horse_number}.",
+            parse_mode="Markdown"
+        )
+        return
+
+
+    # ─── Fallback → show main menu ───
+    context.user_data.pop("awaiting_buy_horse", None)
+    context.user_data.pop("awaiting_set_emoji", None)
+    await query.edit_message_text(
+        "🏇 *Horse Racing Shop Menu* 🏇\n\n"
+        "Choose an option below:",
+        parse_mode="Markdown",
+        reply_markup=build_main_menu_keyboard()
+    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+async def catch_gift_owned_recipient(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+    horse_number = context.user_data.pop("awaiting_gift_owned", None)
+    if horse_number is None:
+        await update.message.reply_text("❌ No horse selected to gift. Aborting.")
+        return
+
+    # Re‐verify ownership (same as before) …
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
+        )
+    except OwnedHorse.DoesNotExist:
+        await update.message.reply_text("❌ You no longer own that horse. Aborting.")
+        return
+
+    # Deduct fee (same as before) …
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    fee = 10_000
+    if player.chips < fee:
+        await update.message.reply_text(f"❌ Not enough chips! You need {fee:,} to gift this horse.")
+        return
+    player.chips -= fee
+    await sync_to_async(player.save)()
+
+    # ─── NEW: Only accept numeric user ID ───
+    try:
+        recipient_id = int(text)
+    except ValueError:
+        # Not a valid integer
+        await update.message.reply_text(
+            "❌ That is not a valid numeric user ID. "
+            "Please have the recipient send /myid to the bot and paste that number here."
+        )
+        # Refund
+        player.chips += fee
+        await sync_to_async(player.save)()
+        return
+
+    # Look up the Player by ID
+    try:
+        recipient_player = await sync_to_async(Player.objects.get)(id=recipient_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text(
+            f"❌ No player in our database has ID {recipient_id}. "
+            "Make sure they ran /myid and gave you their correct number."
+        )
+        # Refund
+        player.chips += fee
+        await sync_to_async(player.save)()
+        return
+
+    # Transfer ownership
+    owned_horse.user = recipient_player
+    await sync_to_async(owned_horse.save)()
+
+    # Notify both parties
+    if owned_horse.name:
+        display_label = f"{owned_horse.name} ({horse_number})"
+    else:
+        display_label = f"Horse {horse_number}"
+
+    await update.message.reply_text(
+        f"🎁 You gifted {display_label} to player‐ID {recipient_player.id}! (−{fee:,} chips)"
+    )
+    try:
+        await context.bot.send_message(
+            chat_id=recipient_player.id,
+            text=f"🎁 You have received {display_label}! Enjoy your new horse."
+        )
+    except Exception:
+        # Bot might not be able to DM if user hasn’t started it
+        pass
+
+    return
+
+
+
+async def catch_buy_and_gift_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Called when the user chose “Buy & Gift Horse” and now replies with a <horse_number>.
+    Deduct normal purchase cost, then prompt for the recipient.
+    """
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+
+    # Clear the “awaiting_buy_and_gift” flag
+    if not context.user_data.get("awaiting_buy_and_gift"):
+        return
+    context.user_data.pop("awaiting_buy_and_gift", None)
+
+    # 1) Validate numeric
+    if not text.isdigit():
+        await update.message.reply_text("❌ That’s not a valid horse number. Aborting.")
+        return
+
+    horse_number = int(text)
+    # 2) Cannot buy reserved (1,2,3)
+    if horse_number in (1, 2, 3):
+        await update.message.reply_text(
+            "❌ Horse 1, 2, and 3 are reserved. ↩️ Try again."
+        )
+        return
+
+    # 3) Check if already owned
+    exists_qs = await sync_to_async(OwnedHorse.objects.filter)(horse_number=horse_number)
+    if await sync_to_async(exists_qs.exists)():
+        await update.message.reply_text(
+            f"❌ Horse {horse_number} is already owned. Use Gift Owned Horse instead."
+        )
+        return
+
+    # 4) Compute purchase cost
+    s = str(horse_number)
+    if len(s) == 1:
+        cost = 100_000
+    elif len(s) == 2:
+        cost = 120_000 if s[0] == s[1] else 80_000
+    elif len(s) == 3:
+        cost = 120_000 if (s[0] == s[1] == s[2]) else 60_000
+    else:
+        cost = 120_000 if all(ch == s[0] for ch in s) else 60_000
+
+    # 5) Fetch player & check chips
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < cost:
+        await update.message.reply_text(
+            f"❌ Not enough chips! You need {cost:,} to buy Horse {horse_number}."
+        )
+        return
+
+    # 6) Deduct chips, record in context, then ask for recipient
+    player.chips -= cost
+    await sync_to_async(player.save)()
+
+    context.user_data["purchased_gift_horse"] = horse_number
+    context.user_data["purchased_cost"] = cost
+
+    keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")]]
+    await update.message.reply_text(
+        f"🎁 You bought Horse {horse_number} for {cost:,} chips.\n\n"
+        "Now reply with the recipient’s Telegram @username or numeric user ID.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+async def catch_buy_and_gift_recipient(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+
+    horse_number = context.user_data.pop("purchased_gift_horse", None)
+    cost         = context.user_data.pop("purchased_cost", None)
+    if horse_number is None or cost is None:
+        await update.message.reply_text("❌ No purchase in progress to gift.")
+        return
+
+    # ─── NEW: Only accept numeric ID ───
+    try:
+        recipient_id = int(text)
+    except ValueError:
+        # Refund the purchase cost
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        player.chips += cost
+        await sync_to_async(player.save)()
+        await update.message.reply_text(
+            "❌ That is not a valid numeric user ID. "
+            "Please have the recipient run /myid and send that number. Purchase refunded."
+        )
+        return
+
+    # 3) Look up that Player by ID
+    try:
+        recipient_player = await sync_to_async(Player.objects.get)(id=recipient_id)
+    except Player.DoesNotExist:
+        # Refund
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        player.chips += cost
+        await sync_to_async(player.save)()
+        await update.message.reply_text(
+            f"❌ No player in our database has ID {recipient_id}. Purchase refunded."
+        )
+        return
+
+    # 4) Create the new OwnedHorse under the recipient
+    await sync_to_async(OwnedHorse.objects.create)(
+        user=recipient_player,
+        horse_number=horse_number,
+        emoji=None,
+        name=None
+    )
+
+    # 5) Notify buyer
+    await update.message.reply_text(
+        f"🎁 You bought Horse {horse_number} for {cost:,} chips and gifted it to player‐ID {recipient_player.id}!"
+    )
+    # Notify recipient if possible
+    try:
+        await context.bot.send_message(
+            chat_id=recipient_player.id,
+            text=f"🎁 You have received Horse {horse_number}! Enjoy!"
+        )
+    except Exception:
+        pass
+
+    return
+
+
+
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Reply with the sender’s numeric Telegram user ID.
+    """
+    user_id = update.effective_user.id
+    await update.message.reply_text(f"Your numeric user ID is: {user_id}")
+
+async def catch_all_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+
+    # ─── 1) If we’re in “awaiting_list_horse” mode → the text is the sale price ───
+    if context.user_data.get("awaiting_list_horse"):
+        # Pop out the horse_number flag
+        horse_number = context.user_data.pop("awaiting_list_horse")
+        try:
+            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+                user__id=user_id, horse_number=horse_number
+            )
+        except OwnedHorse.DoesNotExist:
+            await update.message.reply_text("❌ You no longer own that horse. Aborting.")
+            return
+
+        # Validate the price is a positive integer
+        if not text.isdigit() or int(text) <= 0:
+            await update.message.reply_text("❌ That is not a valid price. Aborting.")
+            return
+
+        price = int(text)
+
+        # Create the HorseSale listing
+        await sync_to_async(HorseSale.objects.create)(
+            horse=owned_horse,
+            price=price
+        )
+
+        # Confirmation message
+        if owned_horse.name:
+            display_label = f"{owned_horse.name} ({horse_number})"
+        else:
+            display_label = f"Horse {horse_number}"
+
+        await update.message.reply_text(
+            f"✅ {display_label} is now listed for sale at {price:,} chips.\n"
+            f"Others can buy from “Buy Horse” or “Horses on Sale.”"
+        )
+        return
+
+    # ─── 2) If we’re in “awaiting_buy_horse” mode → this is a normal purchase of an unowned horse ───
+    if context.user_data.get("awaiting_buy_horse"):
+        # [Your existing catch_buy_horse_number logic goes here, exactly as before…]
+        return await catch_buy_horse_number(update, context)
+
+    # ─── 3) If we’re in “awaiting_buy_and_gift” mode → …
+    if context.user_data.get("awaiting_buy_and_gift"):
+        return await catch_buy_and_gift_number(update, context)
+
+    # ─── 4) If we’re in “purchased_gift_horse” mode → …
+    if context.user_data.get("purchased_gift_horse"):
+        return await catch_buy_and_gift_recipient(update, context)
+
+    # ─── 5) If we’re in “awaiting_set_emoji” mode → …
+    if context.user_data.get("awaiting_set_emoji"):
+        return await catch_set_emoji(update, context)
+
+    # ─── 6) If we’re in “awaiting_rename_horse” mode → …
+    if context.user_data.get("awaiting_rename_horse"):
+        return await catch_rename_horse(update, context)
+
+    # ─── 7) If we’re in “awaiting_gift_owned” mode → …
+    if context.user_data.get("awaiting_gift_owned"):
+        return await catch_gift_owned_recipient(update, context)
+
+    # ─── 8) If we’re in “purchased_gift_horse” mode → …
+    if context.user_data.get("purchased_gift_horse"):
+        return await catch_buy_and_gift_recipient(update, context)
+
+    # ─── otherwise: ignore or send a default message if you like ───
+    return
+
+
+
+async def catch_buy_horse_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("awaiting_set_emoji"):
+        return await catch_set_emoji(update, context)
+
+    # Only run if they clicked “Buy Horse” and we’re waiting for a number
+    if not context.user_data.get("awaiting_buy_horse"):
+        return
+
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+    # Clear the “awaiting_buy_horse” flag immediately
+    context.user_data.pop("awaiting_buy_horse", None)
+
+    # 1) Validate it's numeric
+    if not text.isdigit():
+        await update.message.reply_text(
+            "❌ That’s not a valid horse number. Aborting. ↩️ Run /horse again."
+        )
+        return
+
+    horse_number = int(text)
+
+    # 2) Reserve 1, 2, 3
+    if horse_number in (1, 2, 3):
+        await update.message.reply_text(
+            "❌ Horse 1, 2, and 3 are reserved and cannot be purchased. ↩️ Run /horse again to pick a different number."
+        )
+        return
+
+    # 3) Check if already owned (any existing record for this number)
+    exists = await sync_to_async(OwnedHorse.objects.filter)(horse_number=horse_number)
+    if await sync_to_async(exists.exists)():
+        await update.message.reply_text("❌ That horse number is already owned. ↩️ /horse")
+        return
+
+    # 4) Determine cost according to your rules
+    s = str(horse_number)
+    if len(s) == 1:
+        cost = 100_000
+    elif len(s) == 2:
+        cost = 120_000 if s[0] == s[1] else 80_000
+    elif len(s) == 3:
+        cost = 120_000 if (s[0] == s[1] == s[2]) else 60_000
+    else:
+        cost = 120_000 if all(ch == s[0] for ch in s) else 60_000
+
+    # 5) Fetch player
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text("❌ You’re not registered. ↩️ /horse")
+        return
+
+    # 6) Check if they have enough chips
+    if player.chips < cost:
+        await update.message.reply_text(
+            f"❌ You need {cost} chips to buy Horse {horse_number}, but you have {player.chips}. ↩️ /horse"
+        )
+        return
+
+    # 7) Deduct chips and create the OwnedHorse record
+    player.chips -= cost
+    await sync_to_async(player.save)()
+    await sync_to_async(OwnedHorse.objects.create)(
+        user=player,
+        horse_number=horse_number,
+        emoji=None
+    )
+
+    await update.message.reply_text(
+        f"✅ You now own Horse {horse_number}! (−{cost} chips) ↩️ Run /horse again."
+    )
+
+async def catch_set_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Only run if we previously put “awaiting_set_emoji” into user_data
+    print("DEBUG: in catch_set_emoji; flag =", context.user_data.get("awaiting_set_emoji"))
+    if "awaiting_set_emoji" not in context.user_data:
+        return
+
+    user_id = update.effective_user.id
+    horse_number = context.user_data.pop("awaiting_set_emoji")  # pop so we don't stay in this mode
+    new_emoji = update.message.text.strip()
+    EMOJI_COST = 9000
+
+    # 1) Validate they sent something
+    if not new_emoji:
+        await update.message.reply_text(
+            "❌ That’s not a valid emoji. Aborting. ↩️ Run /horse again."
+        )
+        return
+
+    # 2) Fetch Player and OwnedHorse
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await update.message.reply_text("❌ You’re not registered. ↩️ Run /horse again.")
+        return
+
+    try:
+        horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
+        )
+    except OwnedHorse.DoesNotExist:
+        await update.message.reply_text(
+            "❌ You do not own that horse. ↩️ Run /horse again."
+        )
+        return
+
+    # 3) Check chips
+    if player.chips < EMOJI_COST:
+        await update.message.reply_text(
+            f"❌ Not enough chips! Changing an emoji costs {EMOJI_COST}. ↩️ Run /horse again."
+        )
+        return
+
+    # 4) Deduct and save
+    player.chips -= EMOJI_COST
+    await sync_to_async(player.save)()
+
+    horse.emoji = new_emoji
+    await sync_to_async(horse.save)()
+
+    # 5) Confirm
+    await update.message.reply_text(
+        f"✅ Emoji for Horse {horse_number} updated to {new_emoji}! (−{EMOJI_COST} chips)\n"
+        "↩️ Run /horse again."
+    )
+
+
+async def catch_rename_horse(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # We know here that awaiting_rename_horse is set.
+    # Pop it immediately so we don’t handle the same text again.
+    horse_number = context.user_data.pop("awaiting_rename_horse")
+
+    user_id = update.effective_user.id
+    new_name = update.message.text.strip()
+
+    # 1) Fetch the OwnedHorse to confirm ownership
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
+        )
+    except OwnedHorse.DoesNotExist:
+        await update.message.reply_text("❌ You do not own that horse anymore.")
+        return
+
+    # 2) Fetch Player to check chips
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    cost = 60_000
+    if player.chips < cost:
+        await update.message.reply_text(f"❌ Not enough chips! Renaming costs {cost:,} chips.")
+        return
+
+    # 3) Deduct chips and save new name
+    player.chips -= cost
+    await sync_to_async(player.save)()
+
+    owned_horse.name = new_name
+    await sync_to_async(owned_horse.save)()
+
+    await update.message.reply_text(
+        f"✅ Your horse #{horse_number} is now named “{new_name}”! (−{cost:,} chips)"
+    )
+async def richest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 1) Fetch top 5 players ordered by chips descending
+    top_players = await sync_to_async(list)(
+        Player.objects.order_by("-chips")[:5]
+    )
+    if not top_players:
+        await update.message.reply_text("ℹ️ No players found in the database yet.")
+        return
+
+    # 2) Build a praise‐filled message
+    lines = ["🏆 *Top 5 Richest Players* 🏆\n"]
+    medals = ["🥇", "🥈", "🥉", "🏅", "🏅"]  # first three special, others identical
+
+    for idx, player in enumerate(top_players, start=1):
+        medal = medals[idx - 1]
+        name = player.name or f"User {player.id}"
+        chips = f"{player.chips:,}"
+        lines.append(f"{medal} *{name}* — {chips} chips")
+
+    lines.append("\n🎉 Congratulations to our Unemployed Friends! 🎉")
+    text = "\n".join(lines)
+
+    # 3) Send with Markdown formatting
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
@@ -3971,8 +7669,47 @@ if DEBUG == "True":
 elif DEBUG == "False":
     app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
     
+
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CallbackQueryHandler(handle_menu_callback))
+
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q
+app.add_handler(CommandHandler("double", double_or_nothing))
+app.add_handler(CommandHandler("crash", crash))
+app.add_handler(CommandHandler("cashout", cashout))
+app.add_handler(CommandHandler("richest", richest))
+
+app.add_handler(CommandHandler("horse", horse))
+app.add_handler(
+    CallbackQueryHandler(horse_menu_callback, pattern=r"^menu:")
+)
+app.add_handler(
+    MessageHandler(filters.TEXT & ~filters.COMMAND, catch_all_text)
+)
+
+app.add_handler(CommandHandler("myid", myid))
+
+# THIS line must come *after* the CallbackQueryHandler:
+# app.add_handler(
+#     MessageHandler(filters.TEXT & ~filters.COMMAND, catch_buy_horse_number)
+# )
+# app.add_handler(
+#     MessageHandler(filters.TEXT & ~filters.COMMAND, catch_set_emoji)
+# )
+app.add_handler(CommandHandler("horserace", horserace))
+app.add_handler(CommandHandler("joinrace", joinrace))
+app.add_handler(CommandHandler("startrace", startrace))
+app.add_handler(CommandHandler("shop", shop))
+app.add_handler(CommandHandler("buyhorse", buyhorse))
+app.add_handler(CommandHandler("setemoji", setemoji))
+app.add_handler(CommandHandler("myhorses", myhorses))
+app.add_handler(CommandHandler("shopspells", shopupgrades))
+app.add_handler(CommandHandler("buyspell", buyupgrade))
+app.add_handler(CommandHandler("applyspell", applyupgrade))
+app.add_handler(CommandHandler("unapplyspell", unapplyupgrade))
+
 app.add_handler(CommandHandler("admin", admin_help))
 app.add_handler(CommandHandler("listgroups", list_groups))
 app.add_handler(CommandHandler("broadcastgroup", broadcastgroups))
@@ -4008,7 +7745,7 @@ app.add_handler(CommandHandler("give_token", give_token))
 # app.add_handler(CommandHandler("set_status", set_status))
 app.add_handler(CommandHandler("help", help_command))
 app.add_handler(CommandHandler("rules", rules_command))
-app.add_handler(CommandHandler("start", start))
+# app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("stats", stats))
 app.add_handler(CommandHandler("startblackjack", start_blackjack, block=False))
 app.add_handler(CommandHandler("join", join_blackjack))

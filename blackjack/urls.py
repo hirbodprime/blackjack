@@ -20,5 +20,5 @@ from game.views import process_game_results
 urlpatterns = [
     path('xpcal/', process_game_results),
     path('admin/', admin.site.urls),
-    path('game/',include('game.urls'))
+    # path('game/',include('game.urls'))
 ]

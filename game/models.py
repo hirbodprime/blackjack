@@ -1,4 +1,24 @@
 from django.db import models
+from django.utils import timezone
+
+import random
+import string
+
+import string, secrets
+
+
+def generate_referral_code():
+    """
+    Return a random 6-character string:
+      - 4 uppercase letters [A–Z]
+      - 2 digits [0–9]
+    e.g. "XQRT05"
+    """
+    letters = "".join(secrets.choice(string.ascii_uppercase) for _ in range(4))
+    digits  = "".join(secrets.choice(string.digits)          for _ in range(2))
+    return letters + digits
+
+
 
 
 class NextGameNotification(models.Model):
@@ -82,6 +102,43 @@ class Player(models.Model):
     level = models.IntegerField(default=1)  # Add Level field
     loan = models.IntegerField(default=0)  # New field to track player's loan
     last_spin = models.DateField(null=True, blank=True)
+    referrer = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="referred_friends"
+    )
+    total_referral_bonus = models.IntegerField(default=0)
+
+    # ← New field: a 6-char code, unique
+    referral_code = models.CharField(max_length=6, unique=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        # If this Player has no referral_code yet, generate one now
+        if not self.referral_code:
+            code = generate_referral_code()
+            while Player.objects.filter(referral_code=code).exists():
+                code = generate_referral_code()
+            self.referral_code = code
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} ({self.id}) – code={self.referral_code}"
+
+
+class ReferralEarning(models.Model):
+    referrer = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="referral_earnings"
+    )
+    referred = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="referral_generated"
+    )
+    amount = models.IntegerField(help_text="Bonus chips given to referrer")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"{self.referrer.name} ← {self.amount} (because {self.referred.name} won)"
 
 class PlayerAchievement(models.Model):
     player = models.ForeignKey(Player, on_delete=models.CASCADE)
@@ -194,7 +251,7 @@ class HorseAppliedUpgrade(models.Model):
     owner = models.ForeignKey(Player, on_delete=models.CASCADE)
     horse = models.ForeignKey(OwnedHorse, on_delete=models.CASCADE)
     upgrade = models.ForeignKey(HorseUpgrade, on_delete=models.CASCADE)
-
+    uses_remaining = models.IntegerField(default=3)  
     def __str__(self):
         return f"{self.upgrade.name} on Horse {self.horse.horse_number} by {self.owner.name}"
 
@@ -210,3 +267,57 @@ class CrashGame(models.Model):
 
     def __str__(self):
         return f"CrashGame(user={self.user_id}, bet={self.bet}, multiplier={self.multiplier:.2f})"
+
+ITEM_TYPE_CHOICES = [
+    # Potions
+    ("double_chip_potion",   "Double Chip Potion"),
+    ("triple_chip_potion",   "Triple Chip Potion"),
+    ("10x_chip_potion",      "10× Chip Potion"),
+    # Boosters
+    ("xp_booster_500",       "+500 XP Booster"),
+    ("xp_booster_2000",      "+2000 XP Booster"),
+    ("xp_booster_15000",     "+15000 XP Booster"),
+    ("xp_booster_50000",     "+50000 XP Booster"),
+    # Passes
+    ("insurance_pass",       "Insurance Pass"),
+    ("first_hand_20_pass",   "First‐Hand‐20 Pass"),
+    ("first_hand_11_potion",   "First‐Hand‐11 Pass"),
+    
+]
+
+class PlayerItem(models.Model):
+    player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="items"
+    )
+    item_type = models.CharField(
+        max_length=32,
+        choices=ITEM_TYPE_CHOICES
+    )
+    quantity = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ("player", "item_type")
+
+    def __str__(self):
+        return f"{self.player.name} owns {self.quantity} × {self.get_item_type_display()}"
+
+
+# ─── Items currently active/equipped by a player (one‐time or “in‐effect”) ─────
+class PlayerActiveItem(models.Model):
+    player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="active_items"
+    )
+    item_type = models.CharField(
+        max_length=32,
+        choices=ITEM_TYPE_CHOICES
+    )
+    activated_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        status = "active" if self.is_active else "used"
+        return f"{self.player.name} → {self.get_item_type_display()} ({status})"

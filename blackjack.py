@@ -448,18 +448,18 @@ def build_back_to_profile_button():
 
 ITEM_COSTS = {
     # Potions
-    "double_chip_potion": 7500,
-    "triple_chip_potion": 15000,
-    "10x_chip_potion":    30000,
+    "double_chip_potion": 17500,
+    "triple_chip_potion": 40000,
+    "10x_chip_potion":    100000,
     # Boosters
-    "xp_booster_500":     15000,
-    "xp_booster_2000":    60000,
-    "xp_booster_15000":   80000,
-    "xp_booster_50000":   260000,
+    "xp_booster_500":     20000,
+    "xp_booster_2000":    80000,
+    "xp_booster_15000":   400000,
+    "xp_booster_50000":   1000000,
     # Special Passes
     "insurance_pass":     5000,
     "first_hand_20_pass": 8000,
-    "first_hand_11_potion":16000,
+    "first_hand_11_potion":12000,
     # … (any others, e.g. mystery boxes if you wire them up) …
 }
 
@@ -486,23 +486,6 @@ async def purchase_item(player: Player, item_type: str):
     return True, f"✅ You purchased 1× {human_name} for {cost:,} chips."
 
 
-ITEM_COSTS = {
-    # Potions
-    "double_chip_potion": 7500,
-    "triple_chip_potion": 15000,
-    "10x_chip_potion":    30000,
-    # Boosters
-    "xp_booster_500":     15000,
-    "xp_booster_2000":    60000,
-    "xp_booster_15000":   80000,
-    "xp_booster_50000":   260000,
-    # Special Passes
-    "insurance_pass":     5000,
-    "first_hand_20_pass": 8000,
-    "first_hand_11_potion":16000,
-
-    # … (any others, e.g. mystery boxes if you wire them up) …
-}
 
 async def purchase_item(player: Player, item_type: str):
     cost = ITEM_COSTS.get(item_type)

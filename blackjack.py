@@ -3107,28 +3107,31 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Send the formatted leaderboard message
     await update.message.reply_text(message)
 
-
 async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.message.chat_id
     text = (
         "🎮 *Available Minigames* 🎮\n\n"
-        "🎲 /dice - Roll a dice and test your luck! (/dice [chips amount])\n\n"
-        "🎰 /slot - Try your luck at the slot machine. Will you hit the jackpot? (/slot [chips amount])\n\n"
-        "🪙 /coin - Flip a coin and see if it’s heads or tails. (/coin [heads/tails] [chips amount])\n\n"
-        "🎟 /draw - Participate in a lucky draw. Will you be the lucky one? (/draw [chips amount])\n\n"
-        "🎯 /dart - Play dart twice a day to win 200 chips.\n\n"
-        "✊🖐✌️ /rps - Play Rock, Paper, Scissors against the bot. (/rps [rock/paper/scissors] [chips amount])\n\n"
-        "🎡 /spin - Spin the wheel once a day for a chance to win chips, XP, or levels! Type /spin <low/mid/high> and let the wheel decide your fate.\n\n"
-        "🎲 /roulette - Bet on red, black, or a number (0-36). Usage: /roulette <red|black|0-36> <bet amount>. "
-        "If you guess the color, you win double; if you guess the number, you win 35 times your bet! Good luck!\n\n"
-        "📈 /crash - Bet chips and watch the multiplier rise. Type /cashout before it crashes to lock your winnings!\n\n"
-        "🟥 /double - Felling lucky ? bet to win double your chips or lose all of it. (/double [amount])\n\n"
-        "🐎 /horserace - Start a new horse race.\n"
-        "🐎 /joinrace - Join the ongoing race with your horse. (/joinrace <horse_number> <amount>)\n"
-        "🐎 /startrace - Start the race and watch it live!"
+        "🎲 `/dice` – Roll a dice and test your luck! (`/dice [chips amount]`)\n\n"
+        "🎰 `/slot` – Try your luck at the slot machine. Will you hit the jackpot? (`/slot [chips amount]`)\n\n"
+        "🪙 `/coin` – Flip a coin and see if it’s heads or tails. (`/coin [heads/tails] [chips amount]`)\n\n"
+        "🎟 `/draw` – Participate in a lucky draw. Will you be the lucky one? (`/draw [chips amount]`)\n\n"
+        "🎯 `/dart` – Play dart twice a day to win 200 chips.\n\n"
+        "✊🖐✌️ `/rps` – Play Rock, Paper, Scissors against the bot. (`/rps [rock/paper/scissors] [chips amount]`)\n\n"
+        "🎡 `/spin` – Spin the wheel once a day for a chance to win chips, XP, or levels! Type `/spin <low/mid/high>` and let the wheel decide your fate.\n\n"
+        "🎲 `/roulette` – Bet on red, black, or a number (`0–36`).\n"
+        "Usage: `/roulette <red|black|0–36> <bet amount>`.\n"
+        "If you guess the color, you win double; if you guess the number, you win 35× your bet. Good luck!\n\n"
+        "📈 `/crash` – Bet chips and watch the multiplier rise. Type `/cashout` before it crashes to lock in your winnings!\n\n"
+        "🟥 `/double` – Feeling lucky? Bet to win double your chips or lose it all. (`/double [amount]`)\n\n"
+        "🐎 `/horserace` – Start a new horse race.\n"
+        "🐎 `/joinrace` – Join the ongoing race with your horse. (`/joinrace <horse_number> <amount>`)\n"
+        "🐎 `/startrace` – Start the race and watch it live!"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
-
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode="Markdown",
+    )
 
 async def request_loan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_player(update, context):
@@ -4115,6 +4118,24 @@ async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Bet placed on {label} for {bet_amount} chips!"
     )
 
+
+
+MAX_NAME_LEN     = 20       # max characters per horse name
+MAX_MESSAGE_LEN  = 4000     # Telegram’s ~4096-char limit
+
+def is_rtl(text: str) -> bool:
+    """
+    Return True if any character is in the Arabic/Persian Unicode block.
+    """
+    for ch in text:
+        if '\u0600' <= ch <= '\u06FF' or '\u0750' <= ch <= '\u077F':
+            return True
+    return False
+
+
+
+
+
 async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 1) Ensure the user has a Player profile
     if not await check_player(update, context):
@@ -4362,37 +4383,64 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         overtakes += 1
                 if overtakes >= 2:
                     positions[h] = max(0, positions[h] - 5)
-                    bounce_used.add(h)
+                    # bounce_used.add(h)
+        race_display = ""
 
         # 12f) Build the “race_display” string (25‐dash track)
-        race_display = ""
         for h in sorted(all_horses):
             emoji = horse_emojis.get(h, "🐎")
             label = name_map[h]
 
+            # 1) Prevent internal wrapping for the label
+            label = label.replace(" ", "\u00A0")
+
+            # 2) Truncate if too long
+            if len(label) > MAX_NAME_LEN:
+                label = label[: MAX_NAME_LEN - 1] + "…"
+
+            # 3) Build the raw track (25-dash width), but force the emoji itself to be LTR
+            dash_count  = max(1, (positions[h] * 25) // distance)
+            trail_count = max(1, 25 - dash_count)
+            leading  = "-" * dash_count
+            trailing = "-" * trail_count
+
+            # ─── Notice the U+200E marks around the emoji ───
+            raw_track = f"{leading}\u200E{emoji}\u200E{trailing}"
+
+            # 4) Wrap raw_track in LRE…PDF so the entire dash+emoji stays LTR
+            track = "\u202A" + raw_track + "\u202C"  # U+202A=LRE, U+202C=PDF
+
+            # 5) Wrap the Persian label in RLE…PDF (so it still reads RTL internally)
+            if is_rtl(label):
+                rtl_label = "\u202B" + label + "\u202C"  # U+202B=RLE, U+202C=PDF
+            else:
+                rtl_label = label
+
+            # 6) Combine track + LRM + space + rtl_label inside an outer LRE…PDF
+            #    The U+200E (LRM) between track and space forces the space+label 
+            #    to remain on the right side of the track in LTR order.
+            combined = "\u202A" + track + "\u200E" + " " + rtl_label + "\u202C"
+
+            # 7) Finally, build each line exactly as before:
             if h in broken:
-                race_display += f"🚫 | 💥 {label} (broken!)\n"
-
+                race_display += f"🚫 | 💥 {combined} (broken!)\n"
             elif positions[h] == 0:
-                race_display += f"🏆 | 🏁{emoji} {label}\n"
-
+                race_display += f"🏆 | 🏁 {combined}\n"
                 if winner is None:
                     winner = h
             else:
-                dash_count  = max(1, (positions[h] * 25) // distance)
-                trail_count = max(1, 25 - dash_count)
-                leading  = "-" * dash_count
-                trailing = "-" * trail_count
-                race_display += f"🏆 | {leading}{emoji}{trailing} {label}\n"
+                race_display += f"🏆 | {combined}\n"
 
+        # 8) Truncate entire message if it’s too long
+        if len(race_display) > MAX_MESSAGE_LEN:
+            race_display = race_display[: MAX_MESSAGE_LEN - 1] + "\n…"
 
-        # 12g) Attempt to edit the message; if flood‐controlled, sleep and retry
+        # 9) Send/update as before
         try:
             await msg.edit_text(race_display)
         except RetryAfter as e:
             await asyncio.sleep(int(e.retry_after) + 1)
             continue
-
         # 12h) Pause before next tick
         await asyncio.sleep(0.8)
 
@@ -4456,7 +4504,6 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎉 First winner’s payout: {first_winner_payout} chips!"
             )
         )
-
 
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5571,7 +5618,7 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         lines = ["📜 *Available Spells:*",""]
         keyboard = []
         for up in upgrades:
-            lines.append(f"{up.id}. *{up.name}* – {up.description} _(Cost: {up.cost})_")
+            lines.append(f"{up.id}. *{up.name}* – {up.description} _(Cost: {up.cost})_\n")
             keyboard.append([
                 InlineKeyboardButton(
                     f"{up.name} (Cost: {up.cost})",

@@ -108,7 +108,8 @@ class Player(models.Model):
     total_referral_bonus = models.IntegerField(default=0)
 
     # ← New field: a 6-char code, unique
-    referral_code = models.CharField(max_length=6,null=True, blank=True)
+    referral_code = models.CharField(max_length=6, unique=True, blank=True)
+
 
 
     def save(self, *args, **kwargs):

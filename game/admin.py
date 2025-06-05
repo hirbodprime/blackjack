@@ -20,8 +20,32 @@ from .models import (
     HorseAppliedUpgrade,
     HorseSale,
     CrashGame,
+    HorseRaceWin
 )
 
+@admin.register(HorseRaceWin)
+class HorseRaceWinAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "race",
+        "user",
+        "horse_number",
+        "horse_name",
+        "amount",
+        "created_at",
+    )
+    list_filter = (
+        "horse_number",
+        "created_at",
+        "user",
+    )
+    search_fields = (
+        "race__id",
+        "user__name",
+        "horse_number",
+    )
+    readonly_fields = ("created_at",)
+    ordering = ("-created_at",)
 
 # ─── CrashGameAdmin ─────────────────────────────────────────────────────────────
 @admin.register(CrashGame)

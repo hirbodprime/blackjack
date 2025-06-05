@@ -144,6 +144,36 @@ class OwnedHorse(models.Model):
 
     def __str__(self):
         return f"Horse {self.horse_number} owned by {self.user}"
+    
+class HorseRaceWin(models.Model):
+    race = models.ForeignKey(
+        "HorseRace",
+        on_delete=models.CASCADE,
+        related_name="wins"
+    )
+    # If user is NULL, that indicates the dealer took the pot
+    user = models.ForeignKey(
+        "Player",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        help_text="NULL means the dealer took the pot."
+    )
+    horse_number = models.IntegerField()
+    horse_name = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="If the horse has a custom name, store it here."
+    )
+    amount = models.IntegerField(
+        help_text="Amount this user (or dealer if user is NULL) won in chips."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        who = f"Player {self.user.id}" if self.user else "Dealer"
+        return f"{who} won {self.amount} chips on horse {self.horse_number} (race #{self.race.id})"
 
 class HorseUpgrade(models.Model):
     name = models.CharField(max_length=50)

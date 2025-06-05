@@ -12,13 +12,14 @@ import django
 
 # Set the environment variable to point to your Django settings module
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
+from django.db.models import Sum, Avg, Count
 
 # Initialize Django
 django.setup()
 from dotenv import load_dotenv
 import time
 import re
-from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification,Achievement,PlayerAchievement,OwnedHorse,HorseAppliedUpgrade,HorseSale,CrashGame,PlayerUpgrade,HorseUpgrade
+from game.models import Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,NextGameNotification,Achievement,PlayerAchievement,HorseRaceWin,OwnedHorse,HorseAppliedUpgrade,HorseSale,CrashGame,PlayerUpgrade,HorseUpgrade
 from django.core.exceptions import ObjectDoesNotExist
 from asgiref.sync import sync_to_async
 from game.models import HorseRace, HorseBet, Player
@@ -4134,8 +4135,6 @@ def is_rtl(text: str) -> bool:
 
 
 
-
-
 async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 1) Ensure the user has a Player profile
     if not await check_player(update, context):
@@ -4165,7 +4164,6 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 5) PICK TWO RANDOM “HOUSE” HORSES FROM 2..4
     random_horses = [2, 3]
 
-
     # 6) COLLECT ANY HORSE NUMBERS THAT PLAYERS SPECIFICALLY BET ON (excluding dealer=1)
     player_horses = list({bet.horse_number for bet in bets if bet.horse_number != dealer_horse})
 
@@ -4174,24 +4172,14 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for h in player_horses:
         if h not in all_horses:
             all_horses.append(h)
-    
-    
 
-    # change2
     distance  = race.race_distance  # e.g. 20
     positions = {h: distance for h in all_horses}
 
-    # ─── INSERT NAME‐LOOKUP HERE ───
-    owned_qs   = await sync_to_async(
-        lambda: OwnedHorse.objects.filter(horse_number__in=all_horses)
-    )()
-    owned_list = await sync_to_async(
-        lambda: list(
-            OwnedHorse.objects.filter(horse_number__in=all_horses)
-        )
-    )()
-
-    # Build a dict mapping horse_number → display label
+    # ─── LOAD OWNEDHORSE NAMES ──────────────────────────────────────────────────────
+    owned_list = await sync_to_async(list)(
+        OwnedHorse.objects.filter(horse_number__in=all_horses)
+    )
     name_map = {h: f"Horse {h}" for h in all_horses}
     for oh in owned_list:
         if oh.name:
@@ -4204,13 +4192,6 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     )()
 
-    # distance  = race.race_distance  # e.g. 20
-    # positions = {h: distance for h in all_horses}
-
-    # # 8) FETCH ALL APPLIED UPGRADES (“spells”) FOR THESE HORSES
-    # applied_qs   = await sync_to_async(HorseAppliedUpgrade.objects.filter)(horse__horse_number__in=all_horses)
-    # applied_list = await sync_to_async(list)(applied_qs)
-
     # Build a mapping: horse_number → list of upgrade names
     upgrades_map = {}
     for au in applied_list:
@@ -4219,9 +4200,9 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         upgrades_map.setdefault(horse_number, []).append(upgrade_name)
 
     # 9) LOAD ANY CUSTOM EMOJI THAT OWNERS HAVE SET ON THEIR OwnedHorse
-    owned_horses_qs = await sync_to_async(OwnedHorse.objects.filter)(horse_number__in=all_horses)
-    owned_horses    = await sync_to_async(list)(owned_horses_qs)
-    # Build a dict: horse_number → emoji string
+    owned_horses = await sync_to_async(list)(
+        OwnedHorse.objects.filter(horse_number__in=all_horses)
+    )
     horse_emojis = {oh.horse_number: oh.emoji for oh in owned_horses if oh.emoji}
 
     # 10) APPLY “🏁 Head Start” INITIAL POSITION BONUS
@@ -4231,17 +4212,17 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 11) INITIALIZE PER‐HORSE STATE FOR SPELLS THAT NEED IT
     tick_count       = 0
-    last_movements   = {h: 1 for h in all_horses}    # for "Mirror Trick"
-    freeze_used      = set()                         # which horses have used "Freeze Ray"
-    frozen_for_one   = set()                         # which horses are frozen this tick
-    bounce_used      = set()                         # which horses have used "Bounce Back"
+    last_movements   = {h: 1 for h in all_horses}
+    freeze_used      = set()
+    frozen_for_one   = set()
+    bounce_used      = set()
+    broken           = set()
 
     # 12) SEND INITIAL MESSAGE, THEN EDIT EACH TICK
     msg    = await update.message.reply_text("🏁 The race begins! 🐎")
     winner = None
-    broken = set()  # track horses that “broke their leg” due to spells
 
-    # ─── MAIN ANIMATION LOOP (with a fixed 25‐dash width) ───
+    # ─── MAIN ANIMATION LOOP ────────────────────────────────────────────────────────
     while not winner:
         tick_count += 1
         frozen_for_one.clear()
@@ -4267,7 +4248,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             spells = upgrades_map.get(h, [])
 
-            # Mirror Trick: copy another horse’s last‐tick movement
+            # Mirror Trick
             if "🔮 Mirror Trick" in spells:
                 others = [o for o in all_horses if o != h]
                 if others:
@@ -4277,43 +4258,37 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     new_movements[h] = random.randint(1, 3)
                 continue
 
-            # ⚖️ Steady Stride: move 1–5
+            # Steady Stride
             if "⚖️ Steady Stride" in spells:
                 new_movements[h] = random.randint(1, 5)
                 continue
 
-            # ⚡ Power Burst: 10% chance move 4, else 1
+            # Power Burst
             if "⚡ Power Burst" in spells:
                 new_movements[h] = 4 if random.random() < 0.1 else 1
                 continue
 
-            # 💨 Triple Dash: always 3
+            # Triple Dash
             if "💨 Triple Dash" in spells:
                 new_movements[h] = 3
                 continue
 
-            # 🛠 Cursed Sprint: 60 % move 5, 40 % break leg
+            # Cursed Sprint
             if "🛠 Cursed Sprint" in spells:
                 if random.random() < 0.4:
-                    # 40 % → breaks this tick
                     broken.add(h)
                     new_movements[h] = 0
                 else:
-                    # 60 % → moves 5 this tick
                     new_movements[h] = 5
                 continue
 
-
-
-            # 🏁 Head Start: always move 2 (initial bonus already applied)
+            # Head Start
             if "🏁 Head Start" in spells:
                 new_movements[h] = 2
                 continue
 
+            # Mutation
             if "🧬 Mutation" in spells:
-                # Pick one of your other spell‐effects at random. For example:
-                #    “Mirror Trick”, “Steady Stride”, “Power Burst”, “Triple Dash”,
-                #    “Cursed Sprint”, or “Head Start”
                 choice = random.choice([
                     "🔮 Mirror Trick",
                     "⚖️ Steady Stride",
@@ -4322,39 +4297,27 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "🛠 Cursed Sprint",
                     "🏁 Head Start"
                 ])
-
-                # Now pretend this horse has exactly that single spell for this tick:
                 if choice == "🔮 Mirror Trick":
-                    # Copy a random other horse’s last tick movement (or fallback to 1–3)
                     others = [o for o in all_horses if o != h]
                     if others:
                         pick = random.choice(others)
-                        new_movements[h] = last_movements.get(pick, random.randint(1,3))
+                        new_movements[h] = last_movements.get(pick, random.randint(1, 3))
                     else:
-                        new_movements[h] = random.randint(1,3)
-
+                        new_movements[h] = random.randint(1, 3)
                 elif choice == "⚖️ Steady Stride":
                     new_movements[h] = random.randint(1, 5)
-
                 elif choice == "⚡ Power Burst":
                     new_movements[h] = 4 if random.random() < 0.1 else 1
-
                 elif choice == "💨 Triple Dash":
                     new_movements[h] = 3
-
                 elif choice == "🛠 Cursed Sprint":
                     if random.random() < 0.4:
-                        # break leg (counts as 0 movement)
                         broken.add(h)
                         new_movements[h] = 0
                     else:
                         new_movements[h] = 5
-
                 elif choice == "🏁 Head Start":
                     new_movements[h] = 2
-
-                # (Note: We do _not_ fall through to the other checks below,
-                #  so we `continue` immediately once we’ve handled Mutation.)
                 continue
 
             # Default: random 1–3
@@ -4373,55 +4336,40 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if other != h and positions[other] > 0:
                             positions[other] = max(0, positions[other] + 1)
 
-        # 12e) Bounce Back: if horse is overtaken by ≥2 others in one tick, bounce it 5 steps
+        # 12e) Bounce Back: if overtaken by ≥2, bounce 5 steps
         for h in all_horses:
             if "🦘 Bounce Back" in upgrades_map.get(h, []) and h not in bounce_used and positions[h] > 0:
                 overtakes = 0
                 for o in all_horses:
-                    if o == h: continue
+                    if o == h:
+                        continue
                     if prev_positions[o] > prev_positions[h] and positions[o] < positions[h]:
                         overtakes += 1
                 if overtakes >= 2:
                     positions[h] = max(0, positions[h] - 5)
-                    # bounce_used.add(h)
-        race_display = ""
 
         # 12f) Build the “race_display” string (25‐dash track)
+        race_display = ""
         for h in sorted(all_horses):
             emoji = horse_emojis.get(h, "🐎")
-            label = name_map[h]
-
-            # 1) Prevent internal wrapping for the label
-            label = label.replace(" ", "\u00A0")
-
-            # 2) Truncate if too long
+            label = name_map[h].replace(" ", "\u00A0")
             if len(label) > MAX_NAME_LEN:
                 label = label[: MAX_NAME_LEN - 1] + "…"
 
-            # 3) Build the raw track (25-dash width), but force the emoji itself to be LTR
             dash_count  = max(1, (positions[h] * 25) // distance)
             trail_count = max(1, 25 - dash_count)
             leading  = "-" * dash_count
             trailing = "-" * trail_count
-
-            # ─── Notice the U+200E marks around the emoji ───
             raw_track = f"{leading}\u200E{emoji}\u200E{trailing}"
+            track = "\u202A" + raw_track + "\u202C"
 
-            # 4) Wrap raw_track in LRE…PDF so the entire dash+emoji stays LTR
-            track = "\u202A" + raw_track + "\u202C"  # U+202A=LRE, U+202C=PDF
-
-            # 5) Wrap the Persian label in RLE…PDF (so it still reads RTL internally)
             if is_rtl(label):
-                rtl_label = "\u202B" + label + "\u202C"  # U+202B=RLE, U+202C=PDF
+                rtl_label = "\u202B" + label + "\u202C"
             else:
                 rtl_label = label
 
-            # 6) Combine track + LRM + space + rtl_label inside an outer LRE…PDF
-            #    The U+200E (LRM) between track and space forces the space+label 
-            #    to remain on the right side of the track in LTR order.
             combined = "\u202A" + track + "\u200E" + " " + rtl_label + "\u202C"
 
-            # 7) Finally, build each line exactly as before:
             if h in broken:
                 race_display += f"🚫 | 💥 {combined} (broken!)\n"
             elif positions[h] == 0:
@@ -4431,54 +4379,75 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 race_display += f"🏆 | {combined}\n"
 
-        # 8) Truncate entire message if it’s too long
+        # 12g) Truncate if too long
         if len(race_display) > MAX_MESSAGE_LEN:
             race_display = race_display[: MAX_MESSAGE_LEN - 1] + "\n…"
 
-        # 9) Send/update as before
+        # 12h) Attempt to edit the message; handle flood control
         try:
             await msg.edit_text(race_display)
         except RetryAfter as e:
             await asyncio.sleep(int(e.retry_after) + 1)
             continue
-        # 12h) Pause before next tick
-        await asyncio.sleep(0.8)
 
-        # 12i) Save this tick’s movements for Mirror Trick
+        # 12i) Pause before next tick
+        await asyncio.sleep(0.8)
         last_movements = new_movements.copy()
 
-    # ─── Once “winner” is set (and not broken) ───
+    # ─── Once “winner” is set ───────────────────────────────────────────────────────
     if winner == dealer_horse:
-        await update.message.reply_text("🏆 Dealer's horse 1 wins! All players lose their bets.")
+        total_pot = sum(bet.bet_amount for bet in bets)
+
+        # Record dealer’s win
+        await sync_to_async(HorseRaceWin.objects.create)(
+            race=race,
+            user=None,
+            horse_number=dealer_horse,
+            horse_name="Dealer",
+            amount=total_pot
+        )
+
+        await update.message.reply_text(
+            "🏆 Dealer's horse 1 wins! All players lose their bets."
+        )
         return
 
-    # Otherwise, pay out winners
+    # ─── Players won ───────────────────────────────────────────────────────────────
     winning_bets      = [bet for bet in bets if bet.horse_number == winner]
     total_losing_bets = sum(bet.bet_amount for bet in bets if bet.horse_number != winner)
 
     if not winning_bets:
-        # NO ONE bet on the winning horse: Dealer takes pot
-        total_pot, _  = await sync_to_async(
-            lambda: (sum(bet.bet_amount for bet in bets), None)
-        )()
+        total_pot = sum(bet.bet_amount for bet in bets)
         dealer_obj, _ = await sync_to_async(Dealer.objects.get_or_create)(id=1)
         dealer_obj.chips += total_pot
         dealer_obj.wins  += 1
         dealer_obj.games += 1
         await sync_to_async(dealer_obj.save)()
 
+        # Record dealer’s win when no players bet
+        horse_obj = await sync_to_async(lambda: OwnedHorse.objects.filter(horse_number=winner).first())()
+        horse_name = horse_obj.name if (horse_obj and horse_obj.name) else ""
+        await sync_to_async(HorseRaceWin.objects.create)(
+            race=race,
+            user=None,
+            horse_number=winner,
+            horse_name=horse_name,
+            amount=total_pot
+        )
+
         await safe_send_message(
             context.bot,
             chat_id,
             (
                 f"🏆 Horse {winner} won, but no players bet on it!\n"
-                f"🎰 Casino (Dealer) takes the pot: {total_pot} chips!"
+                f"🎰 Casino (Dealer) takes the pot: {total_pot:,} chips!"
             )
         )
     else:
-        # SOME PLAYERS DID bet on the winning horse → split losing bets + 2× stake
-        first_winner_payout = None
+        oh = await sync_to_async(lambda: OwnedHorse.objects.filter(horse_number=winner).first())()
+        horse_label = oh.name if (oh and oh.name) else f"Horse {winner}"
 
+        # Record each player’s win
         for bet in winning_bets:
             share_of_losing_pot = total_losing_bets // len(winning_bets)
             payout = bet.bet_amount * 2 + share_of_losing_pot
@@ -4487,23 +4456,42 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
             player_obj.chips += payout
             await sync_to_async(player_obj.save)()
 
+            await sync_to_async(HorseRaceWin.objects.create)(
+                race=race,
+                user=player_obj,
+                horse_number=winner,
+                horse_name=(oh.name if (oh and oh.name) else ""),
+                amount=payout
+            )
+
             await safe_send_message(
                 context.bot,
                 bet.user_id,
-                f"🎉 You won! Payout: {payout} chips."
+                f"🎉 You won {payout:,} chips on {horse_label}!"
             )
 
-            if first_winner_payout is None:
-                first_winner_payout = payout
-
+        first_share = total_losing_bets // len(winning_bets) + winning_bets[0].bet_amount * 2
         await safe_send_message(
             context.bot,
             chat_id,
             (
-                f"🏆 Race finished! Winner: Horse {winner} 🏆\n"
-                f"🎉 First winner’s payout: {first_winner_payout} chips!"
+                f"🏆 Race finished! Winner: {horse_label} (#{winner}) 🏆\n"
+                f"🎉 First winner’s payout: {first_share:,} chips!"
             )
         )
+
+    # ─── Do not delete the race; we keep it for history ─────────────────────────────
+
+
+
+
+
+
+
+
+
+
+
 
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4903,9 +4891,17 @@ def build_main_menu_keyboard():
             InlineKeyboardButton("✨ Apply Spell", callback_data="menu:apply_spell"),
         ],
         [InlineKeyboardButton("❌ Unapply Spell", callback_data="menu:unapply_spell"),],
+        [ 
+        InlineKeyboardButton("✏️ Name Horse", callback_data="menu:rename_horse"),
+        InlineKeyboardButton("🎁 Gift Horse",      callback_data="menu:gift_horse") 
+        ],
+        [
+        InlineKeyboardButton("🐴 Leaderboard", callback_data="menu:global_horse_leaderboard"),
+        InlineKeyboardButton("📈 Race Stats", callback_data="menu:my_horse_stats"),
+        ],
 
-        [ InlineKeyboardButton("✏️ Rename Horse (60 000 chips)", callback_data="menu:rename_horse") ],
-        [ InlineKeyboardButton("🎁 Gift Horse",      callback_data="menu:gift_horse") ],
+        
+
         [ InlineKeyboardButton("📈 List Horse For Sale",        callback_data="menu:list_horse") ],
         [ InlineKeyboardButton("🛒 Horses on Sale",       callback_data="menu:sale_horses") ],
 
@@ -5078,7 +5074,190 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
+    # ─── Global Horse‐Racing Leaderboard (no backticks) ─────────────────────────
+    if data == "menu:global_horse_leaderboard":
+        # 1) Annotate wins & chips per player
+        leaderboard_qs = await sync_to_async(
+            lambda: list(
+                HorseRaceWin.objects
+                    .filter(user__isnull=False)
+                    .values("user__id", "user__name")
+                    .annotate(
+                        wins=Count("id"),
+                        chips=Sum("amount")
+                    )
+                    .order_by("-wins", "-chips")
+            )
+        )()
 
+        top5 = leaderboard_qs[:5]
+        user_id = query.from_user.id
+
+        # Find calling user’s index
+        user_index = next(
+            (idx for idx, e in enumerate(leaderboard_qs) if e["user__id"] == user_id),
+            None
+        )
+
+        # Build lines without backticks:
+        lines = ["🌍 *Global Leaderboard* 🌍", ""]
+
+        # Top 5 entries
+        for idx, entry in enumerate(top5, start=1):
+            name = entry["user__name"] or f"User {entry['user__id']}"
+            wins = entry["wins"]
+            chips_amt = entry["chips"] or 0
+            # Format: "1 . Alice      🏆 Wins: 12   💰 Chips: 4800"
+            # Use fixed‐width fields by padding/truncating name to ~10 chars
+            lines.append(
+                f"{idx:>2} . {name:<12}   🏆 Wins: {wins:<3}   💰 Chips: {chips_amt}"
+            )
+
+        lines.append("")  # blank separator
+
+        # “Your Position” section
+        if user_index is None:
+            lines.append("🏅 *Your Position* (Not Ranked Yet):")
+            lines.append("   • No wins recorded.")
+        else:
+            user_rank = user_index + 1
+            lines.append(f"🏅 *Your Position* (Rank {user_rank}):")
+
+            # Show up to two above and two below
+            start = max(0, user_index - 2)
+            end = min(len(leaderboard_qs), user_index + 3)
+            for idx in range(start, end):
+                e = leaderboard_qs[idx]
+                name = e["user__name"] or f"User {e['user__id']}"
+                wins = e["wins"]
+                chips_amt = e["chips"] or 0
+                display_rank = idx + 1
+                prefix = "👉" if e["user__id"] == user_id else "  "
+                lines.append(
+                    f"{prefix}{display_rank:>2} . {name:<12}   🏆 Wins: {wins:<3}   💰 Chips: {chips_amt}"
+                )
+
+        text = "\n".join(lines)
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text(
+            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
+    # ─── Race Stats ───────────────────────────────────────────────────────────────
+    # ─── My Horse‐Racing Stats ─────────────────────────────────────────────────
+    if data == "menu:my_horse_stats":
+        user_id = query.from_user.id
+
+        # 1) Total races this user has participated in (i.e. placed ≥1 bet)
+        races_participated = await sync_to_async(
+            lambda: HorseBet.objects.filter(user_id=user_id)
+                                     .values_list("race", flat=True)
+                                     .distinct()
+                                     .count()
+        )()
+
+        # 2) Total chips wagered by this user (sum of all their HorseBet.bet_amount)
+        total_wagered_q = await sync_to_async(
+            lambda: HorseBet.objects.filter(user_id=user_id)
+                                     .aggregate(total=Sum("bet_amount"))
+        )()
+        total_wagered = total_wagered_q["total"] or 0
+
+        # 3) Average bet size for this user
+        avg_bet_q = await sync_to_async(
+            lambda: HorseBet.objects.filter(user_id=user_id)
+                                     .aggregate(avg=Avg("bet_amount"))
+        )()
+        avg_bet = avg_bet_q["avg"] or 0
+
+        # 4) Total horses owned by this user
+        horses_owned = await sync_to_async(
+            lambda: OwnedHorse.objects.filter(user__id=user_id).count()
+        )()
+
+        # 5) Total wins (number of times this user appears in HorseRaceWin)
+        total_wins = await sync_to_async(
+            lambda: HorseRaceWin.objects.filter(user__id=user_id).count()
+        )()
+
+        # 6) Total chips earned (sum of HorseRaceWin.amount where user=this user)
+        total_earned_q = await sync_to_async(
+            lambda: HorseRaceWin.objects.filter(user__id=user_id)
+                                         .aggregate(total=Sum("amount"))
+        )()
+        total_earned = total_earned_q["total"] or 0
+
+        # 7) Horse‐Level Win Rate: For each horse this user owns,
+        #    compute (wins_of_that_horse) / (bets_on_that_horse by this user).
+        #    Then average across all their horses. If user has no horses, skip.
+        horse_ids = await sync_to_async(
+            lambda: list(
+                OwnedHorse.objects.filter(user__id=user_id)
+                                  .values_list("horse_number", flat=True)
+            )
+        )()
+
+        if horse_ids:
+            win_rate_list = []
+            for hnum in horse_ids:
+                wins_for_horse = await sync_to_async(
+                    lambda: HorseRaceWin.objects.filter(
+                        user__id=user_id, horse_number=hnum
+                    ).count()
+                )()
+                bets_on_horse = await sync_to_async(
+                    lambda: HorseBet.objects.filter(
+                        user_id=user_id, horse_number=hnum
+                    ).count()
+                )()
+                if bets_on_horse > 0:
+                    win_rate_list.append(wins_for_horse / bets_on_horse)
+                else:
+                    win_rate_list.append(0.0)
+
+            # Average across all horses
+            horse_win_rate = (sum(win_rate_list) / len(win_rate_list)) * 100  # as percentage
+        else:
+            horse_win_rate = 0.0
+
+        # 8) Player Win Rate: (# races in which they bet AND won) / (# races participated)
+        #    “Races in which they won” = distinct race IDs from HorseRaceWin for this user
+        races_won = await sync_to_async(
+            lambda: HorseRaceWin.objects.filter(user__id=user_id)
+                                        .values_list("race", flat=True)
+                                        .distinct()
+                                        .count()
+        )()
+
+        if races_participated > 0:
+            player_win_rate = (races_won / races_participated) * 100
+        else:
+            player_win_rate = 0.0
+
+        # ─── Build a Markdown block using the same “🎮 Your Stats 🎮” style ────────
+        lines = [
+            "🎮 *Your Horse‐Racing Stats* 🎮",
+            "",
+            f"🐎 Races participated: *{races_participated}*",
+            f"💰 Total chips wagered: *{total_wagered:,}* chips",
+            f"📊 Avg. bet size: *{avg_bet:.2f}* chips",
+            f"🏠 Horses owned: *{horses_owned}*",
+            f"🏆 Total wins: *{total_wins}*",
+            f"🎉 Total chips earned: *{total_earned:,}* chips",
+            f"🐴 Horse‐level win rate: *{horse_win_rate:.1f}%*",
+            f"🎲 Player win rate: *{player_win_rate:.1f}%*",
+        ]
+        text = "\n".join(lines)
+
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
 
 
 
@@ -5447,7 +5626,7 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         # Build a keyboard listing each horse (show name if set, else “Horse <number>”)
-        lines = ["✏️ *Rename Horse* – Choose which horse to rename:",""]
+        lines = ["✏️ *Rename Horse* (60 000 chips) – Choose which horse to rename:",""]
         keyboard = []
         for h in owned_horses:
             display = h.name if h.name else f"Horse {h.horse_number}"

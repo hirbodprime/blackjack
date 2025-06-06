@@ -133,7 +133,12 @@ def build_main_menu():
         # InlineKeyboardButton("🏁 Tournaments & Events", callback_data="menu:tournaments")
         # ],
         [
+            InlineKeyboardButton("❓ How to Play", callback_data="menu:howtoplay"),
+            InlineKeyboardButton("🎮 Minigames",   callback_data="menu:minigames"),
+        ],
+        [
         # InlineKeyboardButton("⚙️ Settings", callback_data="menu:settings"),
+        
         InlineKeyboardButton("❓ Support", callback_data="menu:support")
         ],
     
@@ -1447,10 +1452,78 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
+    user_id = query.from_user.id
+    user_name = query.from_user.first_name
+
     await query.answer()
 # Inside your handle_menu_callback(...) function:
     handled = await handle_shop_callback(update, context)
     if handled:
+        return
+    if data == "menu:howtoplay":
+        # 1) Edit the menu message to notify them
+        keyboard = [
+            [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "📩 A message with all available commands and instructions has been sent to your private chat.",
+            reply_markup=reply_markup
+        )   
+
+        # 2) Create a minimal “fake” Update to call help_command, 
+        #    since help_command expects update.message.chat_id == user_id.
+        class FakeMessage:
+            def __init__(self, chat_id, first_name):
+                self.chat_id = chat_id
+                self.from_user = type("U", (), {"id": chat_id, "first_name": first_name})
+            async def reply_text(self, *args, **kwargs):
+                # Not needed, because help_command only replies in a group if chat_id != user_id
+                pass
+
+        fake_update = Update(
+            update.update_id,
+            message=FakeMessage(user_id, user_name)
+        )
+
+        # Call the existing help_command logic
+        await help_command(fake_update, context)
+
+
+        return
+
+    # ─── If “Minigames” was clicked ────────────────────────────────────────────
+    if data == "menu:minigames":
+        # We edit the same message to display the minigames list
+        keyboard = [
+            [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "🎮 *Available Minigames* 🎮\n\n"
+            "🎲 `/dice` – Roll a dice and test your luck! (`/dice [chips amount]`)\n\n"
+            "🎰 `/slot` – Try your luck at the slot machine. Will you hit the jackpot? (`/slot [chips amount]`)\n\n"
+            "🪙 `/coin` – Flip a coin and see if it’s heads or tails. (`/coin [heads/tails] [chips amount]`)\n\n"
+            "🎟 `/draw` – Participate in a lucky draw. Will you be the lucky one? (`/draw [chips amount]`)\n\n"
+            "🎯 `/dart` – Play dart twice a day to win 200 chips.\n\n"
+            "✊🖐✌️ `/rps` – Play Rock, Paper, Scissors against the bot. (`/rps [rock/paper/scissors] [chips amount]`)\n\n"
+            "🎡 `/spin` – Spin the wheel once a day for a chance to win chips, XP, or levels! Type `/spin <low/mid/high>` and let the wheel decide your fate.\n\n"
+            "🎲 `/roulette` – Bet on red, black, or a number (`0–36`).\n"
+            "Usage: `/roulette <red|black|0–36> <bet amount>`.\n"
+            "If you guess the color, you win double; if you guess the number, you win 35× your bet! Good luck!\n\n"
+            "📈 `/crash` – Bet chips and watch the multiplier rise. Type `/cashout` before it crashes to lock in your winnings!\n\n"
+            "🟥 `/double` – Feeling lucky? Bet to win double your chips or lose it all. (`/double [amount]`)\n\n"
+            "🐎 `/horserace` – Start a new horse race.\n"
+            "🐎 `/joinrace` – Join the ongoing race with your horse. (`/joinrace <horse_number> <amount>`)\n"
+            "🐎 `/startrace` – Start the race and watch it live!",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+
+        )
+
+        # 5) Send (edit) the message with a “Back to Main” button
+
         return
 
     # ── (Social submenu) ─────────────────────────────────────────────────────────
@@ -2274,41 +2347,76 @@ async def check_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bo
         )
         return False  # Player does not exist
 
+from datetime import timedelta
+
+
 async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
 
+    # 1) Ensure they’re a registered player
     if not await check_player(update, context):
         return
 
+    # 2) Fetch the Player row
     player = await sync_to_async(Player.objects.get)(id=user_id)
     now = timezone.now()
 
-    # Reset the count if 24 hours have passed
-    if player.last_claimed_tokens is None or player.last_claimed_tokens.date() != now.date():
+    # 3) If they’ve never claimed, or if their last claim was ≥24 h ago, reset counter:
+    if player.last_claimed_tokens is None or (now - player.last_claimed_tokens) >= timedelta(hours=24):
+        print("nigga what")
         player.tokens_claimed_today = 0
         player.last_claimed_tokens = now
+        await sync_to_async(player.save)()
 
-    if player.tokens_claimed_today >= 2:
-        await update.message.reply_text("You've already Tried twice today. Try again tomorrow!")
-        return
+    # 4) If they’ve already rolled twice in the past 24 h, tell them how much longer to wait
+    print("baba",player.tokens_claimed_today)
+    if player.tokens_claimed_today >= 3:
+        print("boo0",player.tokens_claimed_today)
 
-    # Send the dart emoji and check the result
-    message = await context.bot.send_dice(chat_id=update.message.chat_id, emoji='🎯')
+        # Next allowed time = last_claimed_tokens + 24 h
+        next_allowed = player.last_claimed_tokens + timedelta(hours=24)
+        remaining = next_allowed - now
 
-    # Check if the dart hits the middle (value = 6, which represents hitting the bullseye)
+        # If somehow “remaining” is negative, we treat it as zero
+        if remaining.total_seconds() <= 0:
+            # in case of clock drift, do a final reset and let them roll now:
+            player.tokens_claimed_today = 0
+            player.last_claimed_tokens = now
+            await sync_to_async(player.save)()
+        else:
+            # Compute hours and minutes
+            total_seconds = math.floor(remaining.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+
+            # Build a friendly “X h Y m” string
+            if hours > 0:
+                time_str = f"{hours} hour{'s' if hours != 1 else ''}"
+                if minutes > 0:
+                    time_str += f" and {minutes} minute{'s' if minutes != 1 else ''}"
+            else:
+                time_str = f"{minutes} minute{'s' if minutes != 1 else ''}"
+
+            await update.message.reply_text(
+                f"You’ve already 3 Times in the past 24 hours.\n"
+                f"Please try again in {time_str}."
+            )
+            return
+    player.tokens_claimed_today += 1
+    await sync_to_async(player.save)()
+    player.last_claimed_tokens = now
+
+    # 5) If we get here, they have at least one roll left. Send the 🎯 dice.
+    message = await context.bot.send_dice(chat_id=update.message.chat_id, emoji="🎯")
     await asyncio.sleep(3)
-    if message.dice.value == 6:
-        # Grant 200 tokens
-        player.chips += 200
-        player.tokens_claimed_today += 1
-        player.last_claimed_tokens = now
-        await sync_to_async(player.save)()
 
-        await update.message.reply_text(f"🎯 Bullseye! You've received 💰200 chips! You now have 💰{player.chips} chips.")
+    # 6) Check result
+    if message.dice.value == 6:
+        player.chips += 200
+        await update.message.reply_text(
+            f"🎯 Bullseye! You've received 💰200 chips! You now have 💰{player.chips} chips."
+        )
     else:
-        player.tokens_claimed_today += 1
-        player.last_claimed_tokens = now
-        await sync_to_async(player.save)()
         await update.message.reply_text("🎯 You missed the bullseye! Better luck next time!")
 
 

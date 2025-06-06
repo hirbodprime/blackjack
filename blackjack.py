@@ -5193,7 +5193,7 @@ async def simulate_crash_game(game_id, bot, chat_id):
     # Determine crash range
     user_id = game.user_id  # Or however you store the player
     if user_id in RIGGED_USER_IDS:
-        crash_point = round(random.uniform(1.0, 2.8), 2)
+        crash_point = round(random.uniform(1.0, 2.5), 2)
     else:
         crash_point = round(random.uniform(1.0, 1.6), 2)
 
@@ -6629,14 +6629,22 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 12b) Compute each horse's movement this tick
         new_movements = {}
         for h in sorted(all_horses):
+            # 1) If the horse has already finished, it doesn't move
             if positions[h] <= 0:
                 new_movements[h] = 0
                 continue
 
+            # 2) If this horse is frozen this tick, it doesn't move
             if h in frozen_for_one:
                 new_movements[h] = 0
                 continue
 
+            # 3) SPECIAL CASE: dealer’s horse (number 1) always moves 2–4 (no spells apply)
+            if h == dealer_horse:
+                new_movements[h] = random.randint(2, 4)
+                continue
+
+            # 4) Otherwise, check spells exactly as before
             spells = upgrades_map.get(h, [])
 
             # Mirror Trick
@@ -6684,7 +6692,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "🔮 Mirror Trick",
                     "⚖️ Steady Stride",
                     "⚡ Power Burst",
-                    "💨 Triple Dash",
+                    "💨 Double Dash",
                     "🛠 Cursed Sprint",
                     "🏁 Head Start"
                 ])
@@ -6699,8 +6707,8 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     new_movements[h] = random.randint(1, 5)
                 elif choice == "⚡ Power Burst":
                     new_movements[h] = 4 if random.random() < 0.1 else 1
-                elif choice == "💨 double Dash":
-                    new_movements[h] = 2
+                elif choice == "💨 Double Dash":
+                    new_movements[h] = 3
                 elif choice == "🛠 Cursed Sprint":
                     if random.random() < 0.4:
                         broken.add(h)
@@ -6709,10 +6717,9 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         new_movements[h] = 5
                 elif choice == "🏁 Head Start":
                     new_movements[h] = random.randint(1, 3)
-
                 continue
 
-            # Default: random 1–3
+            # 5) Default: random 1–3 for any non-dealer, non-spell horse
             new_movements[h] = random.randint(1, 3)
 
         # 12c) Apply all movements to positions

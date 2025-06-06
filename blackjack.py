@@ -6683,7 +6683,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Head Start
             if "🏁 Head Start" in spells:
-                new_movements[h] = 2
+                new_movements[h] = random.randint(1, 2)
                 continue
 
             # Mutation

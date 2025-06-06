@@ -25,7 +25,7 @@ from .models import (
 )
 
 
-
+@admin.register(GameParameter)
 class GameParameterAdmin(admin.ModelAdmin):
     list_display = (
         'horse_move_min',

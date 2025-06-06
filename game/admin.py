@@ -20,9 +20,44 @@ from .models import (
     HorseAppliedUpgrade,
     HorseSale,
     CrashGame,
-    HorseRaceWin,
+    HorseRaceWin,GameParameter,
     PlayerItem, PlayerActiveItem
 )
+
+
+
+
+@admin.register(GameParameter)
+class GameParameterAdmin(admin.ModelAdmin):
+    """
+    Admin interface for GameParameter singleton.
+    Prevent adding multiple entries and deletion.
+    """
+    list_display = (
+        'horse_move_min',
+        'horse_move_max',
+        'crash_min',
+        'crash_max',
+    )
+    
+    def has_add_permission(self, request):
+        # Only allow adding if no instance exists
+        count = GameParameter.objects.all().count()
+        return count == 0
+
+    def has_delete_permission(self, request, obj=None):
+        # Prevent deletion
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        # Redirect to the change page if the singleton exists
+        from django.shortcuts import redirect
+        try:
+            obj = GameParameter.objects.get(pk=1)
+            return redirect(f'/admin/{self.model._meta.app_label}/{self.model._meta.model_name}/{obj.pk}/change/')
+        except GameParameter.DoesNotExist:
+            return super().changelist_view(request, extra_context)
+
 @admin.register(PlayerItem)
 class PlayerItemAdmin(admin.ModelAdmin):
     list_display = (

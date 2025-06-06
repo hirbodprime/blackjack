@@ -1026,7 +1026,7 @@ MYSTERY_BOXES = {
     "shop:mystery_bronze": {
         "name": "🎁 Bronze Mystery Box",
         "cost": 1000,
-        "chip_range": (100, 2000),
+        "chip_range": (1000, 3000),
         "xp_range": (10, 200),
         "rare_items": [
             ("double_chip_potion", 0.05),
@@ -1035,8 +1035,8 @@ MYSTERY_BOXES = {
     "shop:mystery_silver": {
         "name": "🎁 Silver Mystery Box",
         "cost": 2500,
-        "chip_range": (1000, 4000),
-        "xp_range": (10, 700),
+        "chip_range": (2500, 4000),
+        "xp_range": (10, 300),
         "rare_items": [
             ("triple_chip_potion", 0.05),
             ("xp_booster_500", 0.03),
@@ -1045,8 +1045,8 @@ MYSTERY_BOXES = {
     "shop:mystery_gold": {
         "name": "🎁 Gold Mystery Box",
         "cost": 10000,
-        "chip_range": (2500, 15000),
-        "xp_range": (10, 900),
+        "chip_range": (10000, 25000),
+        "xp_range": (10, 500),
         "rare_items": [
             ("10x_chip_potion", 0.05),
             ("xp_booster_50000", 0.01),

@@ -23,7 +23,7 @@ import time
 import re
 from game.models import (Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,ITEM_TYPE_CHOICES,PlayerItem,PlayerActiveItem,
                          NextGameNotification,Achievement,ReferralEarning,
-                         PlayerAchievement,HorseRaceWin,OwnedHorse,
+                         PlayerAchievement,HorseRaceWin,OwnedHorse,GameParameter,
                          HorseAppliedUpgrade,HorseSale,CrashGame,PlayerUpgrade,HorseUpgrade,generate_referral_code)
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -5185,6 +5185,7 @@ CRASH_SPEED = 0.6  # seconds per tick
 RIGGED_USER_IDS = [1936170078, 5501122833]  # Replace with actual user IDs
 
 async def simulate_crash_game(game_id, bot, chat_id):
+    params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
     try:
         game = await sync_to_async(CrashGame.objects.get)(id=game_id)
     except CrashGame.DoesNotExist:
@@ -5193,9 +5194,11 @@ async def simulate_crash_game(game_id, bot, chat_id):
     # Determine crash range
     user_id = game.user_id  # Or however you store the player
     if user_id in RIGGED_USER_IDS:
-        crash_point = round(random.uniform(1.0, 2.5), 2)
+        # crash_point = round(random.uniform(1.0, 2.5), 2)
+        crash_point = round(random.uniform(params.crash_min,params.crash_max), 2)
     else:
         crash_point = round(random.uniform(1.0, 1.6), 2)
+
 
     print(f"Crash point: {crash_point}")
 
@@ -6527,6 +6530,8 @@ def is_rtl(text: str) -> bool:
 
 
 async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+
     # 1) Ensure the user has a Player profile
     if not await check_player(update, context):
         return
@@ -6641,7 +6646,11 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # 3) SPECIAL CASE: dealer’s horse (number 1) always moves 2–4 (no spells apply)
             if h == dealer_horse:
-                new_movements[h] = random.randint(2, 5)
+                # new_movements[h] = random.randint(2, 5)
+                new_movements[h] = random.randint(
+                    params.horse_move_min,
+                    params.horse_move_max
+                )
                 continue
 
             # 4) Otherwise, check spells exactly as before

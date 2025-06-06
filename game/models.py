@@ -90,6 +90,30 @@ class HorseSale(models.Model):
     def __str__(self):
         return f"{self.horse} → {self.price:,} chips"
 
+
+class GameParameter(models.Model):
+    """
+    A singleton model for storing configurable game parameters.
+    There should only ever be one row; we’ll get_or_create(pk=1).
+    """
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    horse_move_min = models.PositiveIntegerField(default=2,
+        help_text="Minimum per-tick movement for dealer’s horse")
+    horse_move_max = models.PositiveIntegerField(default=5,
+        help_text="Maximum per-tick movement for dealer’s horse")
+    crash_min = models.FloatField(default=1.0,
+        help_text="Minimum crash multiplier")
+    crash_max = models.FloatField(default=2.5,
+        help_text="Maximum crash multiplier")
+
+    def __str__(self):
+        return "Game Parameters (singleton)"
+
+    class Meta:
+        verbose_name = "Game Parameter"
+        verbose_name_plural = "Game Parameters"
+
+
 class Player(models.Model):
     name = models.CharField(max_length=50)
     chips = models.IntegerField(default=0)

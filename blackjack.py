@@ -6798,7 +6798,11 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ─── Once “winner” is set ───────────────────────────────────────────────────────
     if winner == dealer_horse:
         total_pot = sum(bet.bet_amount for bet in bets)
-
+        dealer_obj, _ = await sync_to_async(Dealer.objects.get_or_create)(id=1)
+        dealer_obj.chips += total_pot
+        dealer_obj.wins  += 1
+        dealer_obj.games += 1
+        await sync_to_async(dealer_obj.save)()
         # Record dealer’s win
         await sync_to_async(HorseRaceWin.objects.create)(
             race=race,

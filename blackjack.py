@@ -3179,12 +3179,6 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
             print("[DEBUG] si")
 async def update_statistics(overall_winners, dealer_won_overall, joined_players, context):
-    """
-    overall_winners: list of Player instances and/or the string 'dealer'
-    dealer_won_overall: True if dealer won the final comparison, False otherwise
-    joined_players: iterable of JoinGame entries (each has .player)
-    """
-
     # ─── 1) Handle winners ─────────────────────────────────────────────────────────
     for winner in overall_winners:
         if winner == "dealer":
@@ -3208,16 +3202,17 @@ async def update_statistics(overall_winners, dealer_won_overall, joined_players,
     # ─── 2) Build set of winner IDs (excluding the string 'dealer') ─────────────────
     winner_ids = {w.id for w in overall_winners if w != "dealer"}
 
-    # ─── 3) Determine non‐winners ─────────────────────────────────────────────────
+    # ─── 3) Determine non‐winners ───────────────────────────────────────────────────
     non_winners = []
     dealer_obj = await sync_to_async(Dealer.objects.first)()
     dealer_id = dealer_obj.id if dealer_obj else None
 
     for join_entry in joined_players:
-        pid = join_entry.player.id
-        # If the player is not in the winner_ids AND dealer didn't win overall (or this player isn't dealer)
+        player = await sync_to_async(lambda: join_entry.player)()
+        pid = player.id
+
         if pid not in winner_ids and pid != dealer_id:
-            non_winners.append(join_entry.player)
+            non_winners.append(player)
 
     # Deduplicate
     non_winners = list({p.id: p for p in non_winners}.values())
@@ -3240,7 +3235,6 @@ async def update_statistics(overall_winners, dealer_won_overall, joined_players,
     # ─── 5) Increment dealer losses if dealer did NOT win overall ──────────────────
     if not dealer_won_overall:
         await sync_to_async(_increment_dealer_losses)()
-
 
 # ─── Synchronous helper: increment dealer.wins ────────────────────────────────────
 def _increment_dealer_wins():

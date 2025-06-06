@@ -2981,11 +2981,18 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
         # ── Show to player if not blackjack ──
         player_hand_value = calculate_hand_value(player_hand)
-        if player_hand_value != 21:
+        if player_hand_value == 21:
+            player_blackjacks.append(join_entry)  # ✅ Add to blackjack list
+        else:
             await context.bot.send_message(
                 chat_id=join_entry.player.id,
                 text=f"🃏Your hand: {player_hand}.\n♠️Total value: {player_hand_value}"
             )
+        # if player_hand_value != 21:
+        #     await context.bot.send_message(
+        #         chat_id=join_entry.player.id,
+        #         text=f"🃏Your hand: {player_hand}.\n♠️Total value: {player_hand_value}"
+        #     )
 
     dealer_hand = [deal_card(), deal_card()]
     game.dealer_hand = dealer_hand

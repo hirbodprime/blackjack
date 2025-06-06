@@ -34,11 +34,6 @@ class GameParameterAdmin(admin.ModelAdmin):
         'crash_max',
     )
 
-# Register the model and its admin
-admin.site.register(GameParameter, GameParameterAdmin)
-
-
-
 @admin.register(PlayerItem)
 class PlayerItemAdmin(admin.ModelAdmin):
     list_display = (

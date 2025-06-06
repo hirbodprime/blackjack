@@ -6641,7 +6641,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # 3) SPECIAL CASE: dealer’s horse (number 1) always moves 2–4 (no spells apply)
             if h == dealer_horse:
-                new_movements[h] = 2
+                new_movements[h] = random.randint(2, 5)
                 continue
 
             # 4) Otherwise, check spells exactly as before

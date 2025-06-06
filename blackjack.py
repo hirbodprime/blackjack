@@ -327,11 +327,11 @@ def build_bj_potions_menu():
     keyboard = [
 
         [
-            InlineKeyboardButton("✨ Double Chip Potion (7.5k)", callback_data="shop:double_chip_potion"),
-            InlineKeyboardButton("✨ Triple Chip Potion (15k)", callback_data="shop:triple_chip_potion"),
+            InlineKeyboardButton("✨ Double Chip Potion (17.5k)", callback_data="shop:double_chip_potion"),
+            InlineKeyboardButton("✨ Triple Chip Potion (50k)", callback_data="shop:triple_chip_potion"),
         ],
         [
-            InlineKeyboardButton("✨ 10× Chip Potion (30k)",     callback_data="shop:10x_chip_potion"),
+            InlineKeyboardButton("✨ 10× Chip Potion (200k)",     callback_data="shop:10x_chip_potion"),
         ],
         [
             InlineKeyboardButton("🔙 Back to Shop",   callback_data="menu:shop"),
@@ -456,8 +456,8 @@ def build_back_to_profile_button():
 ITEM_COSTS = {
     # Potions
     "double_chip_potion": 17500,
-    "triple_chip_potion": 40000,
-    "10x_chip_potion":    100000,
+    "triple_chip_potion": 50000,
+    "10x_chip_potion":    200000,
     # Boosters
     "xp_booster_500":     20000,
     "xp_booster_2000":    100000,

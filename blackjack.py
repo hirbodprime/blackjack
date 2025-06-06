@@ -6863,6 +6863,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 bet.user_id,
                 f"🎉 You won {payout:,} chips on {horse_label}!"
             )
+            await apply_referral_bonus(player_obj, payout, context)
 
         first_share = total_losing_bets // len(winning_bets) + winning_bets[0].bet_amount * 2
         await safe_send_message(

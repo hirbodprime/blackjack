@@ -26,21 +26,16 @@ from .models import (
 
 
 
-
-@admin.register(GameParameter)
 class GameParameterAdmin(admin.ModelAdmin):
-    """
-    Admin interface for GameParameter singleton.
-    Prevent adding multiple entries and deletion.
-    """
     list_display = (
         'horse_move_min',
         'horse_move_max',
         'crash_min',
         'crash_max',
     )
-    
 
+# Register the model and its admin
+admin.site.register(GameParameter, GameParameterAdmin)
 
 
 

@@ -51,7 +51,7 @@ async def add_chips(player, amount, context=None, reason=None):
 async def update_daily_quest_progress(player, quest_type, subtype=None, amount=1, context=None):
     today = timezone.now().date()
 
-    # Find today's quest of the correct type and subtype
+    # Step 1: fetch today's matching quests
     matching_quests = await sync_to_async(list)(DailyQuest.objects.filter(
         quest_type=quest_type,
         subtype=subtype,
@@ -60,15 +60,18 @@ async def update_daily_quest_progress(player, quest_type, subtype=None, amount=1
     ))
 
     for quest in matching_quests:
-        # Try to get or create PlayerDailyQuestProgress
-        progress, created = await sync_to_async(PlayerDailyQuestProgress.objects.get_or_create)(
-            player=player,
-            quest=quest,
-            defaults={"subtype": subtype, "progress": 0, "completed": False}
-        )
+        # Step 2: safely get or create progress record
+        progress, created = await sync_to_async(
+            PlayerDailyQuestProgress.objects.get_or_create,
+            thread_sensitive=True  # ✅ Ensures atomic transaction works
+        )(player=player, quest=quest, defaults={
+            "subtype": subtype,
+            "progress": 0,
+            "completed": False
+        })
 
         if progress.completed:
-            continue  # Already done
+            continue
 
         progress.progress += amount
         if progress.progress >= quest.target:
@@ -83,6 +86,7 @@ async def update_daily_quest_progress(player, quest_type, subtype=None, amount=1
                 )
 
         await sync_to_async(progress.save)()
+
 
 
 def escape_md(text):

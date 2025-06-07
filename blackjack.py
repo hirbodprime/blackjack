@@ -10251,10 +10251,13 @@ async def richest(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @sync_to_async
-def get_top_referrers():
+def get_top_referrers_fixed():
+    # Annotate each player with:
+    # 1. Count of players that reference them as referrer
+    # 2. Sum of referral earnings
     return list(
         Player.objects.annotate(
-            referred_count=Count("referred_friends"),
+            referred_count=Count("referred_friends", distinct=True),
             total_earned=Sum("referral_earnings__amount")
         )
         .filter(referred_count__gt=0)
@@ -10262,7 +10265,7 @@ def get_top_referrers():
     )
 
 async def referral_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    top_referrers = await get_top_referrers()
+    top_referrers = await get_top_referrers_fixed()
 
     if not top_referrers:
         await update.message.reply_text("No referral data yet.")
@@ -10273,7 +10276,7 @@ async def referral_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYP
         text += (
             f"*{idx}. {player.name}*\n"
             f"👥 Brought: {player.referred_count} users\n"
-            f"💰 Earned: {player.total_earned or 0} chips\n\n"
+            f"💰 Earned: {player.total_earned or 0:,} chips\n\n"
         )
 
     await update.message.reply_text(text, parse_mode="Markdown")

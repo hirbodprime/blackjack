@@ -10007,14 +10007,16 @@ async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     user_id = update.effective_user.id
     await update.message.reply_text(f"Your numeric user ID is: {user_id}")
-
+    
 async def catch_all_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return  # Skip updates that don't contain a message with text
+
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
     # ─── 1) If we’re in “awaiting_list_horse” mode → the text is the sale price ───
     if context.user_data.get("awaiting_list_horse"):
-        # Pop out the horse_number flag
         horse_number = context.user_data.pop("awaiting_list_horse")
         try:
             owned_horse = await sync_to_async(OwnedHorse.objects.get)(
@@ -10024,28 +10026,21 @@ async def catch_all_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ You no longer own that horse. Aborting.")
             return
 
-        # Validate the price is a positive integer
         if not text.isdigit() or int(text) <= 0:
             await update.message.reply_text("❌ That is not a valid price. Aborting.")
             return
 
         price = int(text)
 
-        # Create the HorseSale listing
         await sync_to_async(HorseSale.objects.create)(
             horse=owned_horse,
             price=price
         )
 
+        display_label = f"{owned_horse.name} ({horse_number})" if owned_horse.name else f"Horse {horse_number}"
 
-        # Confirmation message
-        if owned_horse.name:
-            display_label = f"{owned_horse.name} ({horse_number})"
-        else:
-            display_label = f"Horse {horse_number}"
         notified_users = await sync_to_async(list)(
-            UserSettings.objects.filter(notify_new_sales=True)
-                                .select_related("player")
+            UserSettings.objects.filter(notify_new_sales=True).select_related("player")
         )
 
         for setting in notified_users:
@@ -10060,10 +10055,12 @@ async def catch_all_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as e:
                 print(f"[ERROR] Could not notify {setting.player.id}: {e}")
+
         await update.message.reply_text(
             f"✅ {display_label} is now listed for sale at {price:,} chips.\n"
             f"Others can buy from “Buy Horse” or “Horses on Sale.”"
         )
+
         return
 
     # ─── 2) If we’re in “awaiting_buy_horse” mode → this is a normal purchase of an unowned horse ───

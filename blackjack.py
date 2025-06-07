@@ -2564,7 +2564,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         # Fetch quests of that type today (shared for all players)
         print(quest_type)
         quests = await sync_to_async(list)(
-            DailyQuest.objects.filter(quest_type=quest_type, date_assigned=today,available=True)
+            DailyQuest.objects.filter(quest_type=quest_type,available=True)
         )
 
         if not quests:

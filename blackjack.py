@@ -3924,26 +3924,42 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Build the Markdown‐escaped mention & send a group message
         # user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player.name)
         escaped_user_name = escape_markdown(player.name, version=2)
-
         mention = f"[{escaped_user_name}](tg://user?id={player.id})"
+
         remaining_tokens = player.chips if not is_real_token_game else player.real_tokens
 
-        # Fetch active items for this player (excluding XP boosters)
+        # Debug prints for player basics
+        print("🧪 PLAYER NAME:", player.name)
+        print("🧪 ESCAPED USER NAME:", escaped_user_name)
+        print("🧪 MENTION:", mention)
+        print("🧪 Remaining tokens:", remaining_tokens)
+
+        # Fetch active items (excluding boosters)
         BOOSTER_TYPES = ["xp_booster_500", "xp_booster_2000", "xp_booster_15000", "xp_booster_50000"]
         active_items = await sync_to_async(lambda: list(
             PlayerActiveItem.objects.filter(player=player, is_active=True)
-                              .exclude(item_type__in=BOOSTER_TYPES)
+                                .exclude(item_type__in=BOOSTER_TYPES)
         ))()
 
+        # Process and debug active item names
         if active_items:
-            item_names = [
-                escape_md(dict(ITEM_TYPE_CHOICES).get(item.item_type, item.item_type))
-                for item in active_items
-            ]
-            items_text = escape_markdown("🧪 Active: " + ", ".join(item_names), version=2)
+            item_names = []
+            for item in active_items:
+                label = dict(ITEM_TYPE_CHOICES).get(item.item_type, item.item_type)
+                safe_label = escape_md(label)
+                item_names.append(safe_label)
+                print(f"🧪 Raw item: {item.item_type} → Label: {label} → Escaped: {safe_label}")
+
+            combined_text = "🧪 Active: " + ", ".join(item_names)
+            items_text = escape_markdown(combined_text, version=2)
 
         else:
             items_text = "🧪 Active: None"
+            print("🧪 No active items.")
+
+        # Final debug
+        print("🧪 Final items_text:", items_text)
+
 
         await asyncio.sleep(2)
         print("⚠️ DEBUG: mention =", mention)

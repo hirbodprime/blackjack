@@ -177,7 +177,7 @@ def build_main_menu():
             InlineKeyboardButton("📦 Items",    callback_data="menu:items"),],
         [
         InlineKeyboardButton("🎯 Quests & Rewards", callback_data="menu:quests"),
-        InlineKeyboardButton("🏁 Tournaments & Events", callback_data="menu:tournaments")
+        InlineKeyboardButton("✨ Events", callback_data="menu:tournaments")
         ],
         [
             InlineKeyboardButton("❓ How to Play", callback_data="menu:howtoplay"),

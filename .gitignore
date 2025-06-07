@@ -164,7 +164,7 @@ venv/
 botenv/
 env/
 *.egg-info/
-
+static/
 # IDE/editor
 .vscode/
 .idea/

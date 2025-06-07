@@ -10242,6 +10242,51 @@ async def richest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 3) Send with Markdown formatting
     await update.message.reply_text(text, parse_mode="Markdown")
 
+
+
+
+
+
+
+
+
+@sync_to_async
+def get_top_referrers():
+    return list(
+        Player.objects.annotate(
+            referred_count=Count("referred_friends"),
+            total_earned=Sum("referral_earnings__amount")
+        )
+        .filter(referred_count__gt=0)
+        .order_by("-referred_count", "-total_earned")[:5]
+    )
+
+async def referral_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    top_referrers = await get_top_referrers()
+
+    if not top_referrers:
+        await update.message.reply_text("No referral data yet.")
+        return
+
+    text = "🏆 *Top Referrers*\n\n"
+    for idx, player in enumerate(top_referrers, start=1):
+        text += (
+            f"*{idx}. {player.name}*\n"
+            f"👥 Brought: {player.referred_count} users\n"
+            f"💰 Earned: {player.total_earned or 0} chips\n\n"
+        )
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
+
+
+
+
+
+
+
+
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
@@ -10249,6 +10294,7 @@ elif DEBUG == "False":
     app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
     
 
+app.add_handler(CommandHandler("referral", referral_leaderboard))
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(handle_menu_callback))

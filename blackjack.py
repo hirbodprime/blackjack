@@ -315,7 +315,7 @@ def build_special_passes_menu():
     keyboard = [
         [
             InlineKeyboardButton("🛡️ Insurance Pass (5k)",   callback_data="shop:insurance_pass"),
-            InlineKeyboardButton("🃏 First-Hand-20 Pass (8k)", callback_data="shop:first_hand_20"),
+            InlineKeyboardButton("🃏 First-Hand-20 Pass (12k)", callback_data="shop:first_hand_20"),
         ],
         [
             InlineKeyboardButton("🔙 Back to Shop Menu", callback_data="shop:main"),
@@ -520,7 +520,7 @@ def build_quests_menu():
         [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
     ]
     return InlineKeyboardMarkup(keyboard)
-def build_quests_menu():
+def build_quests_menu_daily():
     keyboard = [
         [
             InlineKeyboardButton("💎 Daily Tokens", callback_data="quests:daily_bonus"),
@@ -529,7 +529,7 @@ def build_quests_menu():
         [
             InlineKeyboardButton("✨ Daily XP", callback_data="quests:daily_xp"),
         ],
-        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+        [InlineKeyboardButton("🔙 Back", callback_data="menu:quests")],
     ]
     return InlineKeyboardMarkup(keyboard)
 def build_daily_quests_menu():
@@ -581,8 +581,8 @@ ITEM_COSTS = {
     "xp_booster_50000":   9000000,
     # Special Passes
     "insurance_pass":     5000,
-    "first_hand_20_pass": 8000,
-    "first_hand_11_potion":12000,
+    "first_hand_20_pass": 12000,
+    "first_hand_11_potion":8000,
     # … (any others, e.g. mystery boxes if you wire them up) …
 }
 
@@ -901,6 +901,34 @@ async def handle_items_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if pi.quantity < 1:
             await query.answer("❗️ You don’t have any left to activate.", show_alert=True)
             return
+        print("➡️ Checking for ongoing forced game...")
+
+        chat_id = str(query.message.chat_id)
+        print("🔍 Chat ID being used for query:", chat_id)
+
+        ongoing_forced_game = await sync_to_async(Game.objects.filter)(
+            chat_id=chat_id,
+            forced=True,
+            ended=False
+        )
+
+        # Check how many matching games there are
+        matching_games_list = await sync_to_async(list)(ongoing_forced_game)
+        print(f"📊 Found {len(matching_games_list)} matching forced, not-ended game(s):", matching_games_list)
+
+        ongoing_exists = await sync_to_async(ongoing_forced_game.exists)()
+        print("✅ Exists check result:", ongoing_exists)
+
+        if ongoing_exists:
+            await query.edit_message_text(
+                text="⚠️ You can't activate items during an ongoing game.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back to Activate Menu", callback_data="items:activate")]
+                ])
+            )
+            return
+        else:
+            print("✅ No forced game blocking activation.")
 
         # ---- Determine category of item_type ----
         if item_type in POTION_TYPES:
@@ -1610,7 +1638,20 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 show_alert=True
             )
             return True
-
+        ongoing_forced_game = await sync_to_async(Game.objects.filter)(
+            chat_id=str(query.message.chat_id),
+            forced=True,
+            ended=False
+        )
+        ongoing_forced_game_exists = await sync_to_async(ongoing_forced_game.exists)()
+        if ongoing_forced_game_exists:
+            await query.edit_message_text(
+                text="⚠️ You can't Buy items during an ongoing game.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back to Shop", callback_data="menu:shop")]
+                ])
+            )
+            return True
         success, msg = await purchase_item(player, item_key)
         if not success:
             # On failure (e.g. “not enough chips”) show a pop‐up
@@ -1693,8 +1734,8 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         text = (
             "🛡️ *Blackjack Special Passes* 🛡️\n\n"
             "• *Insurance Pass* — Discard a bad hit and draw again. (Cost: 5,000 chips)\n"
-            "• *First-Hand-20 Pass* — Start with a 20 on your first hand. (Cost: 8,000 chips)\n\n"
-            "• *First-Hand-11 Pass* — Start with a 1 on your first hand. (Cost: 12,000 chips)\n\n"
+            "• *First-Hand-20 Pass* — Start with a 20 on your first hand. (Cost: 12,000 chips)\n\n"
+            "• *First-Hand-11 Pass* — Start with a 1 on your first hand. (Cost: 8,000 chips)\n\n"
             "Tap a pass below to purchase it."
         )
         await query.edit_message_text(
@@ -1706,34 +1747,65 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # ── (B.3.1) Purchase a specific Special Pass ──────────────────────────────────
     if data.startswith("shop:insurance_pass") or data.startswith("shop:first_hand_20_pass") or data.startswith("shop:first_hand_11_potion"):
-        item_key = data.split("shop:")[1]
-        if item_key not in ITEM_COSTS:
-            return True
+        print("ASfdasdfsafd")
+        try:
+            item_key = data.split("shop:")[1]
+            print("Item key:", item_key)
 
-        if player is None:
-            await query.answer(
-                "❗️ You don’t have a player profile yet. Send /start in private to create one.",
-                show_alert=True
+            if item_key not in ITEM_COSTS:
+                print("Item not in ITEM_COSTS")
+                return True
+
+            if player is None:
+                await query.answer(
+                    "❗️ You don’t have a player profile yet. Send /start in private to create one.",
+                    show_alert=True
+                )
+                return True
+
+            if item_key == "insurance_pass":
+                print("here")
+                ongoing_forced_game = await sync_to_async(Game.objects.filter)(
+                    chat_id=str(query.message.chat_id),
+                    forced=True,
+                    ended=False
+                )
+                ongoing_forced_game_exists = await sync_to_async(ongoing_forced_game.exists)()
+                if ongoing_forced_game_exists:
+                    await query.edit_message_text(
+                        text= "⚠️ You can't buy an Insurance Pass while a game is still in progress.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🔙 Back to Shop", callback_data="menu:shop")]
+                        ])
+                    )
+                    return True
+
+            success, msg = await purchase_item(player, item_key)
+            print("Success:", success, "| Message:", msg)
+
+            if not success:
+                await query.answer(msg, show_alert=True)
+                return True
+
+            human_name = dict(ITEM_TYPE_CHOICES)[item_key]
+            cost = ITEM_COSTS[item_key]
+            text = f"✅ You purchased 1× {human_name} for {cost:,} chips!"
+
+            keyboard = [
+                [InlineKeyboardButton("🔙 Back to Passes", callback_data="shop:bj_special_passes")],
+                [InlineKeyboardButton("🔙 Back to Shop", callback_data="menu:shop")],
+            ]
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
             )
             return True
-
-        success, msg = await purchase_item(player, item_key)
-        if not success:
-            await query.answer(msg, show_alert=True)
+        except Exception as e:
+            print("❌ Exception occurred:", e)
+            await query.answer("Something went wrong.", show_alert=True)
             return True
 
-        human_name = dict(ITEM_TYPE_CHOICES)[item_key]
-        cost = ITEM_COSTS[item_key]
-        text = f"✅ You purchased 1× {human_name} for {cost:,} chips!"
-
-        keyboard = [
-            [InlineKeyboardButton("🔙 Back to Passes",      callback_data="shop:bj_special_passes")],
-            [InlineKeyboardButton("🔙 Back to Shop", callback_data="menu:shop")],
-        ]
-        await query.edit_message_text(text=text,
-                                    reply_markup=InlineKeyboardMarkup(keyboard),
-                                    parse_mode="Markdown")
-        return True
 
     # ── (C) Mystery Box submenu ─────────────────────────────────────────────────
     if data == "shop:mystery_box":
@@ -2506,8 +2578,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Fetch progress rows (only those created by gameplay)
         progress_list = await sync_to_async(list)(
-            PlayerDailyQuestProgress.objects.filter(player=player, quest__in=quests)
+            PlayerDailyQuestProgress.objects.select_related("quest").filter(player=player, quest__in=quests)
         )
+
         progress_map = {p.quest.id: p for p in progress_list}
 
         lines = [f"*{quest_type.replace('_', ' ').title()} Quests*\n"]
@@ -2547,6 +2620,13 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             text="📆 *Daily Quests* 📆\n\nComplete these to earn chips and XP:",
             parse_mode="Markdown",
             reply_markup=build_daily_quests_menu()
+        )
+        return
+    if data == "quests:daily_rewards":
+        await query.edit_message_text(
+            text="📆 *Daily Quests* 📆\n\nComplete these to earn chips and XP:",
+            parse_mode="Markdown",
+            reply_markup=build_quests_menu_daily()
         )
         return
 
@@ -3730,14 +3810,14 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for joined in joined_players:
         try:
             if game.bet_amount >= 1000000:
-                await update_daily_quest_progress(joined.player, "blackjack", "join1m", 1, context)
+                await update_daily_quest_progress(player, "blackjack", "join1m", 1, context)
             if game.bet_amount >= 50000:
-                await update_daily_quest_progress(joined.player, "blackjack", "join50", 1, context)
+                await update_daily_quest_progress(player, "blackjack", "join50", 1, context)
             if game.bet_amount >= 10000000:
-                await update_daily_quest_progress(joined.player, "blackjack", "join10m", 1, context)
+                await update_daily_quest_progress(player, "blackjack", "join10m", 1, context)
             if game.bet_amount <= 1000:
-                await update_daily_quest_progress(joined.player, "blackjack", "join1", 1, context)
-            await update_daily_quest_progress(joined.player, "blackjack", "join", 1, context)
+                await update_daily_quest_progress(player, "blackjack", "join1", 1, context)
+            await update_daily_quest_progress(player, "blackjack", "join", 1, context)
         except Exception:
                 continue
     # Determine currency type (real tokens vs. chips)
@@ -4052,7 +4132,9 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
             await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.")
             await add_xp(join_entry.player, 35, context)
-            await update_daily_quest_progress(join_entry.player, "blackjack", "natural", 1, context)
+            player = await sync_to_async(lambda: join_entry.player)()
+
+            await update_daily_quest_progress(player, "blackjack", "natural", 1, context)
 
             stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
 
@@ -4546,7 +4628,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 
         await safe_send_message_async(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
-        await update_daily_quest_progress(join_game.player, "blackjack", "hitblackjack", 1, context)
+        await update_daily_quest_progress(player, "blackjack", "hitblackjack", 1, context)
 
         await add_xp(join_game.player, 30, context)
         
@@ -4584,7 +4666,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         else:
             if hand_value >= 30:
-                await update_daily_quest_progress(join_game.player, "blackjack", "30", 1, context)
+                await update_daily_quest_progress(player, "blackjack", "30", 1, context)
 
                 await unlock_achievement(join_game.player, "30_or_more_deck", context)
             await asyncio.sleep(3)
@@ -4663,11 +4745,11 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
     if hand_value == 15:
-        await update_daily_quest_progress(join_game.player, "blackjack", "15", 1, context)
+        await update_daily_quest_progress(player, "blackjack", "15", 1, context)
     if hand_value == 5:
-        await update_daily_quest_progress(join_game.player, "blackjack", "5", 1, context)
+        await update_daily_quest_progress(player, "blackjack", "5", 1, context)
     if hand_value == 10:
-        await update_daily_quest_progress(join_game.player, "blackjack", "10", 1, context)
+        await update_daily_quest_progress(player, "blackjack", "10", 1, context)
     await asyncio.sleep(2)
 
     await safe_send_message_async(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")

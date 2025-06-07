@@ -55,7 +55,7 @@ async def update_daily_quest_progress(player, quest_type, subtype=None, amount=1
     matching_quests = await sync_to_async(list)(DailyQuest.objects.filter(
         quest_type=quest_type,
         subtype=subtype,
-        date_assigned=today,
+        # date_assigned=today,
         available=True
     ))
 

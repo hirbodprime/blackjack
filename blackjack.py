@@ -250,7 +250,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if referrer.id != user_id:
                     player.referrer = referrer
                     bonus_chips = 400
-                    referrer.chips += 1000
+                    referrer.chips += 5000
                     await sync_to_async(referrer.save)()
                     print(f"🎯 Referral applied! Referrer: {referrer.id}")
                 else:
@@ -270,7 +270,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await context.bot.send_message(
                 chat_id=player.referrer.id,
-                text=f"🎉 Your friend *{player.name}* joined using your referral! You earned *1000 chips*!",
+                text=f"🎉 Your friend *{player.name}* joined using your referral! You earned *5000 chips*!",
                 parse_mode="Markdown"
             )
             print("📨 Referral bonus messages sent")
@@ -2062,7 +2062,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "🤝 *Social Menu* 🤝",
             "",
             f"Your referral code: *`{code}`*",
-            f"Share this link to invite friends and earn 1000:\n`{referral_link}`\n",
+            f"Share this link to invite friends and earn 5000:\n`{referral_link}`\n",
             "Friends you referred:"
         ]
 
@@ -6792,14 +6792,14 @@ RED_NUMS = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
 
 async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_amt):
     # animation
-    for _ in range(12):
-        spun = random.randint(0,36)
+    for _ in range(2):
+        spun = random.randint(0, 36)
         await bot.edit_message_text(
             f"🎲 Spinning… {spun}",
             chat_id=chat_id,
             message_id=message_id
         )
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.2)
 
     # final outcome
     number = random.randint(0,36)
@@ -6831,7 +6831,15 @@ async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_am
         result_text += f"🎉 You win {payout - bet_amt} chips!"
     else:
         result_text += f"😢 You lose {bet_amt} chips."
-    await bot.send_message(chat_id=chat_id, text=result_text, parse_mode="Markdown")
+    await asyncio.sleep(1)
+
+    await bot.edit_message_text(
+    chat_id=chat_id,
+    message_id=message_id,
+    text=result_text,
+    parse_mode="Markdown"
+)
+
 
 async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_player(update, context):

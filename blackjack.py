@@ -3946,15 +3946,34 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             items_text = "🧪 Active: None"
 
         await asyncio.sleep(2)
+        print("⚠️ DEBUG: mention =", mention)
+        print("⚠️ DEBUG: bet amount =", game.bet_amount)
+        print("⚠️ DEBUG: remaining =", remaining_tokens)
+        print("⚠️ DEBUG: items_text =", items_text)
+
+        text_to_send = (
+            f"{mention} has bet {game.bet_amount} {currency_type}\\.\n"
+            f"Remaining {currency_type}: {remaining_tokens}\\.\n"
+            f"{items_text}"
+        )
+
+        print("⚠️ DEBUG: full message =", text_to_send)
+
         await context.bot.send_message(
             chat_id=chat_id,
-            text=(
-                f"{mention} has bet {game.bet_amount} {currency_type}\\.\n"
-                f"Remaining {currency_type}: {remaining_tokens}\\.\n"
-                f"{items_text}"
-            ),
+            text=text_to_send,
             parse_mode="MarkdownV2"
         )
+
+        # await context.bot.send_message(
+        #     chat_id=chat_id,
+        #     text=(
+        #         f"{mention} has bet {game.bet_amount} {currency_type}\\.\n"
+        #         f"Remaining {currency_type}: {remaining_tokens}\\.\n"
+        #         f"{items_text}"
+        #     ),
+        #     parse_mode="MarkdownV2"
+        # )
 
     # Set up turn order, pot, etc., and mark the game as started
     game.turn_order = [join_entry.player.id for join_entry in joined_players]

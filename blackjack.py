@@ -176,7 +176,7 @@ def build_main_menu():
             InlineKeyboardButton("🎁 Mystery Boxes",    callback_data="shop:mystery_box"),
             InlineKeyboardButton("📦 Items",    callback_data="menu:items"),],
         [
-        InlineKeyboardButton("🎯 Quests & Rewards", callback_data="menu:quests"),
+        
         InlineKeyboardButton("✨ Events", callback_data="menu:tournaments")
         ],
         [
@@ -188,6 +188,9 @@ def build_main_menu():
         
         InlineKeyboardButton("❓ Support", callback_data="menu:support")
         ],
+        [
+            InlineKeyboardButton("🎯 Quests & Rewards", callback_data="menu:quests"),
+        ]
     
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -492,11 +495,23 @@ def build_tournaments_menu():
 def build_quests_menu():
     keyboard = [
         [
-            InlineKeyboardButton("💎 Daily Bonus", callback_data="quests:daily_bonus"),
+            InlineKeyboardButton("💎 Daily Bonus", callback_data="quests:daily_rewards"),
             InlineKeyboardButton("📆 Daily Quests", callback_data="quests:daily_quests"),
         ],
         [
             InlineKeyboardButton("📅 Quest History", callback_data="quests:quest_history"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+def build_quests_menu():
+    keyboard = [
+        [
+            InlineKeyboardButton("💎 Daily Tokens", callback_data="quests:daily_bonus"),
+            InlineKeyboardButton("🎁 Daily Mystery Box", callback_data="quests:daily_mystery_box"),
+        ],
+        [
+            InlineKeyboardButton("✨ Daily XP", callback_data="quests:daily_xp"),
         ],
         [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
     ]
@@ -2540,6 +2555,73 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         return
 
+    if data == "quests:daily_mystery_box":
+        user = update.effective_user
+        user_id = user.id
+
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        now = timezone.now()
+
+        if player.last_spin and player.last_spin == now.date():
+            await query.edit_message_text(
+                "🎁 You’ve already opened your daily Mystery Box today!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]])
+            )
+            return
+
+        box = MYSTERY_BOXES["shop:mystery_bronze"]
+        chips = random.randint(*box["chip_range"])
+        xp = random.randint(*box["xp_range"])
+        reward_item = None
+
+        # 3.3% chance for item
+        for item_type, chance in box["rare_items"]:
+            if random.random() < chance:
+                reward_item = item_type
+                break
+
+        # Apply rewards
+        player.chips += chips
+        player.xp += xp
+        player.last_spin = now.date()
+        await sync_to_async(player.save)()
+
+        message = f"🎁 You opened a {box['name']}!\n\n💰 Chips: +{chips}\n✨ XP: +{xp}"
+        if reward_item:
+            # give rare item
+            item_obj, _ = await sync_to_async(PlayerItem.objects.get_or_create)(player=player, item_type=reward_item)
+            item_obj.quantity += 1
+            await sync_to_async(item_obj.save)()
+            message += f"\n🍀 Lucky! You also got a **{reward_item}**."
+
+        await query.edit_message_text(
+            message,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]])
+        )
+        return
+    if data == "quests:daily_xp":
+        user = update.effective_user
+        user_id = user.id
+
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        now = timezone.now()
+
+        if player.last_claimed_tokens and player.last_claimed_tokens.date() == now.date():
+            await query.edit_message_text(
+                "✨ You’ve already claimed your 50 XP today! Come back tomorrow.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]])
+            )
+            return
+
+        await add_xp(player, 50, context)
+        player.last_claimed_tokens = now
+        await sync_to_async(player.save)()
+
+        await query.edit_message_text(
+            f"✅ You claimed +50 XP. Keep it up!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]])
+        )
+        return
 
     if data == "quests:quest_history":
         player = await sync_to_async(Player.objects.get)(id=query.from_user.id)

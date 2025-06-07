@@ -175,7 +175,8 @@ USE_TZ = True
 
 # STATIC_URL = 'static/'
 STATIC_URL = '/static/'
-STATIC_ROOT = '../blackjack/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+# STATIC_ROOT = '../blackjack/static/'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = '../blackjack/media/'
 # Default primary key field type

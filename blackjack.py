@@ -1277,7 +1277,7 @@ MYSTERY_BOXES = {
 
 
 
-COOLDOWN_SECONDS = 20
+COOLDOWN_SECONDS = 5
 
 
 async def countdown_cooldown(context: ContextTypes.DEFAULT_TYPE):

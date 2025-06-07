@@ -3940,7 +3940,8 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 escape_md(dict(ITEM_TYPE_CHOICES).get(item.item_type, item.item_type))
                 for item in active_items
             ]
-            items_text = "🧪 Active: " + ", ".join(item_names)
+            items_text = escape_markdown("🧪 Active: " + ", ".join(item_names), version=2)
+
         else:
             items_text = "🧪 Active: None"
 

@@ -3922,8 +3922,10 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sync_to_async(player.save)()
 
         # Build the Markdown‐escaped mention & send a group message
-        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player.name)
-        mention = f"[{user_name_escaped}](tg://user?id={player.id})"
+        # user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player.name)
+        escaped_user_name = escape_markdown(player.name, version=2)
+
+        mention = f"[{escaped_user_name}](tg://user?id={player.id})"
         remaining_tokens = player.chips if not is_real_token_game else player.real_tokens
 
         # Fetch active items for this player (excluding XP boosters)
@@ -4519,8 +4521,10 @@ async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_player_id = game.turn_order[0]
     current_player = await sync_to_async(Player.objects.get)(id=current_player_id)
 
-    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
-    mention = f"[{user_name_escaped}](tg://user?id={current_player.id})"
+    # user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', current_player.name)
+    escaped_user_name = escape_markdown(current_player.name, version=2)
+
+    mention = f"[{escaped_user_name}](tg://user?id={current_player.id})"
 
     if update.message.from_user.id == current_player_id:
         # Notify the current player it is their turn
@@ -4604,8 +4608,10 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     join_game.hand.append(new_card)
     await sync_to_async(join_game.save)()
 
-    user_name_escaped = re.sub(r'([_*[\]()~>#+\-=|{}.!])', r'\\\1', user_name)
-    mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+    # user_name_escaped = re.sub(r'([_*[\]()~>#+\-=|{}.!])', r'\\\1', user_name)
+    escaped_user_name = escape_markdown(user_name, version=2)
+
+    mention = f"[{escaped_user_name}](tg://user?id={user_id})"
 
     await safe_send_message_async(context.bot, chat_id, f"{mention} drew: {new_card}")
 
@@ -4737,8 +4743,10 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
     join_game.has_stood = True
     await sync_to_async(join_game.save)()
 
-    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
-    mention = f"[{user_name_escaped}](tg://user?id={user_id})"
+    # user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', user_name)
+    escaped_user_name = escape_markdown(user_name, version=2)
+
+    mention = f"[{escaped_user_name}](tg://user?id={user_id})"
 
     await safe_send_message_async(context.bot, chat_id, f"{mention} has chosen to stand\\.")
 
@@ -4795,9 +4803,10 @@ async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if game.turn_order:
         next_player_id = game.turn_order[0]
         next_player = await sync_to_async(Player.objects.get)(id=next_player_id)
-        user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', next_player.name)
+        # user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', next_player.name)
+        escaped_user_name = escape_markdown(next_player.name, version=2)
             
-        mention = f"[{user_name_escaped}](tg://user?id={next_player_id})"
+        mention = f"[{escaped_user_name}](tg://user?id={next_player_id})"
         await asyncio.sleep(3)  # Non-blocking sleep
         await safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
     else:
@@ -5012,8 +5021,10 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     mention = f"[{escaped_name}](tg://user?id={winner.id})"
                 except Exception as e:
                     print(f"[WARN] Failed to escape or build MarkdownV2 mention for {winner.name}: {e}")
-                    user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner.name)
-                    mention = f"[{user_name_escaped}](tg://user?id={winner.id})"
+                    # user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', winner.name)
+                    escaped_user_name = escape_markdown(winner.name, version=2)
+
+                    mention = f"[{escaped_user_name}](tg://user?id={winner.id})"
 
                 # mention = f"[{winner.name}](tg://user?id={winner.id})"
             except Exception as e:

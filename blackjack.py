@@ -1277,7 +1277,7 @@ MYSTERY_BOXES = {
 
 
 
-COOLDOWN_SECONDS = 5
+COOLDOWN_SECONDS = 3
 
 
 async def countdown_cooldown(context: ContextTypes.DEFAULT_TYPE):
@@ -2543,7 +2543,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if data == "menu:tournaments":
         await query.edit_message_text(
-            text="🏁 *Tournaments & Events* 🏁\n\nChoose an action:",
+            text="✨ *Events* 🏁\n\nChoose an action:",
             parse_mode="Markdown",
             reply_markup=build_tournaments_menu()
         )

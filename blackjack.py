@@ -1,7 +1,7 @@
 import random
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode,ChatType
-from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes, MessageHandler, filters,CallbackQueryHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes, MessageHandler, filters,CallbackQueryHandler, filters
 from telegram.helpers import escape_markdown
 import asyncio
 from telegram.error import TimedOut,RetryAfter,BadRequest
@@ -10291,12 +10291,60 @@ async def referral_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 
+async def teachme(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "🃏 *راهنمای بازی کلاسیک بلک‌جک*\n\n"
+        "بلک‌جک همون بازی معروف «۲۱» هست. 🎯\n"
+        "هدف اینه که جمع کارت‌هات دقیقاً بشه ۲۱ یا حداقل خیلی بهش نزدیک باشه.\n\n"
+        "🕹️ بازی ۵ راند داره. هر راند، بازیکنی که دست بالاتری داشته باشه، اون راند رو می‌بره.\n"
+        "در پایان، کسی که بیشترین راند رو برده باشه، کل پولِ روی میز رو می‌بره. 💰\n\n"
+        "✅ برای شروع بازی:\n"
+        "• با دستور `/startblackjack` بازی رو استارت می‌زنیم\n"
+        "• بعد، مبلغ شرط رو انتخاب می‌کنیم\n"
+        "• با دستور `/join` وارد بازی می‌شیم\n"
+        "• وقتی همه جوین شدن، با `/forcestart` بازی رو شروع می‌کنیم\n\n"
+        "✉️ بعد از شروع، ربات به پیوی شما دو تا کارت می‌فرسته. مثلاً:\n"
+        "`🃏 Your hand: [10, 'Q']`\n"
+        "`♠️ Total value: 20`\n\n"
+        "⏳ وقتی نوبت شما بشه، ربات بهتون این پیام رو می‌ده:\n"
+        "`Hirbod, it's your turn!`\n"
+        "`Type /hit 🎰 to draw a card`\n"
+        "`or /stand❗️ to keep your hand`\n"
+        "وقتی این پیام رو دیدید (اسم شما جای Hirbod میاد)، دو تا انتخاب دارید:\n"
+        "`/hit` یا `/stand`\n\n"
+        "🎰 *توضیح /hit:*\n"
+        "وقتی می‌خواید کارت بکشید، از این دستور استفاده می‌کنید.\n"
+        "مثلاً اگه دستتون این باشه:\n"
+        "`🃏 Your hand: [4, 5]`\n"
+        "`♠️ Total value: 9`\n"
+        "با ۹ که قطعاً نمی‌تونید برنده شید، پس کارت می‌کشید تا به عددهایی مثل ۱۹، ۲۰ یا خود ۲۱ برسید.\n\n"
+        "🛑 *توضیح /stand:*\n"
+        "وقتی دستتون مثلاً ۱۸ یا ۱۹ یا ۲۰ شد، اگر اهل ریسک نیستید می‌تونید همون‌جا `/stand` بزنید.\n"
+        "یعنی اعلام کنید که دیگه کارت نمی‌خواید و نوبت نفر بعدی بشه.\n"
+        "تا آخر راند هم با همین دست جلو می‌رید.\n"
+        "ولی اگر اهل ریسک باشید، یه کارت دیگه می‌کشید تا شاید به ۲۱ برسید!\n\n"
+        "🏁 اگر دست شما از بقیه بهتر باشه، اون راند رو می‌برید.\n"
+        "کسی که بیشترین راند رو برده باشه، برنده کل بازی میشه.\n\n"
+        "🤖 یه ربات هم داخل بازی هست به‌عنوان دیلر (نماینده کازینو) که کارت‌ها رو پخش می‌کنه و خودش هم بازی می‌کنه.\n"
+        "📌 اگر با دیلر مساوی کنید، دیلر می‌بره.\n"
+        "مثال:\n"
+        "`🃏 Your hand: [10, 'Q']`\n"
+        "`♠️ Total value: 20`\n"
+        "`🤖 Dealer stands with a total of 20`\n"
+        "`🤖 Dealer wins🥇 this round!`\n\n"
+        "🂡 *توضیح کارت‌ها:*\n"
+        "• K (کینگ)، Q (کویین)، J (سرباز) = همشون ارزششون ۱۰ هست\n"
+        "• A (آس) = می‌تونه ۱ یا ۱۱ باشه (بسته به شرایط دست شما)\n\n"
+        "مثلاً:\n"
+        "`🃏 Your hand: ['A', 9]`\n"
+        "`♠️ Total value: 20`\n"
+        "حالا اگه یه کارت دیگه بکشید مثلاً ۵:\n"
+        "`🃏 Your hand: ['A', 9, 5]`\n"
+        "`♠️ Total value: 15`\n"
+        "چون A خودش رو از ۱۱ به ۱ تغییر داده تا دست شما نسوزه.\n\n"
 
-
-
-
-
-
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
@@ -10304,6 +10352,11 @@ if DEBUG == "True":
 elif DEBUG == "False":
     app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
     
+app.add_handler(CommandHandler("teachme", teachme))
+
+
+
+
 
 app.add_handler(CommandHandler("referral", referral_leaderboard))
 

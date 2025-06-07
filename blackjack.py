@@ -3909,10 +3909,10 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await unlock_achievement(player, "5000_game_join", context)
 
         # Deduct each player’s chips (already checked above that they all had enough)
-        if is_real_token_game:
-            player.real_tokens -= game.bet_amount
-        else:
-            player.chips -= game.bet_amount
+        # if is_real_token_game:
+        #     player.real_tokens -= game.bet_amount
+        # else:
+        #     player.chips -= game.bet_amount
 
         # If they went all‐in (chips now 0), unlock that achievement
         if player.chips == 0:

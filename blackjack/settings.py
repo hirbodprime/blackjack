@@ -176,14 +176,13 @@ USE_TZ = True
 
 # STATIC_URL = 'static/'
 STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"  # Always required for collectstatic
+
 MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / "media"
 
 if DEBUG:
-    STATICFILES_DIRS = [BASE_DIR / "static"]
-    MEDIA_ROOT = BASE_DIR / "media"
-else:
-    STATIC_ROOT = BASE_DIR / "staticfiles"
-    MEDIA_ROOT = BASE_DIR / "media"
+    STATICFILES_DIRS = [BASE_DIR / "static"]  # Use this only in development
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

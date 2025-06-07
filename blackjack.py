@@ -180,6 +180,9 @@ def build_main_menu():
         
         ],
         [
+            InlineKeyboardButton("🎯 Quests & Rewards", callback_data="menu:quests"),
+        ],
+        [
             InlineKeyboardButton("❓ How to Play", callback_data="menu:howtoplay"),
             InlineKeyboardButton("🎮 Minigames",   callback_data="menu:minigames"),
         ],
@@ -188,9 +191,6 @@ def build_main_menu():
         
         InlineKeyboardButton("❓ Support", callback_data="menu:support")
         ],
-        [
-            InlineKeyboardButton("🎯 Quests & Rewards", callback_data="menu:quests"),
-        ]
     
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -275,10 +275,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("📊 Stats created")
 
     await update.message.reply_text(
-        "*BlackJack Bot Menu* 💥\n\nChoose an option below:",
-        parse_mode="Markdown",
-        reply_markup=build_main_menu()
-    )
+    "*🃏 BlackJack Bot* 💥\n\n"
+    "Welcome back, Hirbod!\n\n"
+    "👇 Choose a section to explore:\n"
+    "• View your profile & stats\n"
+    "• Play games & open boxes\n"
+    "• Complete quests & earn rewards\n\n"
+    "— Let the cards decide your fate —",
+    parse_mode="Markdown",
+    reply_markup=build_main_menu()
+)
+
+
+
     print("✅ Start complete")
 def build_notification_settings_menu(settings: UserSettings):
     def toggle_label(enabled: bool) -> str:

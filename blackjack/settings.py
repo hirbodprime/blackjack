@@ -175,7 +175,12 @@ USE_TZ = True
 
 # STATIC_URL = 'static/'
 STATIC_URL = '/static/'
-STATIC_ROOT = '../blackjack/static/'
+
+if DEBUG == True:
+    STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
+else:STATIC_ROOT = '../blackjack/static/'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = '../blackjack/media/'
 # Default primary key field type

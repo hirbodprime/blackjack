@@ -38,7 +38,10 @@ elif DEBUG == "False":
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
 
-
+if DEBUG == "True":
+    TELEGRAM_BOT_TOKEN="7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q"
+else:
+    TELEGRAM_BOT_TOKEN="7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118"
 # Secure session and CSRF cookies (only sent over HTTPS)
 
 # Application definition

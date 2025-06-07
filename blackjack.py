@@ -21,10 +21,14 @@ django.setup()
 from dotenv import load_dotenv
 import time
 import re
-from game.models import (Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,ITEM_TYPE_CHOICES,PlayerItem,PlayerActiveItem,UserSettings,
-                         NextGameNotification,Achievement,ReferralEarning,DailyQuest,PlayerDailyQuestProgress,
-                         PlayerAchievement,HorseRaceWin,OwnedHorse,GameParameter,QuestHistory,
-                         HorseAppliedUpgrade,HorseSale,CrashGame,PlayerUpgrade,HorseUpgrade,generate_referral_code)
+from game.models import (Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,ITEM_TYPE_CHOICES,
+                         PlayerItem,PlayerActiveItem,UserSettings,
+                         NextGameNotification,Achievement,ReferralEarning,
+                         DailyQuest,PlayerDailyQuestProgress,
+                         PlayerAchievement,HorseRaceWin,OwnedHorse,
+                         GameParameter,QuestHistory,ActivePoll,
+                         HorseAppliedUpgrade,HorseSale,CrashGame,
+                         PlayerUpgrade,HorseUpgrade,generate_referral_code)
 
 from django.core.exceptions import ObjectDoesNotExist
 from asgiref.sync import sync_to_async
@@ -283,7 +287,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
     "*🃏 BlackJack Bot* 💥\n\n"
-    "Welcome back, Hirbod!\n\n"
+    "Welcome back,\n\n"
     "👇 Choose a section to explore:\n"
     "• View your profile & stats\n"
     "• Play games & open boxes\n"
@@ -3299,19 +3303,15 @@ async def create_highroller_poll(update: Update, context: ContextTypes.DEFAULT_T
     # Send the poll
     message = await safe_send_poll(context.bot, chat_id, question, options)
 
-    # Store everything in bot_data, including the options list itself:
-    if 'poll_data' not in context.bot_data:
-        context.bot_data['poll_data'] = {}
 
-    context.bot_data['poll_data'][message.poll.id] = {
-        'chat_id': chat_id,
-        'poll_message_id': message.message_id,
-        'options': options,               # <— store this!
-        'voted_player_ids': [],
-        'correct_guess_player_ids': [],
-        'wrong_guess_player_ids': [],
-        # 'chips' and 'xp' keys will be added later if guesses are correct
-    }
+    await sync_to_async(ActivePoll.objects.create)(
+        poll_id=message.poll.id,
+        chat_id=chat_id,
+        options=options,
+        message_id=message.message_id,
+        has_response=False  # 👈 This is required!
+    )
+    asyncio.create_task(remove_game_if_no_poll_answer(context, message.poll.id, timeout=60))
 
 
 # --- New command handler: highroller ---
@@ -3426,14 +3426,20 @@ async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                                 .select_related("player")
         )
 
-        for setting in notified_users:
-            try:
-                await context.bot.send_message(
-                    chat_id=setting.player.id,
-                    text=f"A new Blackjack game has started in the group {group_name}!"
-                )
-            except Exception as e:
-                print(f"Failed to notify {setting.player.id}: {e}")
+        if update.effective_chat.type in ["group", "supergroup"]:
+            for setting in notified_users:
+                user_id = setting.player.id
+                try:
+                    # Check if the user is still in the group
+                    member = await context.bot.get_chat_member(chat_id, user_id)
+                    if member.status not in ["left", "kicked"]:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text=f"A new Blackjack game has started in the group {group_name}!"
+                        )
+                except Exception as e:
+                    print(f"❌ Failed to notify {user_id}: {e}")
+
 
         # Optionally, clear the list after notifying
         await sync_to_async(lambda: NextGameNotification.objects.filter(chat_id=chat_id).delete())()
@@ -3462,20 +3468,40 @@ async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     else:
         await update.message.reply_text("An error occurred, please try again.")
 
-
 async def safe_send_poll(bot, chat_id, question, options, max_retries=10):
     retries = 0
     while retries < max_retries:
         try:
-            message = await bot.send_poll(chat_id=chat_id, question=question, options=options, is_anonymous=False)
+            message = await bot.send_poll(
+                chat_id=chat_id,
+                question=question,
+                options=options,
+                is_anonymous=False,
+                allows_multiple_answers=False,
+                open_period=60  # ⏳ Keeps poll open for 10 minutes
+            )
             return message  # Exit if successful
         except TimedOut:
             retries += 1
-            await asyncio.sleep(4)  # Use async sleep
+            await asyncio.sleep(4)
         except RetryAfter as e:
             retry_after = int(e.retry_after)
-            await asyncio.sleep(retry_after)  # Use async sleep
+            await asyncio.sleep(retry_after)
             retries += 1
+
+# async def safe_send_poll(bot, chat_id, question, options, max_retries=10):
+#     retries = 0
+#     while retries < max_retries:
+#         try:
+#             message = await bot.send_poll(chat_id=chat_id, question=question, options=options, is_anonymous=False)
+#             return message  # Exit if successful
+#         except TimedOut:
+#             retries += 1
+#             await asyncio.sleep(4)  # Use async sleep
+#         except RetryAfter as e:
+#             retry_after = int(e.retry_after)
+#             await asyncio.sleep(retry_after)  # Use async sleep
+#             retries += 1
 # Create poll function for setting bet amounts
 async def create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.message.chat_id
@@ -3501,14 +3527,42 @@ async def create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Send the poll asynchronously
     message = await safe_send_poll(context.bot, chat_id, question, options)
 
-    # Store poll data in context.bot_data using poll_id as key
-    if 'poll_data' not in context.bot_data:
-        context.bot_data['poll_data'] = {}
-    
-    context.bot_data['poll_data'][message.poll.id] = {
-        'chat_id': chat_id,
-        'poll_message_id': message.message_id
-    }
+
+    await sync_to_async(ActivePoll.objects.create)(
+        poll_id=message.poll.id,
+        chat_id=chat_id,
+        message_id=message.message_id,
+        has_response=False  # 👈 This is required!
+
+    )
+    asyncio.create_task(remove_game_if_no_poll_answer(context, message.poll.id, timeout=60))
+
+
+async def remove_game_if_no_poll_answer(context, poll_id, timeout=10):
+    await asyncio.sleep(timeout)
+
+    try:
+        active_poll = await sync_to_async(ActivePoll.objects.get)(poll_id=poll_id)
+    except ActivePoll.DoesNotExist:
+        print(f"⚠️ No ActivePoll found for poll_id={poll_id}")
+        return
+
+    if not active_poll.has_response:
+        chat_id = active_poll.chat_id
+
+        # Delete the Game instance if it exists
+        deleted_count, _ = await sync_to_async(Game.objects.filter(chat_id=chat_id, started=False, ended=False).delete)()
+        print(f"🗑 Deleted Game for chat {chat_id} due to poll timeout. Deleted: {deleted_count}")
+
+        try:
+            await context.bot.send_message(chat_id, "⏰ No one responded to the bet poll. Game cancelled.")
+        except:
+            pass
+
+        # Delete the poll row from DB
+        await sync_to_async(active_poll.delete)()
+
+
 
 async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # chat_id = update.message.chat_id
@@ -3519,12 +3573,24 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     selected_option = poll_answer.option_ids[0]  # Get the index of the selected option
 
     # Retrieve the poll data from context using poll_id
-    poll_data = context.bot_data.get('poll_data', {}).get(poll_answer.poll_id)
+    try:
+        active_poll = await sync_to_async(ActivePoll.objects.get)(poll_id=poll_answer.poll_id)
+        poll_data = {
+            'chat_id': active_poll.chat_id,
+            'poll_message_id': active_poll.message_id,
+            'has_response': active_poll.has_response,
+        }
+        active_poll.has_response = True
+        await sync_to_async(active_poll.save)()
+    except ActivePoll.DoesNotExist:
+        print("No ActivePoll found in DB.")
+        return
 
     if not poll_data:
         print("No poll data found.")
         return
     else:
+        poll_data['has_response'] = True
         print("Poll data exists.")
         try:
             chat_id = poll_data['chat_id']
@@ -3565,7 +3631,7 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
 
     # Set bet amounts based on real tokens or chips
-    stored_options = poll_data.get('options')
+    stored_options = active_poll.options
     if stored_options:
         # This was a HIGH-ROLLER poll, so use that array:
         options = stored_options
@@ -3600,6 +3666,7 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     escaped_user_name = escape_markdown(user_name, version=2)
     currency_type = "$" if (group.vip and group.real_money) else "chips💰"
     chosen_option_escaped = escape_markdown(chosen_option, version=2)
+    await sync_to_async(ActivePoll.objects.filter(poll_id=poll_answer.poll_id).delete)()
 
     await context.bot.send_message(
         chat_id=chat_id,
@@ -3610,7 +3677,28 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         ),
         parse_mode="MarkdownV2"
     )
+async def handle_poll_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    poll = update.poll
 
+    try:
+        active_poll = await sync_to_async(ActivePoll.objects.get)(poll_id=poll.id)
+    except ActivePoll.DoesNotExist:
+        return
+
+    if poll.is_closed and not active_poll.has_response:
+        deleted_count, _ = await sync_to_async(
+            Game.objects.filter(chat_id=active_poll.chat_id, started=False, ended=False).delete
+        )()
+
+        await sync_to_async(active_poll.delete)()
+
+        try:
+            await context.bot.send_message(
+                chat_id=active_poll.chat_id,
+                text="🗳 Poll ended with no responses. The Blackjack game was cancelled."
+            )
+        except:
+            pass
 
 async def safe_send_message_join(bot, chat_id, text, max_retries=10):
     retries = 0
@@ -4236,8 +4324,19 @@ async def handle_poll_response(update: Update, context: ContextTypes.DEFAULT_TYP
     print(f"User ID: {user_id}")
 
     poll_answer = update.poll_answer
-    poll_data = context.bot_data.get('poll_data', {}).get(poll_answer.poll_id)
-    
+    try:
+        active_poll = await sync_to_async(ActivePoll.objects.get)(poll_id=poll_answer.poll_id)
+        poll_data = {
+            'chat_id': active_poll.chat_id,
+            'poll_message_id': active_poll.message_id,
+            'has_response': active_poll.has_response,
+        }
+        active_poll.has_response = True
+        await sync_to_async(active_poll.save)()
+    except ActivePoll.DoesNotExist:
+        print("No ActivePoll found in DB.")
+        return
+        
     if not poll_data:
         print("Poll data not found.")
         return
@@ -5237,6 +5336,7 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game.betting = False
     game.join_time = False
     await sync_to_async(game.save)()
+    
 # Asynchronous version of reset_round_state
 async def reset_round_state(game):
     # Reset the hands and necessary state for the next round
@@ -7288,16 +7388,19 @@ async def horserace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     print(f"[INFO] Notifying {len(notified_users)} users about horse race start.")
 
-    for setting in notified_users:
-        user_id = setting.player.id
-        try:
-            print(f"[DEBUG] Sending horse race notification to {user_id}")
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"A new 🐎 Horse Race just started in {group_name}!\nJoin Now in the group, before it starts!"
-            )
-        except Exception as e:
-            print(f"[ERROR] Failed to notify {user_id}: {e}")
+    if update.effective_chat.type in ["group", "supergroup"]:
+        for setting in notified_users:
+            user_id = setting.player.id
+            try:
+                # Check if the user is still in the group
+                member = await context.bot.get_chat_member(chat_id, user_id)
+                if member.status not in ["left", "kicked"]:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"A new Blackjack game has started in the group {group_name}!"
+                    )
+            except Exception as e:
+                print(f"❌ Failed to notify {user_id}: {e}")
 
     await update.message.reply_text(
         "🐎 A new horse race has started!\n"
@@ -10386,12 +10489,50 @@ async def teachme(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text, parse_mode="Markdown")
 
+
+
+
+
+async def handle_stale_polls_and_reschedule(context, timeout=60):
+    from asgiref.sync import sync_to_async
+
+    polls = await sync_to_async(list)(
+        ActivePoll.objects.filter(has_response=False)
+    )
+
+    now = timezone.now()
+
+    for poll in polls:
+        elapsed = (now - poll.created_at).total_seconds()
+
+        if elapsed >= timeout:
+            # Too late — delete immediately
+            deleted, _ = await sync_to_async(Game.objects.filter(
+                chat_id=poll.chat_id, started=False, ended=False
+            ).delete)()
+            await sync_to_async(poll.delete)()
+
+            try:
+                await context.bot.send_message(poll.chat_id, "⏰ No one responded to the bet poll. Game cancelled.")
+            except:
+                pass
+
+            print(f"🗑 Cleaned up stale poll {poll.poll_id} (deleted {deleted} games)")
+
+        else:
+            # Still valid — reschedule
+            remaining = timeout - int(elapsed)
+            asyncio.create_task(remove_game_if_no_poll_answer(context, poll.poll_id, timeout=remaining))
+
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
 elif DEBUG == "False":
     app = ApplicationBuilder().token("7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118").concurrent_updates(True).build()
     
+import asyncio
+asyncio.get_event_loop().run_until_complete(handle_stale_polls_and_reschedule(app))
+
 app.add_handler(CommandHandler("teachme", teachme))
 
 

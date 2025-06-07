@@ -164,6 +164,18 @@ class QuestHistory(models.Model):
 
 
 
+class ActivePoll(models.Model):
+    poll_id = models.CharField(max_length=255, unique=True)
+    chat_id = models.BigIntegerField()
+    message_id = models.BigIntegerField()
+    has_response = models.BooleanField(default=False)
+    options = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True,null=True,blank=True)
+
+
+    def __str__(self):
+        return f"Poll {self.poll_id} in chat {self.chat_id}"
+
 
 
 class GameParameter(models.Model):
@@ -176,6 +188,11 @@ class GameParameter(models.Model):
         help_text="Minimum per-tick movement for dealer’s horse")
     horse_move_max = models.PositiveIntegerField(default=5,
         help_text="Maximum per-tick movement for dealer’s horse")
+    
+    horse_move_event = models.BooleanField(default=False,
+        help_text="If true, Win horse matches easier")
+    
+
     crash_min = models.FloatField(default=1.0,
         help_text="Minimum crash multiplier")
     crash_max = models.FloatField(default=2.5,
@@ -184,9 +201,13 @@ class GameParameter(models.Model):
         help_text="Minimum crash multiplier (for unrigged users)")
     crash_max_unrigged = models.FloatField(default=1.6,
         help_text="Maximum crash multiplier (for unrigged users)")
-    
+    crash_event = models.BooleanField(default=False,
+        help_text="If true, Win crash matches easier")
+
     double_chance = models.FloatField(default=0.5,
         help_text="Probability threshold for some random rig check (e.g., 0.5 = 50%)")
+    double_chance_event = models.BooleanField(default=False,
+        help_text="If true, Double chance rises")
     
     join_bonus = models.BooleanField(default=False,
         help_text="If true, users receive a bonus when game starts")

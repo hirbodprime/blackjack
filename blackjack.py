@@ -2578,36 +2578,39 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
-        box = MYSTERY_BOXES["shop:mystery_bronze"]
-        chips = random.randint(*box["chip_range"])
-        xp = random.randint(*box["xp_range"])
+        # 🧩 Mystery Box values (adjust here easily)
+        box_name = "🎁 Bronze Mystery Box"
+        chip_range = (100, 400)  # updated from 100–1000
+        xp_range = (5, 50)      # updated from 10–100
+        rare_items = [("double_chip_potion", 0.05)]  # 5% chance
+
+        chips = random.randint(*chip_range)
+        xp = random.randint(*xp_range)
         reward_item = None
 
-        # 3.3% chance for item
-        for item_type, chance in box["rare_items"]:
+        for item_type, chance in rare_items:
             if random.random() < chance:
                 reward_item = item_type
                 break
 
-        # Apply rewards
         player.chips += chips
         player.xp += xp
         player.last_spin = now.date()
         await sync_to_async(player.save)()
 
-        message = f"🎁 You opened a {box['name']}!\n\n💰 Chips: +{chips}\n✨ XP: +{xp}"
+        message = f"🎁 You opened a {box_name}!\n\n💰 Chips: +{chips}\n✨ XP: +{xp}"
         if reward_item:
-            # give rare item
             item_obj, _ = await sync_to_async(PlayerItem.objects.get_or_create)(player=player, item_type=reward_item)
             item_obj.quantity += 1
             await sync_to_async(item_obj.save)()
-            message += f"\n🍀 Lucky! You also got a **{reward_item}**."
+            message += f"\n🍀 Lucky! You also got a **{reward_item}**!"
 
         await query.edit_message_text(
             message,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]])
         )
         return
+
     if data == "quests:daily_xp":
         user = update.effective_user
         user_id = user.id

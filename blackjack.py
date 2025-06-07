@@ -3807,19 +3807,7 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception:
                 continue
-    for joined in joined_players:
-        try:
-            if game.bet_amount >= 1000000:
-                await update_daily_quest_progress(player, "blackjack", "join1m", 1, context)
-            if game.bet_amount >= 50000:
-                await update_daily_quest_progress(player, "blackjack", "join50", 1, context)
-            if game.bet_amount >= 10000000:
-                await update_daily_quest_progress(player, "blackjack", "join10m", 1, context)
-            if game.bet_amount <= 1000:
-                await update_daily_quest_progress(player, "blackjack", "join1", 1, context)
-            await update_daily_quest_progress(player, "blackjack", "join", 1, context)
-        except Exception:
-                continue
+
     # Determine currency type (real tokens vs. chips)
     is_real_token_game = group_game.vip and group_game.real_money
     currency_type = "$" if is_real_token_game else "chips💰"
@@ -3900,7 +3888,15 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for join_entry in joined_players:
         player = await sync_to_async(lambda: join_entry.player)()
-
+        if game.bet_amount >= 1000000:
+            await update_daily_quest_progress(player, "blackjack", "join1m", 1, context)
+        if game.bet_amount >= 50000:
+            await update_daily_quest_progress(player, "blackjack", "join50", 1, context)
+        if game.bet_amount >= 10000000:
+            await update_daily_quest_progress(player, "blackjack", "join10m", 1, context)
+        if game.bet_amount <= 1000:
+            await update_daily_quest_progress(player, "blackjack", "join1", 1, context)
+        await update_daily_quest_progress(player, "blackjack", "join", 1, context)
         # Add XP for joining
         await add_xp(player, 10, context)
 

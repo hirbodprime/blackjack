@@ -3711,7 +3711,7 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await sync_to_async(group_game.save)()
 
     params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
-    if params.enable_start_bonus and params.start_bonus_amount > 0:
+    if params.join_bonus and params.join_bonus_amount > 0:
         for joined in joined_players:
             try:
                 player = await sync_to_async(Player.objects.get)(id=joined.user.id)

@@ -218,7 +218,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Player.DoesNotExist:
         print(f"🆕 New player: {user_id}")
-        settings, _ = await sync_to_async(UserSettings.objects.get_or_create)(player=player)
 
         if update.message.chat.type != ChatType.PRIVATE:
             print("❗️ Not in private chat — aborting.")
@@ -232,6 +231,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         player = Player(id=user_id, name=user_name)
+        settings, _ = await sync_to_async(UserSettings.objects.get_or_create)(player=player)
+
         base_chips = 200
         bonus_chips = 0
 

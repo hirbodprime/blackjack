@@ -444,3 +444,4 @@ class PlayerActiveItem(models.Model):
     def __str__(self):
         status = "active" if self.is_active else "used"
         return f"{self.player.name} → {self.get_item_type_display()} ({status})"
+    

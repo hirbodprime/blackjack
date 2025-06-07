@@ -39,12 +39,13 @@ elif DEBUG == "False":
     CSRF_COOKIE_SECURE = True
 
 
-
 # Secure session and CSRF cookies (only sent over HTTPS)
 
 # Application definition
 
 INSTALLED_APPS = [
+    "jazzmin",  # Must be first
+
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -63,6 +64,48 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+
+JAZZMIN_SETTINGS = {
+    "site_title": "Blackjack Admin",
+    "site_header": "🃏 Blackjack Control Panel",
+    "site_brand": "🃏 Blackjack Bot",
+    "welcome_sign": "Welcome, High Roller 🎰",
+    "site_logo": "img/blackjack_logo.png",  # See step 2 below
+    "site_icon": "fas fa-dice",
+    "show_sidebar": True,
+    "navigation_expanded": True,
+    "order_with_respect_to": [
+        "game.Player",
+        "game.Game",
+        "game.HorseRace",
+        "game.DailyQuest",
+        "game.Dealer",
+    ],
+}
+
+JAZZMIN_UI_TWEAKS = {
+    "theme": "darkly",  # or "slate" for softer tone
+    "accent": "accent-success",  # Green like a Blackjack table
+    "navbar_small_text": False,
+    "footer_small_text": False,
+    "body_small_text": False,
+    "brand_small_text": False,
+    "sidebar_nav_small_text": False,
+    "sidebar_disable_expand": False,
+    "theme_animations": True,
+    "sidebar_nav_flat_style": True,
+    "sidebar_nav_legacy_style": False,
+    "sidebar_nav_compact_style": False,
+    "button_classes": {
+        "primary": "btn-success",  # Classic green
+        "secondary": "btn-secondary",
+        "info": "btn-outline-light",
+        "warning": "btn-warning",
+        "danger": "btn-outline-danger",
+        "success": "btn-success",
+    },
+}
 
 ROOT_URLCONF = 'blackjack.urls'
 

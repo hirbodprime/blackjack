@@ -1,6 +1,36 @@
 from django.contrib import admin
 from .models import *
 
+@admin.register(Player)
+class PlayerAdmin(admin.ModelAdmin):
+    list_display = (
+        "id", "name", "chips", "xp", "level",
+        "games", "loan", "admin", "referral_code",
+        "referrer", "total_referral_bonus"
+    )
+    list_filter = ("admin", "level")
+    search_fields = ("name", "referral_code", "id")
+    readonly_fields = ("referral_code",)
+    list_editable = ("chips", "xp", "level", "loan", "admin")
+    autocomplete_fields = ("referrer",)
+
+    fieldsets = (
+        (None, {
+            "fields": ("name", "referrer", "referral_code")
+        }),
+        ("Stats", {
+            "fields": ("chips", "xp", "level", "games", "loan")
+        }),
+        ("Admin Flags", {
+            "fields": ("admin",)
+        }),
+        ("Referral Info", {
+            "fields": ("total_referral_bonus",)
+        }),
+        ("Activity", {
+            "fields": ("last_claimed_tokens", "tokens_claimed_today", "last_spin", "real_tokens")
+        }),
+    )
 
 @admin.register(DailyQuest)
 class DailyQuestAdmin(admin.ModelAdmin):

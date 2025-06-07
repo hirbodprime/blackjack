@@ -231,6 +231,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         player = Player(id=user_id, name=user_name)
+        await sync_to_async(player.save)()  # ✅ Save the player first
+
         settings, _ = await sync_to_async(UserSettings.objects.get_or_create)(player=player)
 
         base_chips = 200

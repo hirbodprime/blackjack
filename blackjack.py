@@ -2005,8 +2005,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 )()
                 friend_bonus = bonus_q["total"] or 0
                 total_bonus += friend_bonus
+                fname = escape_markdown(friend["name"], version=2)
 
-                lines.append(f" • {fname:<10} (earned you {friend_bonus} chips)")
+                lines.append(f" • {fname} (earned you {friend_bonus} chips)")
+
 
             lines.append("")  # blank line before total
             lines.append(f"Total referral bonus: *{total_bonus}* chips")

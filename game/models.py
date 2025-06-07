@@ -91,6 +91,81 @@ class HorseSale(models.Model):
         return f"{self.horse} → {self.price:,} chips"
 
 
+
+class UserSettings(models.Model):
+    player = models.OneToOneField("Player", on_delete=models.CASCADE, related_name="settings")
+
+    notify_classic_blackjack_start = models.BooleanField(default=True)
+    notify_race_start = models.BooleanField(default=True)
+    notify_new_sales = models.BooleanField(default=True)
+    notify_new_events = models.BooleanField(default=True)
+    daily_token_reminder_enabled = models.BooleanField(default=True)
+    daily_dart_reminder = models.BooleanField(default=True)
+    notify_high_roller_blackjack_start = models.BooleanField(default=True)
+    def __str__(self):
+        return f"Settings for {self.player}"
+# await update_daily_quest_progress(player_obj, "race", "win", 1, context)
+
+
+class DailyQuest(models.Model):
+    QUEST_TYPES = [
+        ("blackjack", "Classic Blackjack"),
+        ("minigames", "Minigames"),
+        ("race", "Horse Race"),
+    ]
+
+    quest_type = models.CharField(max_length=50, choices=QUEST_TYPES)
+    description = models.TextField(default="")
+    target = models.PositiveIntegerField()
+    reward_xp = models.PositiveIntegerField(default=0)
+    reward_chips = models.PositiveIntegerField(default=0)
+    date_assigned = models.DateField(default=timezone.now)
+    subtype = models.CharField(max_length=50, blank=True, null=True,
+        help_text="Optional specific subtype (e.g., 'draw', 'coin', 'rps') for minigames or others.")
+    available = models.BooleanField(default=False)
+    def __str__(self):
+        return f"{self.get_quest_type_display()} ({self.date_assigned})"
+
+class PlayerDailyQuestProgress(models.Model):
+    player = models.ForeignKey("Player", on_delete=models.CASCADE, related_name="quest_progress")
+    quest = models.ForeignKey("DailyQuest", on_delete=models.CASCADE, related_name="progresses")
+    subtype = models.CharField(max_length=50, blank=True, null=True,
+        help_text="Optional specific subtype (e.g., 'draw', 'coin', 'rps') for minigames or others.")
+    progress = models.PositiveIntegerField(default=0)
+    completed = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ("player", "quest")
+
+    def __str__(self):
+        return f"{self.player} - {self.quest.quest_type} ({self.progress}/{self.quest.target})"
+
+
+
+
+
+
+
+
+class QuestHistory(models.Model):
+    player = models.ForeignKey("Player", on_delete=models.CASCADE, related_name="quest_history")
+    quest_type = models.CharField(max_length=50)
+    subtype = models.CharField(max_length=50, blank=True, null=True)
+    description = models.TextField()
+    target = models.PositiveIntegerField()
+    reward_xp = models.PositiveIntegerField()
+    reward_chips = models.PositiveIntegerField()
+    progress = models.PositiveIntegerField()
+    date_assigned = models.DateField()
+    date_completed = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.player.name} completed {self.quest_type} quest on {self.date_completed.date()}"
+
+
+
+
+
 class GameParameter(models.Model):
     """
     A singleton model for storing configurable game parameters.
@@ -105,7 +180,29 @@ class GameParameter(models.Model):
         help_text="Minimum crash multiplier")
     crash_max = models.FloatField(default=2.5,
         help_text="Maximum crash multiplier")
+    crash_min_unrigged = models.FloatField(default=1.0,
+        help_text="Minimum crash multiplier (for unrigged users)")
+    crash_max_unrigged = models.FloatField(default=1.6,
+        help_text="Maximum crash multiplier (for unrigged users)")
+    
+    double_chance = models.FloatField(default=0.5,
+        help_text="Probability threshold for some random rig check (e.g., 0.5 = 50%)")
+    
+    join_bonus = models.BooleanField(default=False,
+        help_text="If true, users receive a bonus when game starts")
+    join_bonus_amount = models.PositiveIntegerField(default=0,
+        help_text="Amount of chips to give if start bonus is enabled")
+    
 
+    buyhorse_event = models.BooleanField(default=False,
+        help_text="If True, all horse numbers cost the same (see 'today_horse_price')")
+    todays_horse_price = models.PositiveIntegerField(default=50_000,
+        help_text="Flat price for horses during a buyhorse event")
+
+    rename_horse_event = models.BooleanField(default=False,
+        help_text="If True, rename horse is 1 chip")
+    
+    
     def __str__(self):
         return "Game Parameters (singleton)"
 

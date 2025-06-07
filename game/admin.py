@@ -18,13 +18,15 @@ from .models import (
     HorseUpgrade,
     PlayerUpgrade,
     HorseAppliedUpgrade,
-    HorseSale,
-    CrashGame,
-    HorseRaceWin,GameParameter,
-    PlayerItem, PlayerActiveItem
+    HorseSale,QuestHistory,
+    CrashGame,PlayerDailyQuestProgress,
+    HorseRaceWin,GameParameter,DailyQuest,
+    PlayerItem, PlayerActiveItem,UserSettings,
 )
-
-
+admin.site.register(PlayerDailyQuestProgress)
+admin.site.register(DailyQuest)
+admin.site.register(UserSettings)
+admin.site.register(QuestHistory)
 @admin.register(GameParameter)
 class GameParameterAdmin(admin.ModelAdmin):
     list_display = (

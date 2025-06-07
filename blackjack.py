@@ -21,9 +21,9 @@ django.setup()
 from dotenv import load_dotenv
 import time
 import re
-from game.models import (Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,ITEM_TYPE_CHOICES,PlayerItem,PlayerActiveItem,
-                         NextGameNotification,Achievement,ReferralEarning,
-                         PlayerAchievement,HorseRaceWin,OwnedHorse,GameParameter,
+from game.models import (Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,ITEM_TYPE_CHOICES,PlayerItem,PlayerActiveItem,UserSettings,
+                         NextGameNotification,Achievement,ReferralEarning,DailyQuest,PlayerDailyQuestProgress,
+                         PlayerAchievement,HorseRaceWin,OwnedHorse,GameParameter,QuestHistory,
                          HorseAppliedUpgrade,HorseSale,CrashGame,PlayerUpgrade,HorseUpgrade,generate_referral_code)
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -36,6 +36,53 @@ from django.utils import timezone
 
 load_dotenv()
 from asgiref.sync import sync_to_async
+
+
+async def add_chips(player, amount, context=None, reason=None):
+    player.chips += amount
+    await sync_to_async(player.save)()
+
+    # if context:
+    #     message = f"💰 You've received {amount} chips!"
+    #     if reason:
+    #         message += f"\n📌 Reason: {reason}"
+    #     await context.bot.send_message(chat_id=player.id, text=message)
+
+async def update_daily_quest_progress(player, quest_type, subtype=None, amount=1, context=None):
+    today = timezone.now().date()
+
+    # Find today's quest of the correct type and subtype
+    matching_quests = await sync_to_async(list)(DailyQuest.objects.filter(
+        quest_type=quest_type,
+        subtype=subtype,
+        date_assigned=today,
+        available=True
+    ))
+
+    for quest in matching_quests:
+        # Try to get or create PlayerDailyQuestProgress
+        progress, created = await sync_to_async(PlayerDailyQuestProgress.objects.get_or_create)(
+            player=player,
+            quest=quest,
+            defaults={"subtype": subtype, "progress": 0, "completed": False}
+        )
+
+        if progress.completed:
+            continue  # Already done
+
+        progress.progress += amount
+        if progress.progress >= quest.target:
+            progress.completed = True
+            await add_xp(player, quest.reward_xp, context)
+            await add_chips(player, quest.reward_chips, context, reason="Quest Reward")
+
+            if context:
+                await context.bot.send_message(
+                    chat_id=player.id,
+                    text=f"✅ Daily Quest Completed: {quest.description}\n🎁 Rewards: {quest.reward_xp} XP, {quest.reward_chips} Chips!"
+                )
+
+        await sync_to_async(progress.save)()
 
 
 def escape_md(text):
@@ -128,16 +175,16 @@ def build_main_menu():
         [
             InlineKeyboardButton("🎁 Mystery Boxes",    callback_data="shop:mystery_box"),
             InlineKeyboardButton("📦 Items",    callback_data="menu:items"),],
-        # [
-        # InlineKeyboardButton("🎯 Quests & Rewards", callback_data="menu:quests"),
-        # InlineKeyboardButton("🏁 Tournaments & Events", callback_data="menu:tournaments")
-        # ],
+        [
+        InlineKeyboardButton("🎯 Quests & Rewards", callback_data="menu:quests"),
+        InlineKeyboardButton("🏁 Tournaments & Events", callback_data="menu:tournaments")
+        ],
         [
             InlineKeyboardButton("❓ How to Play", callback_data="menu:howtoplay"),
             InlineKeyboardButton("🎮 Minigames",   callback_data="menu:minigames"),
         ],
         [
-        # InlineKeyboardButton("⚙️ Settings", callback_data="menu:settings"),
+        InlineKeyboardButton("⚙️ Settings", callback_data="menu:settings"),
         
         InlineKeyboardButton("❓ Support", callback_data="menu:support")
         ],
@@ -153,6 +200,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         player = await sync_to_async(Player.objects.get)(id=user_id)
+        settings, _ = await sync_to_async(UserSettings.objects.get_or_create)(player=player)
+
         print(f"✅ Player {user_id} already exists")
 
         if not player.referral_code:
@@ -166,6 +215,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Player.DoesNotExist:
         print(f"🆕 New player: {user_id}")
+        settings, _ = await sync_to_async(UserSettings.objects.get_or_create)(player=player)
+
         if update.message.chat.type != ChatType.PRIVATE:
             print("❗️ Not in private chat — aborting.")
             await update.message.reply_text(
@@ -226,6 +277,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=build_main_menu()
     )
     print("✅ Start complete")
+def build_notification_settings_menu(settings: UserSettings):
+    def toggle_label(enabled: bool) -> str:
+        return "✅" if enabled else "❌"
+
+    keyboard = [
+        [InlineKeyboardButton(f"{toggle_label(settings.notify_classic_blackjack_start)} Classic Blackjack Start", callback_data="toggle:notify_classic_blackjack_start"),
+         InlineKeyboardButton(f"{toggle_label(settings.notify_race_start)} Race Start", callback_data="toggle:notify_race_start")
+        ],
+        [InlineKeyboardButton(f"{toggle_label(settings.notify_new_sales)} New Sales", callback_data="toggle:notify_new_sales"),InlineKeyboardButton(f"{toggle_label(settings.notify_new_events)} New Events", callback_data="toggle:notify_new_events")],
+        # [InlineKeyboardButton(f"{toggle_label(settings.daily_token_reminder_enabled)} Daily Token Reminder", callback_data="toggle:daily_token_reminder_enabled"),InlineKeyboardButton(f"{toggle_label(settings.daily_dart_reminder)} Daily Dart Reminder", callback_data="toggle:daily_dart_reminder")],
+        [ InlineKeyboardButton(f"{toggle_label(settings.notify_high_roller_blackjack_start)} High roller Blackjack Start", callback_data="toggle:notify_high_roller_blackjack_start")],
+        [InlineKeyboardButton("🔙 Back to Settings", callback_data="menu:settings")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 def build_special_passes_menu():
     keyboard = [
@@ -327,11 +392,11 @@ def build_bj_potions_menu():
     keyboard = [
 
         [
-            InlineKeyboardButton("✨ Double Chip Potion (17.5k)", callback_data="shop:double_chip_potion"),
-            InlineKeyboardButton("✨ Triple Chip Potion (50k)", callback_data="shop:triple_chip_potion"),
+            InlineKeyboardButton("✨ Double Chip Potion", callback_data="shop:double_chip_potion"),
+            InlineKeyboardButton("✨ Triple Chip Potion", callback_data="shop:triple_chip_potion"),
         ],
         [
-            InlineKeyboardButton("✨ 10× Chip Potion (200k)",     callback_data="shop:10x_chip_potion"),
+            InlineKeyboardButton("✨ 10× Chip Potion",     callback_data="shop:10x_chip_potion"),
         ],
         [
             InlineKeyboardButton("🔙 Back to Shop",   callback_data="menu:shop"),
@@ -345,14 +410,14 @@ def build_bj_potions_menu():
 def build_bj_boosters_menu():
     keyboard = [
         [
-            InlineKeyboardButton("📈 +500 XP Booster (20k)",    callback_data="shop:xp_booster_500"),
-            InlineKeyboardButton("📈 +2,000 XP Booster (100k)", callback_data="shop:xp_booster_2000"),
+            InlineKeyboardButton("📈 +500 XP Booster",    callback_data="shop:xp_booster_500"),
+            InlineKeyboardButton("📈 +2,000 XP Booster", callback_data="shop:xp_booster_2000"),
         ],
         [
-            InlineKeyboardButton("📈 +15,000 XP Booster (400k)", callback_data="shop:xp_booster_15000"),
+            InlineKeyboardButton("📈 +15,000 XP Booster", callback_data="shop:xp_booster_15000"),
         ],
         [
-            InlineKeyboardButton("📈 +50,000 XP Booster (1M)", callback_data="shop:xp_booster_50000"),
+            InlineKeyboardButton("📈 +50,000 XP Booster", callback_data="shop:xp_booster_50000"),
         ],
         [
             InlineKeyboardButton("🔙 Back to Shop",   callback_data="menu:shop"),
@@ -368,7 +433,7 @@ def build_bj_special_passes_menu():
         [
             InlineKeyboardButton("🛡️ Insurance Pass (5k)",    callback_data="shop:insurance_pass"),
             InlineKeyboardButton("🃏 First-Hand-20 Pass (8k)", callback_data="shop:first_hand_20_pass"),
-            InlineKeyboardButton("🃏 First-Hand-11 Pass (16k)", callback_data="shop:first_hand_11_potion"),
+            InlineKeyboardButton("🃏 First-Hand-11 Pass (12k)", callback_data="shop:first_hand_11_potion"),
         ],
         [
             InlineKeyboardButton("🔙 Back to Shop", callback_data="menu:shop"),
@@ -382,18 +447,28 @@ def build_bj_special_passes_menu():
 def build_mystery_box_menu():
     keyboard = [
         [
-            InlineKeyboardButton("🎁 Bronze Mystery Box (1k)",  callback_data="shop:mystery_bronze"),
+            InlineKeyboardButton("🎁 Bronze Mystery Box (1k)",   callback_data="shop:mystery_bronze"),
             InlineKeyboardButton("🎁 Silver Mystery Box (2.5k)", callback_data="shop:mystery_silver"),
         ],
         [
-            InlineKeyboardButton("🎁 Gold Mystery Box (5k)",     callback_data="shop:mystery_gold"),
+            InlineKeyboardButton("🎁 Gold Mystery Box (5k)",      callback_data="shop:mystery_gold"),
         ],
         [
-            InlineKeyboardButton("🔙 Back to Shop",              callback_data="shop:main"),
+            InlineKeyboardButton("💎 Platinum Mystery Box (25k)", callback_data="shop:mystery_platinum"),
+            InlineKeyboardButton("🔷 Diamond Mystery Box (50k)", callback_data="shop:mystery_diamond"),
+        ],
+        [
+            InlineKeyboardButton("🌟 Legendary Mystery Box (100k)", callback_data="shop:mystery_legendary"),
+        ],
+        [
+            InlineKeyboardButton("🌀 Mythic Mystery Box (1M)",     callback_data="shop:mystery_mythic"),
+            InlineKeyboardButton("🌌 Cosmic Mystery Box (1B)",     callback_data="shop:mystery_cosmic"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Back to Main",                 callback_data="menu:main"),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
-
 
 
 
@@ -402,12 +477,13 @@ def build_mystery_box_menu():
 def build_tournaments_menu():
     keyboard = [
         [
-            InlineKeyboardButton("🏁 Upcoming Races", callback_data="tournaments:upcoming_races"),
+            InlineKeyboardButton("✨ Available Events", callback_data="tournaments:Events"),
+            # InlineKeyboardButton("🏁 Upcoming Races", callback_data="tournaments:upcoming_races"),
         ],
-        [
-            InlineKeyboardButton("🎫 Join Tournament", callback_data="tournaments:join"),
-            InlineKeyboardButton("🏅 My Tournament History", callback_data="tournaments:history"),
-        ],
+        # [
+        #     InlineKeyboardButton("🎫 Join Tournament", callback_data="tournaments:join"),
+        #     InlineKeyboardButton("🏅 My Tournament History", callback_data="tournaments:history"),
+        # ],
         [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -420,11 +496,20 @@ def build_quests_menu():
             InlineKeyboardButton("📆 Daily Quests", callback_data="quests:daily_quests"),
         ],
         [
-            InlineKeyboardButton("📅 Weekly Challenges", callback_data="quests:weekly_challenges"),
+            InlineKeyboardButton("📅 Quest History", callback_data="quests:quest_history"),
         ],
         [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
     ]
     return InlineKeyboardMarkup(keyboard)
+def build_daily_quests_menu():
+    keyboard = [
+        [InlineKeyboardButton("🃏 Classic Blackjack", callback_data="quest:daily_blackjack")],
+        [InlineKeyboardButton("🎮 Minigames", callback_data="quest:daily_minigames")],
+        [InlineKeyboardButton("🐎 Horse Race", callback_data="quest:daily_race")],
+        [InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 
 # 6. Social submenu
 def build_social_menu():
@@ -455,20 +540,21 @@ def build_back_to_profile_button():
 
 ITEM_COSTS = {
     # Potions
-    "double_chip_potion": 17500,
-    "triple_chip_potion": 50000,
-    "10x_chip_potion":    200000,
+    "double_chip_potion": 30000,
+    "triple_chip_potion": 80000,
+    "10x_chip_potion":    400000,
     # Boosters
-    "xp_booster_500":     20000,
-    "xp_booster_2000":    100000,
-    "xp_booster_15000":   400000,
-    "xp_booster_50000":   1000000,
+    "xp_booster_500":     100000,
+    "xp_booster_2000":    400000,
+    "xp_booster_15000":   2800000,
+    "xp_booster_50000":   9000000,
     # Special Passes
     "insurance_pass":     5000,
     "first_hand_20_pass": 8000,
     "first_hand_11_potion":12000,
     # … (any others, e.g. mystery boxes if you wire them up) …
 }
+
 
 async def purchase_item(player: Player, item_type: str):
     cost = ITEM_COSTS.get(item_type)
@@ -1025,126 +1111,355 @@ async def handle_items_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 
+ITEM_COSTS = {
+    # Potions
+    "double_chip_potion": 30000,
+    "triple_chip_potion": 80000,
+    "10x_chip_potion":    400000,
+    # Boosters
+    "xp_booster_500":     100000,
+    "xp_booster_2000":    400000,
+    "xp_booster_15000":   2800000,
+    "xp_booster_50000":   9000000,
+    # Special Passes
+    "insurance_pass":     5000,
+    "first_hand_20_pass": 8000,
+    "first_hand_11_potion":12000,
+}
 
-# Define mystery box contents
 MYSTERY_BOXES = {
     "shop:mystery_bronze": {
         "name": "🎁 Bronze Mystery Box",
-        "cost": 1000,
-        "chip_range": (1000, 3000),
-        "xp_range": (10, 200),
+        "cost": 1_000,
+        "chip_range": (100, 1_000),
+        "xp_range": (10, 100),
         "rare_items": [
-            ("double_chip_potion", 0.05),
+            ("double_chip_potion", 0.033),
         ]
     },
     "shop:mystery_silver": {
         "name": "🎁 Silver Mystery Box",
-        "cost": 2500,
-        "chip_range": (2500, 4000),
-        "xp_range": (10, 300),
+        "cost": 2_500,
+        "chip_range": (1_000, 2_500),
+        "xp_range": (10, 50),
         "rare_items": [
-            ("triple_chip_potion", 0.05),
-            ("xp_booster_500", 0.03),
+            ("triple_chip_potion", 0.031),
+            ("xp_booster_500",     0.025),
         ]
     },
     "shop:mystery_gold": {
         "name": "🎁 Gold Mystery Box",
-        "cost": 10000,
-        "chip_range": (10000, 25000),
-        "xp_range": (10, 500),
+        "cost": 10_000,
+        "chip_range": (5_000, 10_000),
+        "xp_range": (10, 100),
         "rare_items": [
-            ("10x_chip_potion", 0.05),
-            ("xp_booster_50000", 0.01),
+            ("10x_chip_potion",    0.025),
+            ("xp_booster_50000",   0.001),
+        ]
+    },
+    "shop:mystery_platinum": {
+        "name": "💎 Platinum Mystery Box",
+        "cost": 25_000,
+        "chip_range": (10_000, 25_000),
+        "xp_range": (80, 250),
+        "rare_items": [
+            ("xp_booster_2000",    0.063),
+            ("xp_booster_15000",   0.009),
+        ]
+    },
+    "shop:mystery_diamond": {
+        "name": "🔷 Diamond Mystery Box",
+        "cost": 50_000,
+        "chip_range": (10_000, 50_000),
+        "xp_range": (160, 300),
+        "rare_items": [
+            ("xp_booster_15000",   0.018),
+            ("xp_booster_50000",   0.006),
+        ]
+    },
+    "shop:mystery_legendary": {
+        "name": "🌟 Legendary Mystery Box",
+        "cost": 100_000,
+        "chip_range": (50_000, 100_000),
+        "xp_range": (220, 500),
+        "rare_items": [
+            ("10x_chip_potion",    0.25),
+            ("xp_booster_50000",   0.011),
+        ]
+    },
+    "shop:mystery_mythic": {
+        "name": "🌀 Mythic Mystery Box",
+        "cost": 1_000_000,
+        "chip_range": (100_000, 1_000_000),
+        "xp_range": (440, 5_000),
+        "rare_items": [
+            ("xp_booster_15000",   0.357),
+            ("xp_booster_50000",   0.111),
+        ]
+    },
+    "shop:mystery_cosmic": {
+        "name": "🌌 Cosmic Mystery Box",
+        "cost": 1_000_000_000,
+        "chip_range": (1_000_000, 1_000_000_000),
+        "xp_range": (6_280, 50_000),
+        "rare_items": [
+            ("xp_booster_500",     1.0),
+            ("xp_booster_2000",    1.0),
+            ("xp_booster_15000",   1.0),
         ]
     },
 }
 
-# This assumes you have: Player, PlayerItem, ITEM_TYPE_CHOICES, add_xp
+
+
+
+
+
+
+
+
+COOLDOWN_SECONDS = 20
+
+
+async def countdown_cooldown(context: ContextTypes.DEFAULT_TYPE):
+    job_data = context.job.data
+    now = datetime.utcnow()
+    remaining = int((job_data["expires_at"] - now).total_seconds())
+
+    if remaining > 0:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=job_data["chat_id"],
+                message_id=job_data["message_id"],
+                text=f"⌛️ Mystery Box cooldown: {remaining}s",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back to Mystery Boxes", callback_data="shop:mystery_box")]
+                ])
+            )
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise
+    else:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=job_data["chat_id"],
+                message_id=job_data["message_id"],
+                text="✅ You can open this Mystery Box again!",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔁 Open Another", callback_data=job_data["callback_data"])]
+                ])
+            )
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise
+
+        # clear the cooldown flag and stop the job
+        context.application.user_data[job_data["user_id"]].pop("mystery_cooldown", None)
+        context.job.schedule_removal()
+
+
 async def handle_mystery_box_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    data = query.data
+    data = query.data  # e.g. "shop:mystery_gold"
+    now = datetime.utcnow()
 
     box = MYSTERY_BOXES.get(data)
     if not box:
         await query.answer("Unknown mystery box!", show_alert=True)
-        return
+        return True
 
-    player = await sync_to_async(Player.objects.get)(id=user_id)
-
-    # Not enough chips
-    if player.chips < box["cost"]:
-        await query.edit_message_text(
-            text=f"❗️ You don’t have enough chips to open the {box['name']}.\n\n"
-                 f"Required: {box['cost']} 💰\nYour balance: {player.chips} 💰",
+    # 1) Cooldown check
+    expires_at = context.user_data.get("mystery_cooldown")
+    if expires_at and now < expires_at:
+        remaining = int((expires_at - now).total_seconds())
+        msg = await query.edit_message_text(
+            text=f"⌛️ Mystery Boxes cooldown: {remaining}s",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Back to Mystery Boxes", callback_data="shop:mystery_box")],
+                [InlineKeyboardButton("🔙 Back to Mystery Boxes", callback_data="shop:mystery_box")]
             ])
         )
-        return
 
-    # Deduct cost
+        # schedule timer updates every 10s, including the exact box key
+        context.job_queue.run_repeating(
+            countdown_cooldown,
+            interval=10,
+            first=10,
+            data={
+                "chat_id":       msg.chat_id,
+                "message_id":    msg.message_id,
+                "expires_at":    expires_at,
+                "user_id":       user_id,
+                "callback_data": data,
+            }
+        )
+        return True
+
+    # 2) Not on cooldown → open the box
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < box["cost"]:
+        await query.edit_message_text(
+            text=(
+                f"❗️ You don’t have enough chips to open {box['name']}.\n"
+                f"Required: {box['cost']} 💰  You have: {player.chips} 💰"
+            ),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back to Mystery Boxes", callback_data="shop:mystery_box")]
+            ])
+        )
+        return True
+
     player.chips -= box["cost"]
 
-    # Roll chips and XP
-    reward_type = random.choice(["chips", "xp", "item"])
-    reward_result = ""
-    awarded_items = []
+    reward_type = random.choices(
+        ["chips", "xp", "item"],
+        weights=[30, 80, 50],
+        k=1
+    )[0]
 
     if reward_type == "chips":
-        chips_reward = random.randint(*box["chip_range"])
-        player.chips += chips_reward
-        reward_result = f"💰 Chips: +{chips_reward}"
+        amount = random.randint(*box["chip_range"])
+        player.chips += amount
+        reward_text = f"💰 Chips: +{amount}"
 
     elif reward_type == "xp":
-        xp_reward = random.randint(*box["xp_range"])
-        reward_result = f"✨ XP: +{xp_reward}"
-        await add_xp(player, xp_reward, context)
+        xp = random.randint(*box["xp_range"])
+        reward_text = f"✨ XP: +{xp}"
+        await add_xp(player, xp, context)
 
-    elif reward_type == "item":
-        rare_pool = box["rare_items"]
-        random.shuffle(rare_pool)
-        for item_type, chance in rare_pool:
+    else:  # item
+        reward_text = "🎁 Bonus Item: nothing this time… 😢"
+        pool = box["rare_items"].copy()
+        random.shuffle(pool)
+        for item_type, chance in pool:
             if random.random() <= chance:
-                item_obj, _ = await sync_to_async(PlayerItem.objects.get_or_create)(
+                obj, _ = await sync_to_async(PlayerItem.objects.get_or_create)(
                     player=player, item_type=item_type, defaults={"quantity": 0}
                 )
-                item_obj.quantity += 1
-                await sync_to_async(item_obj.save)()
+                obj.quantity += 1
+                await sync_to_async(obj.save)()
                 human_name = dict(ITEM_TYPE_CHOICES).get(item_type, item_type)
-                reward_result = f"🎁 Bonus Item: {human_name}"
-                awarded_items.append(human_name)
+                reward_text = f"🎁 Bonus Item: {human_name}"
                 break
-        if not awarded_items:
-            reward_result = "🎁 Bonus Item: nothing this time… 😢"
-
 
     await sync_to_async(player.save)()
 
-    # Build result message
-    lines = [
-        f"{box['name']} opened! 🎉",
-        reward_result,
-    ]
+    # 3) Set new cooldown expiry
+    context.user_data["mystery_cooldown"] = now + timedelta(seconds=COOLDOWN_SECONDS)
+
+    # 4) Show the result with “Open Another” for this same box
+    await query.edit_message_text(
+        text=f"{box['name']} opened! 🎉\n{reward_text}",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔁 Open Another", callback_data=data)],
+            [InlineKeyboardButton("🔙 Back to Mystery Boxes", callback_data="shop:mystery_box")]
+        ])
+    )
+    return True
 
 
-    reply_markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔁 Open Another", callback_data=data)],
-        [InlineKeyboardButton("🔙 Back to Mystery Boxes", callback_data="shop:mystery_box")],
-    ])
 
-    try:
-        await query.edit_message_text(
-            text="\n".join(lines),
-            parse_mode="Markdown",
-            reply_markup=reply_markup
-        )
-    except BadRequest as e:
-        if "Message is not modified" in str(e):
-            # Ignore silently or send a subtle poke if you want
-            pass
-        else:
-            raise
+
+
+
+
+
+
+
+
+
+
+# This assumes you have: Player, PlayerItem, ITEM_TYPE_CHOICES, add_xp
+# async def handle_mystery_box_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     query = update.callback_query
+#     user_id = query.from_user.id
+#     data = query.data
+
+#     box = MYSTERY_BOXES.get(data)
+#     if not box:
+#         await query.answer("Unknown mystery box!", show_alert=True)
+#         return
+
+#     player = await sync_to_async(Player.objects.get)(id=user_id)
+
+#     # Not enough chips
+#     if player.chips < box["cost"]:
+#         await query.edit_message_text(
+#             text=f"❗️ You don’t have enough chips to open the {box['name']}.\n\n"
+#                  f"Required: {box['cost']} 💰\nYour balance: {player.chips} 💰",
+#             reply_markup=InlineKeyboardMarkup([
+#                 [InlineKeyboardButton("🔙 Back to Mystery Boxes", callback_data="shop:mystery_box")],
+#             ])
+#         )
+#         return
+
+#     # Deduct cost
+#     player.chips -= box["cost"]
+
+#     # Roll chips and XP
+#     reward_type = random.choices(
+#         ["chips", "xp", "item"],
+#         weights=[30, 80, 50],
+#         k=1
+#     )[0]
+#     reward_result = ""
+#     awarded_items = []
+
+#     if reward_type == "chips":
+#         chips_reward = random.randint(*box["chip_range"])
+#         player.chips += chips_reward
+#         reward_result = f"💰 Chips: +{chips_reward}"
+
+#     elif reward_type == "xp":
+#         xp_reward = random.randint(*box["xp_range"])
+#         reward_result = f"✨ XP: +{xp_reward}"
+#         await add_xp(player, xp_reward, context)
+
+#     elif reward_type == "item":
+#         rare_pool = box["rare_items"]
+#         random.shuffle(rare_pool)
+#         for item_type, chance in rare_pool:
+#             if random.random() <= chance:
+#                 item_obj, _ = await sync_to_async(PlayerItem.objects.get_or_create)(
+#                     player=player, item_type=item_type, defaults={"quantity": 0}
+#                 )
+#                 item_obj.quantity += 1
+#                 await sync_to_async(item_obj.save)()
+#                 human_name = dict(ITEM_TYPE_CHOICES).get(item_type, item_type)
+#                 reward_result = f"🎁 Bonus Item: {human_name}"
+#                 awarded_items.append(human_name)
+#                 break
+#         if not awarded_items:
+#             reward_result = "🎁 Bonus Item: nothing this time… 😢"
+
+
+#     await sync_to_async(player.save)()
+
+#     # Build result message
+#     lines = [
+#         f"{box['name']} opened! 🎉",
+#         reward_result,
+#     ]
+
+
+#     reply_markup = InlineKeyboardMarkup([
+#         [InlineKeyboardButton("🔁 Open Another", callback_data=data)],
+#         [InlineKeyboardButton("🔙 Back to Mystery Boxes", callback_data="shop:mystery_box")],
+#     ])
+
+#     try:
+#         await query.edit_message_text(
+#             text="\n".join(lines),
+#             parse_mode="Markdown",
+#             reply_markup=reply_markup
+#         )
+#     except BadRequest as e:
+#         if "Message is not modified" in str(e):
+#             # Ignore silently or send a subtle poke if you want
+#             pass
+#         else:
+#             raise
 
 async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     query   = update.callback_query
@@ -1155,6 +1470,12 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         # We assume handle_items_callback(...) is already defined elsewhere
         await handle_items_callback(update, context)
         return True
+    
+
+
+    if data in MYSTERY_BOXES:
+        return await handle_mystery_box_callback(update, context)
+
     if data in (
         "menu:mainhorse",
         "menu:buy_horse",
@@ -1224,9 +1545,9 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         print("[DEBUG] Branch: data == 'shop:bj_potions'")
         text = (
             "✨ *Blackjack Potions* ✨\n\n"
-            "• *Double Chip Potion* — Double chips won on your next hand. (Cost: 7,500 chips)\n"
-            "• *Triple Chip Potion* — Triple chips won on your next hand. (Cost: 15,000 chips)\n"
-            "• *10× Chip Potion* — 10× chips won on your next hand. (Cost: 30,000 chips)\n\n"
+            "• *Double Chip Potion* — Double chips won on your next hand. (Cost: 30,000 chips)\n"
+            "• *Triple Chip Potion* — Triple chips won on your next hand. (Cost: 80,000 chips)\n"
+            "• *10× Chip Potion* — 10× chips won on your next hand. (Cost: 400,000 chips)\n\n"
             "Tap a potion below to purchase it."
         )
         await query.edit_message_text(
@@ -1287,10 +1608,10 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         print("[DEBUG] Branch: data == 'shop:bj_boosters'")
         text = (
             "📈 *Blackjack Boosters* 📈\n\n"
-            "• *+500 XP Booster* — 500 XP for 20000 chips.\n"
-            "• *+2,000 XP Booster* — 2,000 XP for 100000 chips.\n"
-            "• *+15,000 XP Booster* — 15,000 XP for 400000 chips.\n"
-            "• *+50,000 XP Booster* — 50,000 XP for 1000000 chips.\n\n"
+            "• *+500 XP Booster* — 500 XP for 100,000 chips.\n"
+            "• *+2,000 XP Booster* — 2,000 XP for 400,000 chips.\n"
+            "• *+15,000 XP Booster* — 15,000 XP for 2,800,000 chips.\n"
+            "• *+50,000 XP Booster* — 50,000 XP for 9,000,000 chips.\n\n"
             "Tap a booster below to purchase it."
         )
         await query.edit_message_text(
@@ -1342,6 +1663,7 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "🛡️ *Blackjack Special Passes* 🛡️\n\n"
             "• *Insurance Pass* — Discard a bad hit and draw again. (Cost: 5,000 chips)\n"
             "• *First-Hand-20 Pass* — Start with a 20 on your first hand. (Cost: 8,000 chips)\n\n"
+            "• *First-Hand-11 Pass* — Start with a 1 on your first hand. (Cost: 12,000 chips)\n\n"
             "Tap a pass below to purchase it."
         )
         await query.edit_message_text(
@@ -1384,9 +1706,11 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # ── (C) Mystery Box submenu ─────────────────────────────────────────────────
     if data == "shop:mystery_box":
+
         print("[DEBUG] Branch: data == 'shop:mystery_box'")
         text = (
             "🎁 *Mystery Boxes* 🎁\n\n"
+            "• Any thing is possible"
             # … etc …
         )
         await query.edit_message_text(
@@ -1397,13 +1721,24 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return True
 
     # ── (C.1) Open Mystery Box (stub) ───────────────────────────────────────────
-    if data in {"shop:mystery_bronze", "shop:mystery_silver", "shop:mystery_gold"}:
+    if data in {
+        "shop:mystery_bronze",
+        "shop:mystery_silver",
+        "shop:mystery_gold",
+        "shop:mystery_platinum",
+        "shop:mystery_diamond",
+        "shop:mystery_legendary",
+        "shop:mystery_mythic",
+        "shop:mystery_cosmic",
+    }:
         print(f"[DEBUG] Branch: Open Mystery Box → data={data!r}")
+        box_name = data.split("shop:")[1].replace("_", " ").title()
         await query.answer(
-            f"You tapped to open: {data.split('shop:')[1].replace('_', ' ').title()}",
+            f"You tapped to open: {box_name}",
             show_alert=True
         )
         return True
+
 
     # ── (D) Shop “Special Passes” if you have a separate menu entry ──────────────
     if data == "shop:special_passes":
@@ -1460,6 +1795,50 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     handled = await handle_shop_callback(update, context)
     if handled:
         return
+    if data == "settings:notifications":
+        user_id = query.from_user.id
+
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+            settings, _ = await sync_to_async(UserSettings.objects.get_or_create)(player=player)
+
+        except Player.DoesNotExist:
+            await query.edit_message_text("❌ You are not registered.")
+            return
+
+        await query.edit_message_text(
+            text="🔔 *Notification Preferences*\nNotify you when Something is going on or not?.",
+            parse_mode="Markdown",
+            reply_markup=build_notification_settings_menu(settings)
+        )
+        return
+    if data.startswith("toggle:"):
+        field = data.split(":")[1]
+        user_id = query.from_user.id
+
+        try:
+            player = await sync_to_async(Player.objects.get)(id=user_id)
+            settings, _ = await sync_to_async(UserSettings.objects.get_or_create)(player=player)
+        except Player.DoesNotExist:
+            await query.edit_message_text("❌ You are not registered.")
+            return
+
+        if hasattr(settings, field):
+            current = getattr(settings, field)
+            setattr(settings, field, not current)
+            await sync_to_async(settings.save)()
+        else:
+            await query.answer("Unknown setting.")
+            return
+
+        # Refresh the settings menu
+        await query.edit_message_text(
+            text="🔔 *Notification Preferences*\n\nTap to toggle any setting.",
+            parse_mode="Markdown",
+            reply_markup=build_notification_settings_menu(settings)
+        )
+        return
+
     if data == "menu:howtoplay":
         # 1) Edit the menu message to notify them
         keyboard = [
@@ -2020,12 +2399,96 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=build_leaderboards_menu()
         )
         return
+    if data == "tournaments:Events":
+        params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+
+        events = []
+
+        if params.join_bonus:
+            events.append(f"🎁 *Join Bonus*: All users get *{params.join_bonus_amount} chips* when a game starts.")
+
+        if params.buyhorse_event:
+            events.append(f"🐎 *Flat Horse Price*: All horses cost exactly *{params.todays_horse_price} chips* today.")
+
+        if params.rename_horse_event:
+            events.append("🏷 *Rename Horse Discount*: Renaming a horse costs only *1 chip*!")
+
+        if not events:
+            text = "❌ No active events at the moment."
+        else:
+            text = "✨ *Active Events:*\n\n" + "\n\n".join(events)
+
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back", callback_data="menu:main")]
+            ]),
+            parse_mode="Markdown"
+        )
 
     if data == "menu:tournaments":
         await query.edit_message_text(
             text="🏁 *Tournaments & Events* 🏁\n\nChoose an action:",
             parse_mode="Markdown",
             reply_markup=build_tournaments_menu()
+        )
+        return  
+    if data.startswith("quest:"):
+        print("asfd")
+        quest_type = data.split(":")[1].replace("daily_", "")
+        user_id = query.from_user.id
+
+        exists = await sync_to_async(Player.objects.filter(id=user_id).exists)()
+        if not exists:
+            await query.answer("❌ You need to register first.", show_alert=True)
+            return
+
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        today = timezone.now().date()
+
+        # Fetch quests of that type today (shared for all players)
+        print(quest_type)
+        quests = await sync_to_async(list)(
+            DailyQuest.objects.filter(quest_type=quest_type, date_assigned=today,available=True)
+        )
+
+        if not quests:
+            await query.edit_message_text(
+                f"No active quests found for {quest_type.replace('_', ' ').title()} today.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back", callback_data="quests:daily_quests")]
+                ])
+            )
+            return
+
+        # Fetch progress rows (only those created by gameplay)
+        progress_list = await sync_to_async(list)(
+            PlayerDailyQuestProgress.objects.filter(player=player, quest__in=quests)
+        )
+        progress_map = {p.quest.id: p for p in progress_list}
+
+        lines = [f"*{quest_type.replace('_', ' ').title()} Quests*\n"]
+        for quest in quests:
+            progress = progress_map.get(quest.id)
+
+            if progress:
+                status = "✅ Completed" if progress.completed else f"📊 {progress.progress}/{quest.target}"
+            else:
+                status = f"📊 0/{quest.target}"  # No progress yet
+
+            lines.append(
+                f"*{quest.get_quest_type_display()}*\n"
+                f"📝 {quest.description}\n"
+                f"{status} | 🎁 {quest.reward_chips} chips, {quest.reward_xp} XP\n"
+                f"──────────────"
+            )
+
+        await query.edit_message_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back", callback_data="quests:daily_quests")]
+            ])
         )
         return
 
@@ -2036,6 +2499,86 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=build_quests_menu()
         )
         return
+    if data == "quests:daily_quests":
+        await query.edit_message_text(
+            text="📆 *Daily Quests* 📆\n\nComplete these to earn chips and XP:",
+            parse_mode="Markdown",
+            reply_markup=build_daily_quests_menu()
+        )
+        return
+
+    if data == "quests:daily_bonus":
+        user = update.effective_user
+        user_id = user.id
+
+        # ✅ Ensure player is registered
+        exists = await sync_to_async(Player.objects.filter(id=user_id).exists)()
+        if not exists:
+            await query.answer("❌ You need to register first.", show_alert=True)
+            return
+
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+        now = timezone.now()
+
+        if player.last_claimed_tokens and player.last_claimed_tokens.date() == now.date():
+            await query.edit_message_text(
+                "🎁 You’ve already claimed your daily 200 chips! Come back tomorrow.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]
+                ])
+            )
+        else:
+            player.chips += 200
+            player.last_claimed_tokens = now
+            await sync_to_async(player.save)()
+
+            await query.edit_message_text(
+                f"🎉 Here are your 200 daily chips! You now have 💰{player.chips} chips.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]
+                ])
+            )
+        return
+
+
+    if data == "quests:quest_history":
+        player = await sync_to_async(Player.objects.get)(id=query.from_user.id)
+        histories = await sync_to_async(list)(
+            QuestHistory.objects.filter(player=player).order_by("-date_completed")[:10]
+        )
+
+        if not histories:
+            text = "📜 You have no completed quests yet."
+        else:
+            lines = ["🏅 *Your Completed Quests:*"]
+            type_display = {
+                "blackjack": "🃏 Blackjack",
+                "minigames": "🎯 Minigames",
+                "race": "🐎 Horse Race"
+            }
+
+            for quest in histories:
+                quest_type_label = type_display.get(quest.quest_type, quest.quest_type)
+                line = (
+                    f"*{quest_type_label}*\n"
+                    f"• {quest.description}\n"
+                    f"🎯 {quest.progress}/{quest.target} | Chips: {quest.reward_chips} 💰 XP: {quest.reward_xp}\n"
+                    f"📆 {quest.date_assigned.strftime('%Y-%m-%d')}"
+                )
+                lines.append(line)
+
+            text = "\n\n".join(lines)
+
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]
+            ]),
+            parse_mode="Markdown"
+        )
+        return
+
+
 
     if data == "menu:social":
         await query.edit_message_text(
@@ -2413,6 +2956,8 @@ async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # 6) Check result
     if message.dice.value == 6:
         player.chips += 200
+        await update_daily_quest_progress(player, "minigames", "dart", 1, context)
+
         await update.message.reply_text(
             f"🎯 Bullseye! You've received 💰200 chips! You now have 💰{player.chips} chips."
         )
@@ -2601,15 +3146,30 @@ async def highroller(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         next_game_users = await sync_to_async(list)(
             NextGameNotification.objects.filter(chat_id=chat_id)
         )
+
+        # Send a message to each user in their private chat, using the group's actual name
         for next_user in next_game_users:
             try:
                 await context.bot.send_message(
                     chat_id=next_user.user_id,
-                    text=f"A new HIGH-ROLLER Blackjack game has started in the group {group_name}!"
+                    text=f"A new Blackjack game has started in the group {group_name}!"
                 )
             except Exception as e:
                 print(f"Failed to send message to {next_user.user_id}: {e}")
 
+        notified_users = await sync_to_async(list)(
+            UserSettings.objects.filter(notify_high_roller_blackjack_start=True)
+                                .select_related("player")
+        )
+        print("ehrawe")
+        for setting in notified_users:
+            try:
+                await context.bot.send_message(
+                    chat_id=setting.player.id,
+                    text=f"A new Blackjack game has started in the group {group_name}!"
+                )
+            except Exception as e:
+                print(f"Failed to notify {setting.player.id}: {e}")
         # Clear notifications
         await sync_to_async(lambda: NextGameNotification.objects.filter(chat_id=chat_id).delete())()
 
@@ -2665,6 +3225,22 @@ async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
             except Exception as e:
                 print(f"Failed to send message to {next_user.user_id}: {e}")
+
+
+        # 1. Notify users with notify_classic_blackjack_start=True
+        notified_users = await sync_to_async(list)(
+            UserSettings.objects.filter(notify_classic_blackjack_start=True)
+                                .select_related("player")
+        )
+
+        for setting in notified_users:
+            try:
+                await context.bot.send_message(
+                    chat_id=setting.player.id,
+                    text=f"A new Blackjack game has started in the group {group_name}!"
+                )
+            except Exception as e:
+                print(f"Failed to notify {setting.player.id}: {e}")
 
         # Optionally, clear the list after notifying
         await sync_to_async(lambda: NextGameNotification.objects.filter(chat_id=chat_id).delete())()
@@ -2945,6 +3521,7 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.message.chat_id
 
+
     # Find an existing game in join_time state; otherwise walk through other states
     try:
         game = await sync_to_async(Game.objects.get)(
@@ -3015,7 +3592,7 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     game.forced = True
     await sync_to_async(game.save)()
-
+    
     # Fetch dealer and group
     dealer = await sync_to_async(Dealer.objects.first)()
     group_game, created = await sync_to_async(Group.objects.get_or_create)(
@@ -3024,6 +3601,32 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     group_game.games += 1
     await sync_to_async(group_game.save)()
 
+    params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+    if params.enable_start_bonus and params.start_bonus_amount > 0:
+        for joined in joined_players:
+            try:
+                player = await sync_to_async(Player.objects.get)(id=joined.user.id)
+                player.chips += params.start_bonus_amount
+                await sync_to_async(player.save)()
+                await context.bot.send_message(
+                    chat_id=player.id,
+                    text=f"🎁 You received a start bonus of {params.start_bonus_amount} chips for joining This Blackjack game!"
+                )
+            except Exception:
+                continue
+    for joined in joined_players:
+        try:
+            if game.bet_amount >= 1000000:
+                await update_daily_quest_progress(joined.player, "blackjack", "join1m", 1, context)
+            if game.bet_amount >= 50000:
+                await update_daily_quest_progress(joined.player, "blackjack", "join50", 1, context)
+            if game.bet_amount >= 10000000:
+                await update_daily_quest_progress(joined.player, "blackjack", "join10m", 1, context)
+            if game.bet_amount <= 1000:
+                await update_daily_quest_progress(joined.player, "blackjack", "join1", 1, context)
+            await update_daily_quest_progress(joined.player, "blackjack", "join", 1, context)
+        except Exception:
+                continue
     # Determine currency type (real tokens vs. chips)
     is_real_token_game = group_game.vip and group_game.real_money
     currency_type = "$" if is_real_token_game else "chips💰"
@@ -3336,6 +3939,7 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
             await context.bot.send_message(chat_id=chat_id, text=f"{join_entry.player.name} has a natural Blackjack!💥 They win the round.")
             await add_xp(join_entry.player, 35, context)
+            await update_daily_quest_progress(join_entry.player, "blackjack", "natural", 1, context)
 
             stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
 
@@ -3798,7 +4402,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("You have already busted and cannot take any more actions.")
         return
     elif hand_value == 21:
-        await update.message.reply_text("You are automaticly standing and cannot take any more actions.")
+        await update.message.reply_text("You are automatically standing and cannot take any more actions.")
         return
     # Add a card to the player's hand
     new_card = deal_card()
@@ -3829,6 +4433,8 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 
         await safe_send_message_async(context.bot, chat_id, f"{mention} Reached BlackJack💥\\! \n They automatically stand\\.")
+        await update_daily_quest_progress(join_game.player, "blackjack", "hitblackjack", 1, context)
+
         await add_xp(join_game.player, 30, context)
         
         await next_player_turn(update, context)
@@ -3865,6 +4471,8 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         else:
             if hand_value >= 30:
+                await update_daily_quest_progress(join_game.player, "blackjack", "30", 1, context)
+
                 await unlock_achievement(join_game.player, "30_or_more_deck", context)
             await asyncio.sleep(3)
             await deduct_xp(join_game.player, 20, context)
@@ -3925,7 +4533,7 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("You have already busted and cannot stand.")
             return
         if hand_value == 21:
-            await update.message.reply_text("You are automaticly standing")
+            await update.message.reply_text("You are automatically standing")
             return
         # Check if the player has already chosen to stand
         
@@ -3941,6 +4549,12 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
+    if hand_value == 15:
+        await update_daily_quest_progress(join_game.player, "blackjack", "15", 1, context)
+    if hand_value == 5:
+        await update_daily_quest_progress(join_game.player, "blackjack", "5", 1, context)
+    if hand_value == 10:
+        await update_daily_quest_progress(join_game.player, "blackjack", "10", 1, context)
     await asyncio.sleep(2)
 
     await safe_send_message_async(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
@@ -4986,6 +5600,7 @@ async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         player.chips += winnings
         await save_player(player)  # Save after updating winnings
         await apply_referral_bonus(player, winnings, context)
+        await update_daily_quest_progress(player, "minigames", "slot", 1, context)
 
         await message.edit_text(f"🎰 {result_text} 🎰\nYou win {winnings} chips! 🎉")
     else:
@@ -5038,6 +5653,7 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await sync_to_async(player.save)()
         await apply_referral_bonus(player, winnings, context)
+        await update_daily_quest_progress(player, "minigames", "coin", 1, context)
 
         await message.edit_text(f"🪙 Coin landed on {flip_result.capitalize()}! You win {winnings} chips!")
     else:
@@ -5197,7 +5813,8 @@ async def simulate_crash_game(game_id, bot, chat_id):
         # crash_point = round(random.uniform(1.0, 2.5), 2)
         crash_point = round(random.uniform(params.crash_min,params.crash_max), 2)
     else:
-        crash_point = round(random.uniform(1.0, 1.6), 2)
+        # crash_point = round(random.uniform(1.0, 2.6), 2)
+        crash_point = round(random.uniform(params.crash_min_unrigged,params.crash_max_unrigged), 2)
 
 
     print(f"Crash point: {crash_point}")
@@ -5211,7 +5828,7 @@ async def simulate_crash_game(game_id, bot, chat_id):
 
 
     while multiplier < crash_point:
-        multiplier = round(multiplier + 0.7, 2)
+        multiplier = round(multiplier + 0.6, 2)
         await asyncio.sleep(CRASH_SPEED)
 
         game_exists = await sync_to_async(CrashGame.objects.filter(id=game_id).exists)()
@@ -5291,14 +5908,21 @@ async def cashout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await sync_to_async(game.save)()
 
     winnings = int(game.bet * game.multiplier)
+    cashout_point = game.multiplier
     player = await sync_to_async(Player.objects.get)(id=user_id)
     player.chips += winnings
 
     await sync_to_async(player.save)()
     await apply_referral_bonus(player, winnings, context)
-
+    if cashout_point == 1.6:
+        await update_daily_quest_progress(player, "minigames", "1.6", 1, context)
+    if cashout_point == 1.8:
+        await update_daily_quest_progress(player, "minigames", "1.8", 1, context)
+    if cashout_point == 1.4:
+        await update_daily_quest_progress(player, "minigames", "1.4", 1, context)
+    if cashout_point == 2.4:
+        await update_daily_quest_progress(player, "minigames", "2.4", 1, context)
     await update.message.reply_text(f"✅ Cashed out at {game.multiplier}x!\n💰 You won {winnings} chips!")
-
     # Delete the game
     await sync_to_async(game.delete)()
 
@@ -5327,14 +5951,21 @@ async def double_or_nothing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await sync_to_async(player.save)()
 
     # await asyncio.sleep(0.5)  # Short suspense
+    params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
 
-    if random.random() < 0.5:
+    if random.random() < params.double_chance:
         await update.message.reply_text("😵 You lost your bet. Nothing ❌doubled today.")
     else:
         winnings = bet_amount * 2
         player.chips += winnings
         await sync_to_async(player.save)()
         await apply_referral_bonus(player, winnings, context)
+        if bet_amount >= 50000:
+            await update_daily_quest_progress(player, "minigames", "double50", 1, context)
+        if bet_amount >= 200000:
+            await update_daily_quest_progress(player, "minigames", "double200", 1, context)
+        if bet_amount >= 500000:
+            await update_daily_quest_progress(player, "minigames", "double500", 1, context)
         await update.message.reply_text(
             f"🎉 Lucky! You doubled your bet and won {winnings} chips💰!\n"
 
@@ -5373,6 +6004,7 @@ async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         player.chips += winnings
         await sync_to_async(player.save)()
         await apply_referral_bonus(player, winnings, context)
+        await update_daily_quest_progress(player, "minigames", "dice", 1, context)
 
         await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou win {winnings} chips!")
     else:
@@ -6394,6 +7026,7 @@ async def horserace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_player(update, context):
         return
     chat_id = update.effective_chat.id
+    group_name = update.effective_chat.title or "a group"  # fallback if no title
 
     existing_race = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, race_started=False)
     if await sync_to_async(existing_race.exists)():
@@ -6401,10 +7034,30 @@ async def horserace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     race = await sync_to_async(HorseRace.objects.create)(chat_id=chat_id)
+
+    # Notify users
+    notified_users = await sync_to_async(list)(
+        UserSettings.objects.filter(notify_race_start=True)
+                            .select_related("player")
+    )
+    print(f"[INFO] Notifying {len(notified_users)} users about horse race start.")
+
+    for setting in notified_users:
+        user_id = setting.player.id
+        try:
+            print(f"[DEBUG] Sending horse race notification to {user_id}")
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"A new 🐎 Horse Race just started in {group_name}!\nJoin Now in the group, before it starts!"
+            )
+        except Exception as e:
+            print(f"[ERROR] Failed to notify {user_id}: {e}")
+
     await update.message.reply_text(
         "🐎 A new horse race has started!\n"
         "Join with /joinrace <horse_number> <bet_amount> (no bets on Horse 1!)"
     )
+
 # ─── /joinrace: Players place their bets ───
 async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_player(update, context):
@@ -6447,32 +7100,6 @@ async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    # 🧙 Spell usage logic — must be after owned_entry is defined
-    if owned_entry:
-        applied_upgrades = await sync_to_async(list)(
-            HorseAppliedUpgrade.objects.filter(horse=owned_entry).select_related("upgrade")
-        )
-
-
-        for applied in applied_upgrades:
-            applied.uses_remaining -= 1
-            await sync_to_async(applied.save)()
-            if applied.uses_remaining == 1:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"⚠️ Your spell *{applied.upgrade.name}* has only 1 use left!",
-                    parse_mode="Markdown"
-                )
-
-
-            else:
-                await sync_to_async(applied.save)()
-                if applied.uses_remaining == 1:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=f"⚠️ Your spell *{applied.upgrade.name}* has only 1 use left!",
-                        parse_mode="Markdown"
-                    )
 
     # First: find the active race
     race = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, race_started=False)
@@ -6495,7 +7122,14 @@ async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Deduct chips
     player.chips -= bet_amount
     await sync_to_async(player.save)()
-
+    if bet_amount >= 50000:
+        await update_daily_quest_progress(player, "race", "horse50", 1, context)
+    if bet_amount >= 200000:
+        await update_daily_quest_progress(player, "race", "horse200", 1, context)
+    if bet_amount >= 1000000:
+        await update_daily_quest_progress(player, "race", "horse1m", 1, context)
+    await update_daily_quest_progress(player, "race", "joinhorse", 1, context)
+    
     # Add bet
     await sync_to_async(HorseBet.objects.create)(
         race=race,
@@ -6824,6 +7458,52 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "🏆 Dealer's horse 1 wins! All players lose their bets."
         )
+        au_qs = HorseAppliedUpgrade.objects.filter(
+        horse__horse_number__in=all_horses
+        )
+        applied_upgrades = await sync_to_async(list)(au_qs.select_related("horse", "upgrade", "owner"))
+
+        for applied in applied_upgrades:
+            owner = applied.owner
+            upgrade_name = applied.upgrade.name
+            horse_number = applied.horse.horse_number
+
+            # Subtract one use
+            applied.uses_remaining -= 1
+
+            if applied.uses_remaining > 0:
+                # Still has uses left—save, and if now exactly 1, warn them:
+                await sync_to_async(applied.save)()
+                if applied.uses_remaining == 1:
+                    await context.bot.send_message(
+                        chat_id=owner.id,
+                        text=(
+                            f"⚠️ Your spell *{upgrade_name}* on "
+                            f"Horse {horse_number} has only 1 use left!"
+                        ),
+                        parse_mode="Markdown"
+                    )
+            else:
+                # No uses left—delete the applied upgrade and the purchase record
+                await sync_to_async(applied.delete)()
+                await sync_to_async(
+                    PlayerUpgrade.objects.filter(
+                        player=owner,
+                        upgrade=applied.upgrade
+                    ).delete
+                )()
+
+                # Notify them that the spell expired
+                await context.bot.send_message(
+                    chat_id=owner.id,
+                    text=(
+                        f"💥 Your spell *{upgrade_name}* on "
+                        f"Horse {horse_number} has expired and been removed."
+                    ),
+                    parse_mode="Markdown"
+                )
+
+
         return
 
     # ─── Players won ───────────────────────────────────────────────────────────────
@@ -6884,6 +7564,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎉 You won {payout:,} chips on {horse_label}!"
             )
             await apply_referral_bonus(player_obj, payout, context)
+            await update_daily_quest_progress(player_obj, "race", "win", 1, context)
 
         first_share = total_losing_bets // len(winning_bets) + winning_bets[0].bet_amount * 2
         await safe_send_message(
@@ -6894,26 +7575,70 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎉 First winner’s payout: {first_share:,} chips!"
             )
         )
+
     # ─── Cleanup Used-Up Spells ────────────────────────────────────────────────────────
-    used_up_spells = await sync_to_async(list)(
-        HorseAppliedUpgrade.objects.filter(uses_remaining__lte=0).select_related("upgrade", "horse")
-    )
+    # used_up_spells = await sync_to_async(list)(
+    #     HorseAppliedUpgrade.objects.filter(uses_remaining__lte=0).select_related("upgrade", "horse")
+    # )
 
-    for spell in used_up_spells:
-        try:
-            # Delete from PlayerUpgrade
-            await sync_to_async(PlayerUpgrade.objects.filter(
-                player=spell.owner,
-                upgrade=spell.upgrade
-            ).delete)()
-        except Exception:
-            pass  # failsafe — sometimes .owner isn't prefetched
+    # for spell in used_up_spells:
+    #     try:
+    #         # Delete from PlayerUpgrade
+    #         await sync_to_async(PlayerUpgrade.objects.filter(
+    #             player=spell.owner,
+    #             upgrade=spell.upgrade
+    #         ).delete)()
+    #     except Exception:
+    #         pass  # failsafe — sometimes .owner isn't prefetched
 
-        # Delete from applied upgrades
-        await sync_to_async(spell.delete)()
+    #     # Delete from applied upgrades
+    #     await sync_to_async(spell.delete)()
 
     # ─── Do not delete the race; we keep it for history ─────────────────────────────
+    au_qs = HorseAppliedUpgrade.objects.filter(
+        horse__horse_number__in=all_horses
+    )
+    applied_upgrades = await sync_to_async(list)(au_qs.select_related("horse", "upgrade", "owner"))
 
+    for applied in applied_upgrades:
+        owner = applied.owner
+        upgrade_name = applied.upgrade.name
+        horse_number = applied.horse.horse_number
+
+        # Subtract one use
+        applied.uses_remaining -= 1
+
+        if applied.uses_remaining > 0:
+            # Still has uses left—save, and if now exactly 1, warn them:
+            await sync_to_async(applied.save)()
+            if applied.uses_remaining == 1:
+                await context.bot.send_message(
+                    chat_id=owner.id,
+                    text=(
+                        f"⚠️ Your spell *{upgrade_name}* on "
+                        f"Horse {horse_number} has only 1 use left!"
+                    ),
+                    parse_mode="Markdown"
+                )
+        else:
+            # No uses left—delete the applied upgrade and the purchase record
+            await sync_to_async(applied.delete)()
+            await sync_to_async(
+                PlayerUpgrade.objects.filter(
+                    player=owner,
+                    upgrade=applied.upgrade
+                ).delete
+            )()
+
+            # Notify them that the spell expired
+            await context.bot.send_message(
+                chat_id=owner.id,
+                text=(
+                    f"💥 Your spell *{upgrade_name}* on "
+                    f"Horse {horse_number} has expired and been removed."
+                ),
+                parse_mode="Markdown"
+            )
 
 
 
@@ -6986,6 +7711,9 @@ async def buyhorse(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
     await update.message.reply_text(f"✅ You now own Horse {horse_number}!")
+
+
+
 async def setemoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_player(update, context):
         return
@@ -7308,10 +8036,23 @@ async def unapplyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-def build_main_menu_keyboard():
+async def build_main_menu_keyboard():
+    # Fetch game parameters
+    params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+
+    # Dynamically change button labels
+    buy_horse_label = "🐎 Buy Horse"
+    if params.buyhorse_event:
+        buy_horse_label += f" – Only Today {params.todays_horse_price:,}!"
+
+    rename_horse_label = "✏️ Name Horse"
+    if params.rename_horse_event:
+        rename_horse_label += " Only (1 chip!)"
+
+    # Build keyboard
     keyboard = [
         [
-            InlineKeyboardButton("🐎 Buy Horse", callback_data="menu:buy_horse"),
+            InlineKeyboardButton(buy_horse_label, callback_data="menu:buy_horse"),
             InlineKeyboardButton("🎨 Set Emoji", callback_data="menu:set_emoji"),
         ],
         [
@@ -7322,25 +8063,27 @@ def build_main_menu_keyboard():
             InlineKeyboardButton("💰 Buy Spell", callback_data="menu:buy_spell"),
             InlineKeyboardButton("✨ Apply Spell", callback_data="menu:apply_spell"),
         ],
-        [InlineKeyboardButton("❌ Unapply Spell", callback_data="menu:unapply_spell"),],
-        [ 
-        InlineKeyboardButton("✏️ Name Horse", callback_data="menu:rename_horse"),
-        InlineKeyboardButton("🎁 Gift Horse",      callback_data="menu:gift_horse") 
+        [
+            InlineKeyboardButton("❌ Unapply Spell", callback_data="menu:unapply_spell"),
         ],
         [
-        InlineKeyboardButton("🐴 Leaderboard", callback_data="menu:global_horse_leaderboard"),
-        InlineKeyboardButton("📈 Race Stats", callback_data="menu:my_horse_statsrace"),
+            InlineKeyboardButton(rename_horse_label, callback_data="menu:rename_horse"),
+            InlineKeyboardButton("🎁 Gift Horse", callback_data="menu:gift_horse"),
         ],
-
-        
-
-        [ InlineKeyboardButton("📈 List Horse For Sale",        callback_data="menu:list_horse") ],
-        [ InlineKeyboardButton("🛒 Horses on Sale",       callback_data="menu:sale_horses") ],
-
-        
-
+        [
+            InlineKeyboardButton("🐴 Leaderboard", callback_data="menu:global_horse_leaderboard"),
+            InlineKeyboardButton("📈 Race Stats", callback_data="menu:my_horse_statsrace"),
+        ],
+        [
+            InlineKeyboardButton("📈 List Horse For Sale", callback_data="menu:list_horse"),
+        ],
+        [
+            InlineKeyboardButton("🛒 Horses on Sale", callback_data="menu:sale_horses"),
+        ],
     ]
+
     return InlineKeyboardMarkup(keyboard)
+
 
 
 # ─── /horse: send the top‐level shop menu ───
@@ -7349,9 +8092,8 @@ async def horse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🏇 *Horse Racing Shop Menu* 🏇\n\n"
         "Choose an option below:",
         parse_mode="Markdown",
-        reply_markup=build_main_menu_keyboard()
+        reply_markup=await build_main_menu_keyboard()
     )
-
 
 
 
@@ -7396,7 +8138,7 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             "🏇 *Horse Racing Shop Menu* 🏇\n\n"
             "Choose an option below:",
             parse_mode="Markdown",
-            reply_markup=build_main_menu_keyboard()
+            reply_markup=await build_main_menu_keyboard()
         )
         return
 
@@ -7404,14 +8146,28 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     # ─── Buy Horse submenu (now shows sale listings, too) ───
     if data == "menu:buy_horse":
         # ─── 1) Static pricing rules text ───
-        lines = [
-            "🐎 *Buy Horse*\n",
-            "• Reply with the exact horse number you want to buy (unowned). Pricing rules:\n",
-            "  – 1-digit (e.g. 7): 100 000 chips",
-            "  – 2-digit (e.g. 42):  80 000 chips",
-            "  – 3-digit (e.g. 123): 60 000 chips",
-            "  – “All-same” digits (e.g. 11, 777, 2222): 120 000 chips\n"
-        ]
+        params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+
+            
+        if params.buyhorse_event:
+            event_price = params.todays_horse_price
+            lines = [
+                "🐎 *Buy Horse*\n",
+                "• Reply with the exact horse number you want to buy \\(unowned\\)\\. Pricing rules:\n",
+                "  – 1\\-digit \\(e\\.g\\. 7\\): ~100000~ {} chips\n".format(event_price),
+                "  – 2\\-digit \\(e\\.g\\. 42\\): ~80000~ {} chips\n".format(event_price),
+                "  – 3\\-digit \\(e\\.g\\. 123\\): ~60000~ {} chips\n".format(event_price),
+                "  – “All\\-same” digits \\(e\\.g\\. 11, 777, 2222\\): ~120000~ {} chips\n".format(event_price)
+            ]
+        else:
+            lines = [
+                "🐎 *Buy Horse*\n",
+                "• Reply with the exact horse number you want to buy \\(unowned\\)\\. Pricing rules:\n",
+                "  – 1\\-digit \\(e\\.g\\. 7\\): 100000 chips\n",
+                "  – 2\\-digit \\(e\\.g\\. 42\\): 80000 chips\n",
+                "  – 3\\-digit \\(e\\.g\\. 123\\): 60000 chips\n",
+                "  – “All\\-same” digits \\(e\\.g\\. 11, 777, 2222\\): 120000 chips\n"
+            ]
 
         # ─── 2) Fetch all active sale listings ───
         sale_list = await sync_to_async(list)(
@@ -7501,7 +8257,7 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await query.edit_message_text(
             "\n".join(lines),
-            parse_mode="Markdown",
+            parse_mode="MarkdownV2",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
@@ -8058,7 +8814,12 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         # Build a keyboard listing each horse (show name if set, else “Horse <number>”)
-        lines = ["✏️ *Rename Horse* (60 000 chips) – Choose which horse to rename:",""]
+        params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+        if params.rename_horse_event:
+
+            lines = ["✏️ *Rename Horse* ~60 000 chips~ 1 chip – Choose which horse to rename:",""]
+        else:
+            lines = ["✏️ *Rename Horse* (60 000 chips) – Choose which horse to rename:",""]
         keyboard = []
         for h in owned_horses:
             display = h.name if h.name else f"Horse {h.horse_number}"
@@ -8074,7 +8835,7 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await query.edit_message_text(
             "\n".join(lines),
-            parse_mode="Markdown",
+            parse_mode="MarkdownV2",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
@@ -8343,15 +9104,25 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data["awaiting_rename_horse"] = horse_number
 
         keyboard = [[ InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse") ]]
-        await query.edit_message_text(
-            f"✏️ *Rename → Horse {horse_number}*\n\n"
-            "Please send the new name for your horse.\n"
-            "Cost: 60 000 chips.\n\n↩️ Back",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
+        params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+        if params.rename_horse_event:
+            await query.edit_message_text(
+                f"✏️ *Rename → Horse {horse_number}*\n\n"
+                "Please send the new name for your horse.\n"
+                "Cost: 1 chip.\n\n↩️ Back",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+        else:
+            await query.edit_message_text(
+                f"✏️ *Rename → Horse {horse_number}*\n\n"
+                "Please send the new name for your horse.\n"
+                "Cost: 60 000 chips.\n\n↩️ Back",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
     if data.startswith("menu:setemoji_choose:"):
         horse_number = int(data.split(":")[2])
 
@@ -8562,36 +9333,52 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
                 return
 
-        already_applied = await sync_to_async(
-            HorseAppliedUpgrade.objects.filter(
-                owner__id=user_id,
-                horse=owned_horse,
-                upgrade=upgrade_obj
-            ).exists
+        other_horse_number = await sync_to_async(
+            lambda: HorseAppliedUpgrade.objects
+                .filter(owner__id=user_id, upgrade=upgrade_obj)
+                .exclude(horse=owned_horse)
+                .values_list('horse__horse_number', flat=True)
+                .first()
         )()
-        if already_applied:
+        
+        if other_horse_number:
+            await query.edit_message_text(
+                f"❌ You’ve already applied *{upgrade_obj.name}* to "
+                f"Horse {other_horse_number}, so you can’t apply it here too.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # 2) Then check “already on this same horse?”
+        already_on_this = await sync_to_async(
+            HorseAppliedUpgrade.objects
+                .filter(owner__id=user_id, horse=owned_horse, upgrade=upgrade_obj)
+                .exists
+        )()
+        if already_on_this:
             await query.edit_message_text(
                 f"⚠️ You already applied *{upgrade_obj.name}* to Horse {horse_number}.",
                 parse_mode="Markdown"
             )
             return
 
+        # 3) If neither check blocked you, it’s safe to apply:
         player_obj = await sync_to_async(Player.objects.get)(id=user_id)
+
         await sync_to_async(HorseAppliedUpgrade.objects.create)(
             owner=player_obj,
             horse=owned_horse,
             upgrade=upgrade_obj
         )
+        
         await query.edit_message_text(
             f"✅ *{upgrade_obj.name}* has been applied to Horse {horse_number}!",
             parse_mode="Markdown"
         )
         return
-
        #
     # ─── SUBMENU: “Unapply Spell → Choose Horse” ───
-    #
-    from telegram.error import BadRequest
+
 
     if data.startswith("menu:unapply_choose_horse:"):
         horse_number = int(data.split(":")[2])
@@ -8712,7 +9499,7 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         "🏇 *Horse Racing Shop Menu* 🏇\n\n"
         "Choose an option below:",
         parse_mode="Markdown",
-        reply_markup=build_main_menu_keyboard()
+        reply_markup=await build_main_menu_keyboard()
     )
 
 
@@ -9000,12 +9787,29 @@ async def catch_all_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             price=price
         )
 
+
         # Confirmation message
         if owned_horse.name:
             display_label = f"{owned_horse.name} ({horse_number})"
         else:
             display_label = f"Horse {horse_number}"
+        notified_users = await sync_to_async(list)(
+            UserSettings.objects.filter(notify_new_sales=True)
+                                .select_related("player")
+        )
 
+        for setting in notified_users:
+            try:
+                await context.bot.send_message(
+                    chat_id=setting.player.id,
+                    text=(
+                        f"🛒 A new horse has been listed for sale!\n"
+                        f"{display_label} — {price:,} chips\n"
+                        "Check it out in the 🐎 Buy Horse menu!"
+                    )
+                )
+            except Exception as e:
+                print(f"[ERROR] Could not notify {setting.player.id}: {e}")
         await update.message.reply_text(
             f"✅ {display_label} is now listed for sale at {price:,} chips.\n"
             f"Others can buy from “Buy Horse” or “Horses on Sale.”"
@@ -9083,14 +9887,19 @@ async def catch_buy_horse_number(update: Update, context: ContextTypes.DEFAULT_T
 
     # 4) Determine cost according to your rules
     s = str(horse_number)
-    if len(s) == 1:
-        cost = 100_000
-    elif len(s) == 2:
-        cost = 120_000 if s[0] == s[1] else 80_000
-    elif len(s) == 3:
-        cost = 120_000 if (s[0] == s[1] == s[2]) else 60_000
+    params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+
+    if params.buyhorse_event:
+        cost = params.today_horse_price
     else:
-        cost = 120_000 if all(ch == s[0] for ch in s) else 60_000
+        if len(s) == 1:
+            cost = 100_000
+        elif len(s) == 2:
+            cost = 120_000 if s[0] == s[1] else 80_000
+        elif len(s) == 3:
+            cost = 120_000 if (s[0] == s[1] == s[2]) else 60_000
+        else:
+            cost = 120_000 if all(ch == s[0] for ch in s) else 60_000
 
     # 5) Fetch player
     try:
@@ -9194,7 +10003,11 @@ async def catch_rename_horse(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # 2) Fetch Player to check chips
     player = await sync_to_async(Player.objects.get)(id=user_id)
-    cost = 60_000
+    params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+    if params.rename_horse_event:
+        cost = 1
+    else:
+        cost = 60_000
     if player.chips < cost:
         await update.message.reply_text(f"❌ Not enough chips! Renaming costs {cost:,} chips.")
         return
@@ -9278,14 +10091,14 @@ app.add_handler(CommandHandler("myid", myid))
 app.add_handler(CommandHandler("horserace", horserace))
 app.add_handler(CommandHandler("joinrace", joinrace))
 app.add_handler(CommandHandler("startrace", startrace))
-app.add_handler(CommandHandler("shop", shop))
-app.add_handler(CommandHandler("buyhorse", buyhorse))
-app.add_handler(CommandHandler("setemoji", setemoji))
-app.add_handler(CommandHandler("myhorses", myhorses))
-app.add_handler(CommandHandler("shopspells", shopupgrades))
-app.add_handler(CommandHandler("buyspell", buyupgrade))
-app.add_handler(CommandHandler("applyspell", applyupgrade))
-app.add_handler(CommandHandler("unapplyspell", unapplyupgrade))
+# app.add_handler(CommandHandler("shop", shop))
+# app.add_handler(CommandHandler("buyhorse", buyhorse))
+# app.add_handler(CommandHandler("setemoji", setemoji))
+# app.add_handler(CommandHandler("myhorses", myhorses))
+# app.add_handler(CommandHandler("shopspells", shopupgrades))
+# app.add_handler(CommandHandler("buyspell", buyupgrade))
+# app.add_handler(CommandHandler("applyspell", applyupgrade))
+# app.add_handler(CommandHandler("unapplyspell", unapplyupgrade))
 
 app.add_handler(CommandHandler("admin", admin_help))
 app.add_handler(CommandHandler("listgroups", list_groups))

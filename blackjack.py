@@ -459,28 +459,28 @@ def build_bj_special_passes_menu():
 def build_mystery_box_menu():
     keyboard = [
         [
-            InlineKeyboardButton("🎁 Bronze Mystery Box (1k)",   callback_data="shop:mystery_bronze"),
-            InlineKeyboardButton("🎁 Silver Mystery Box (2.5k)", callback_data="shop:mystery_silver"),
+            InlineKeyboardButton("🎁 Bronze", callback_data="shop:mystery_bronze"),
+            InlineKeyboardButton("🎁 Silver", callback_data="shop:mystery_silver"),
         ],
         [
-            InlineKeyboardButton("🎁 Gold Mystery Box (5k)",      callback_data="shop:mystery_gold"),
+            InlineKeyboardButton("🎁 Gold", callback_data="shop:mystery_gold"),
+            InlineKeyboardButton("💎 Platinum", callback_data="shop:mystery_platinum"),
         ],
         [
-            InlineKeyboardButton("💎 Platinum Mystery Box (25k)", callback_data="shop:mystery_platinum"),
-            InlineKeyboardButton("🔷 Diamond Mystery Box (50k)", callback_data="shop:mystery_diamond"),
+            
+            InlineKeyboardButton("🔷 Diamond", callback_data="shop:mystery_diamond"),
+            InlineKeyboardButton("🌟 Legendary", callback_data="shop:mystery_legendary"),
         ],
         [
-            InlineKeyboardButton("🌟 Legendary Mystery Box (100k)", callback_data="shop:mystery_legendary"),
+            InlineKeyboardButton("🌀 Mythic", callback_data="shop:mystery_mythic"),
+            InlineKeyboardButton("🌌 Cosmic", callback_data="shop:mystery_cosmic"),
         ],
         [
-            InlineKeyboardButton("🌀 Mythic Mystery Box (1M)",     callback_data="shop:mystery_mythic"),
-            InlineKeyboardButton("🌌 Cosmic Mystery Box (1B)",     callback_data="shop:mystery_cosmic"),
-        ],
-        [
-            InlineKeyboardButton("🔙 Back to Main",                 callback_data="menu:main"),
+            InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main"),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 
@@ -1733,10 +1733,20 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         print("[DEBUG] Branch: data == 'shop:mystery_box'")
         text = (
-            "🎁 *Mystery Boxes* 🎁\n\n"
-            "• Any thing is possible"
-            # … etc …
+            "*🎁 Mystery Boxes Shop* 🎁\n\n"
+            "Each box contains random chips, XP, and possibly rare items.\n\n"
+            "*Available Boxes:*\n"
+            "🎁 *Bronze* — 1,000 💰\n"
+            "🎁 *Silver* — 2,500 💰\n"
+            "🎁 *Gold* — 5,000 💰\n"
+            "💎 *Platinum* — 25,000 💰\n"
+            "🔷 *Diamond* — 50,000 💰\n"
+            "🌟 *Legendary* — 100,000 💰\n"
+            "🌀 *Mythic* — 1,000,000 💰\n"
+            "🌌 *Cosmic* — 1,000,000,000 💰\n\n"
+            "_Tap a box to open it if you have enough chips!_"
         )
+
         await query.edit_message_text(
             text=text,
             parse_mode="Markdown",
@@ -2581,7 +2591,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         # 🧩 Mystery Box values (adjust here easily)
         box_name = "🎁 Bronze Mystery Box"
         chip_range = (100, 400)  # updated from 100–1000
-        xp_range = (5, 50)      # updated from 10–100
+        xp_range = (5, 20)      # updated from 10–100
         rare_items = [("double_chip_potion", 0.05)]  # 5% chance
 
         chips = random.randint(*chip_range)

@@ -1533,7 +1533,10 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         # We assume handle_items_callback(...) is already defined elsewhere
         await handle_items_callback(update, context)
         return True
-    
+    if data is None and query.game_short_name == GAME_SHORT_NAME:
+        # delegate to your game handler
+        return await game_callback(update, context)
+
 
 
     if data in MYSTERY_BOXES:

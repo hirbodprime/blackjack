@@ -1916,6 +1916,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     handled = await handle_shop_callback(update, context)
     if handled:
         return
+    if query.game_short_name == GAME_SHORT_NAME:
+        return await game_callback(update, context)
+
     if data == "settings:notifications":
         user_id = query.from_user.id
 

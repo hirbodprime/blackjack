@@ -6943,7 +6943,7 @@ async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_am
             chat_id=chat_id,
             message_id=message_id
         )
-        await asyncio.sleep(1)
+        await asyncio.sleep(2.5)
 
     # final outcome
     number = random.randint(0,36)
@@ -6986,6 +6986,7 @@ async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_am
 
 
 async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await asyncio.sleep(1)
     if not await check_player(update, context):
         return
     args = context.args

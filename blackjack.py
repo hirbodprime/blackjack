@@ -1528,14 +1528,15 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query   = update.callback_query
     data    = query.data                       # E.g. "shop:double_xp_potion"
     user_id = query.from_user.id
+    if data is None and query.game_short_name == GAME_SHORT_NAME:
+        # delegate to your game handler
+        return await game_callback(update, context)
+
     # ── If the user tapped “📦 Items” (or any items:… callback), redirect here ──
     if data in ("menu:items", "menu:boosters") or data.startswith("items:"):
         # We assume handle_items_callback(...) is already defined elsewhere
         await handle_items_callback(update, context)
         return True
-    if data is None and query.game_short_name == GAME_SHORT_NAME:
-        # delegate to your game handler
-        return await game_callback(update, context)
 
 
 

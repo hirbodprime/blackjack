@@ -3143,8 +3143,8 @@ async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             return
     player.tokens_claimed_today += 1
-    await sync_to_async(player.save)()
     player.last_claimed_tokens = now
+    await sync_to_async(player.save)()
 
     # 5) If we get here, they have at least one roll left. Send the 🎯 dice.
     message = await context.bot.send_dice(chat_id=update.message.chat_id, emoji="🎯")

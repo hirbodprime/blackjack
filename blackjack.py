@@ -1528,16 +1528,12 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query   = update.callback_query
     data    = query.data                       # E.g. "shop:double_xp_potion"
     user_id = query.from_user.id
-    if data is None and query.game_short_name == GAME_SHORT_NAME:
-        # delegate to your game handler
-        return await game_callback(update, context)
-
     # ── If the user tapped “📦 Items” (or any items:… callback), redirect here ──
     if data in ("menu:items", "menu:boosters") or data.startswith("items:"):
         # We assume handle_items_callback(...) is already defined elsewhere
         await handle_items_callback(update, context)
         return True
-
+    
 
 
     if data in MYSTERY_BOXES:
@@ -1916,9 +1912,6 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     handled = await handle_shop_callback(update, context)
     if handled:
         return
-    if query.game_short_name == GAME_SHORT_NAME:
-        return await game_callback(update, context)
-
     if data == "settings:notifications":
         user_id = query.from_user.id
 
@@ -6941,83 +6934,83 @@ async def spinrewards(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 RED_NUMS = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
 
-# async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_amt):
-#     # animation
-#     for _ in range(2):
-#         spun = random.randint(0, 36)
-#         await bot.edit_message_text(
-#             f"🎲 Spinning… {spun}",
-#             chat_id=chat_id,
-#             message_id=message_id
-#         )
-#         await asyncio.sleep(2.5)
+async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_amt):
+    # animation
+    for _ in range(2):
+        spun = random.randint(0, 36)
+        await bot.edit_message_text(
+            f"🎲 Spinning… {spun}",
+            chat_id=chat_id,
+            message_id=message_id
+        )
+        await asyncio.sleep(2.5)
 
-#     # final outcome
-#     number = random.randint(0,36)
-#     win = False
-#     payout = 0
+    # final outcome
+    number = random.randint(0,36)
+    win = False
+    payout = 0
 
-#     if bet_type.lower() in ("red","black"):
-#         color = "red" if number in RED_NUMS else "black" if number != 0 else "green"
-#         win = (color == bet_type.lower())
-#         payout = bet_amt * 2 if win else 0
-#     else:
-#         try:
-#             guess = int(bet_type)
-#             if 0 <= guess <= 36 and guess == number:
-#                 win = True
-#                 payout = bet_amt * 35
-#         except ValueError:
-#             pass
+    if bet_type.lower() in ("red","black"):
+        color = "red" if number in RED_NUMS else "black" if number != 0 else "green"
+        win = (color == bet_type.lower())
+        payout = bet_amt * 2 if win else 0
+    else:
+        try:
+            guess = int(bet_type)
+            if 0 <= guess <= 36 and guess == number:
+                win = True
+                payout = bet_amt * 35
+        except ValueError:
+            pass
 
-#     player = await sync_to_async(Player.objects.get)(id=user_id)
-#     player.chips += (payout - bet_amt)
-#     await sync_to_async(player.save)()
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    player.chips += (payout - bet_amt)
+    await sync_to_async(player.save)()
 
-#     result_text = (
-#         f"🛑 Landed on **{number}** "
-#         f"({'🔴' if number in RED_NUMS else '⚫️' if number!=0 else '0️⃣'})\n"
-#     )
-#     if win:
-#         result_text += f"🎉 You win {payout - bet_amt} chips!"
-#     else:
-#         result_text += f"😢 You lose {bet_amt} chips."
-#     await asyncio.sleep(1)
+    result_text = (
+        f"🛑 Landed on **{number}** "
+        f"({'🔴' if number in RED_NUMS else '⚫️' if number!=0 else '0️⃣'})\n"
+    )
+    if win:
+        result_text += f"🎉 You win {payout - bet_amt} chips!"
+    else:
+        result_text += f"😢 You lose {bet_amt} chips."
+    await asyncio.sleep(1)
 
-#     await bot.edit_message_text(
-#     chat_id=chat_id,
-#     message_id=message_id,
-#     text=result_text,
-#     parse_mode="Markdown"
-# )
+    await bot.edit_message_text(
+    chat_id=chat_id,
+    message_id=message_id,
+    text=result_text,
+    parse_mode="Markdown"
+)
 
 
-# async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
-#     await asyncio.sleep(1)
-#     if not await check_player(update, context):
-#         return
-#     args = context.args
-#     if len(args) != 2:
-#         return await update.message.reply_text("Usage: /roulette <red|black|0-36> <bet>")
-#     bet_type, bet_amt = args[0], int(args[1])
-#     if not await validate_bet_amount(update, bet_amt):
-#         return
-#     user_id = update.effective_user.id
-#     player = await sync_to_async(Player.objects.get)(id=user_id)
-#     if player.chips < bet_amt:
-#         return await update.message.reply_text("❌ Not enough chips.")
+async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await asyncio.sleep(1)
+    if not await check_player(update, context):
+        return
+    args = context.args
+    if len(args) != 2:
+        return await update.message.reply_text("Usage: /roulette <red|black|0-36> <bet>")
+    bet_type, bet_amt = args[0], int(args[1])
+    if not await validate_bet_amount(update, bet_amt):
+        return
+    user_id = update.effective_user.id
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    if player.chips < bet_amt:
+        return await update.message.reply_text("❌ Not enough chips.")
 
-#     msg = await update.message.reply_text("🎲 Starting roulette…")
-#     asyncio.create_task(
-#         _roulette_sequence(
-#             context.bot,
-#             update.effective_chat.id,
-#             msg.message_id,
-#             user_id,
-#             bet_type,
-#             bet_amt
-#         )
-#     )
+    msg = await update.message.reply_text("🎲 Starting roulette…")
+    asyncio.create_task(
+        _roulette_sequence(
+            context.bot,
+            update.effective_chat.id,
+            msg.message_id,
+            user_id,
+            bet_type,
+            bet_amt
+        )
+    )
 
 
 
@@ -10540,101 +10533,6 @@ async def handle_stale_polls_and_reschedule(context, timeout=60):
 
 
 
-GAME_SHORT_NAME = "roulette"
-
-async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_player(update, context):
-        return
-
-    # parse & validate your bet as before
-    args = context.args
-    if len(args) != 2:
-        return await update.message.reply_text("Usage: /roulette <red|black|0-36> <bet>")
-
-    bet_type, bet_amt = args[0].lower(), int(args[1])
-    if not await validate_bet_amount(update, bet_amt):
-        return
-    player = await sync_to_async(Player.objects.get)(id=update.effective_user.id)
-    if player.chips < bet_amt:
-        return await update.message.reply_text("❌ Not enough chips.")
-
-    # build the “Play Roulette” game button
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
-            text="🎰 Play Roulette",
-            callback_game=GAME_SHORT_NAME
-        )
-    ]])
-
-    # send it using send_game (so Telegram knows it’s a game, not a plain text message)
-    msg = await context.bot.send_game(
-        chat_id=update.effective_chat.id,
-        game_short_name=GAME_SHORT_NAME,
-        reply_markup=keyboard
-    )
-
-    # stash this bet so we can settle it when the wheel returns a result
-    context.bot_data.setdefault("pending_bets", {})[msg.message_id] = {
-        "user_id": update.effective_user.id,
-        "bet_type": bet_type,
-        "bet_amt": bet_amt
-    }
-
-async def game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()  # ack the callback
-
-    # only handle our roulette game
-    if query.game_short_name != GAME_SHORT_NAME:
-        return
-
-    msg_id = query.message.message_id
-    pending = context.bot_data.get("pending_bets", {}).pop(msg_id, None)
-    if not pending or pending["user_id"] != query.from_user.id:
-        # no matching bet → ignore
-        return
-
-    # Telegram stored the “score” you set in JS as the landed number
-    scores = await context.bot.get_game_high_scores(
-        user_id=query.from_user.id,
-        chat_id=query.message.chat_id,
-        message_id=msg_id
-    )
-    # Your score is always first in the returned list
-    landed = scores[0].score if scores else 0
-
-    # figure out color & payout exactly as you did before
-    color = (
-        "green" if landed == 0 else
-        "red"   if landed in RED_NUMS else
-        "black"
-    )
-    bet_type, bet_amt = pending["bet_type"], pending["bet_amt"]
-    win = (bet_type in ("red","black") and bet_type == color) or \
-          (bet_type.isdigit() and int(bet_type) == landed)
-    payout = bet_amt * (35 if bet_type.isdigit() else 2) if win else 0
-
-    # update the player’s chips
-    player = await sync_to_async(Player.objects.get)(id=query.from_user.id)
-    # we add (payout – stake), so winners get net profit, losers lose their bet
-    player.chips += (payout - bet_amt)
-    await sync_to_async(player.save)()
-
-    # send the final message
-    result = (
-        f"🛑 Landed on **{landed}** "
-        f"({'🔴' if color=='red' else '⚫️' if color=='black' else '0️⃣'})\n"
-    )
-    if win:
-        result += f"🎉 You win {payout - bet_amt} chips! You now have {player.chips} chips."
-    else:
-        result += f"😢 You lose {bet_amt} chips. You now have {player.chips} chips."
-
-    await query.message.reply_text(result, parse_mode="Markdown")
-
-
-
-
 DEBUG = os.getenv("DEBUG")
 if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
@@ -10643,11 +10541,6 @@ elif DEBUG == "False":
     
 import asyncio
 asyncio.get_event_loop().run_until_complete(handle_stale_polls_and_reschedule(app))
-
-
-app.add_handler(CommandHandler("rroulette", start_roulette))
-app.add_handler(CallbackQueryHandler(game_callback, pattern="^" + GAME_SHORT_NAME + "$"))
-
 
 app.add_handler(CommandHandler("teachme", teachme))
 
@@ -10707,7 +10600,7 @@ app.add_handler(CommandHandler("listgroups", list_groups))
 app.add_handler(CommandHandler("broadcastgroup", broadcastgroups))
 
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_chat_members))
-# app.add_handler(CommandHandler("roulette", roulette))
+app.add_handler(CommandHandler("roulette", roulette))
 app.add_handler(CommandHandler("sync_groups", sync_group_names))
 
 app.add_handler(CommandHandler("spin", spin))

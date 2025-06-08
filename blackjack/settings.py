@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'game','rest_framework',
+    
 ]
 CORS_ALLOW_ALL_ORIGINS = True   
 MIDDLEWARE = [

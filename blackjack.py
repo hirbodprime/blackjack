@@ -2839,6 +2839,7 @@ async def add_xp(player, amount, context):
         player.chips += chips_reward
         
         # Send level-up and reward message
+        await asyncio.sleep(2)  # Non-blocking wait
         await context.bot.send_message(
             chat_id=player.id, 
             text=f"🎉 Congratulations! You've reached level {player.level}! You've been rewarded with {chips_reward} 💰 chips!"

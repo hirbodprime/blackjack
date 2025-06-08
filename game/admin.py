@@ -187,7 +187,7 @@ class PlayerDailyQuestProgressAdmin(admin.ModelAdmin):
 
 @admin.register(Achievement)
 class AchievementAdmin(admin.ModelAdmin):
-    list_display = ("name", "description", "condition", "icon")
+    list_display = ("id","name", "description", "condition", "icon")
     list_editable = ("description", "condition", "icon")
     list_per_page = 25
 

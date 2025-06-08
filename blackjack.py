@@ -4814,7 +4814,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # Check for specific achievements (3 Aces or 3 Sixes)
         ace_count = sum(1 for card in player_hand if card == 'A')
-        six_count = sum(1 for card in player_hand if card == '6')
+        six_count = sum(1 for card in player_hand if card == 6)
 
         if ace_count == 3:
             await unlock_achievement(join_game.player, "3_A_in_one_deck", context)

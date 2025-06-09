@@ -4598,12 +4598,12 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
         winners_list.sort(key=lambda x: x[1], reverse=True)
 
         for name, wins, uid in winners_list:
-            esc = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', name)
+            esc = re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', name)
             mention = f"[{esc}](tg://user?id={uid})"
             standings += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
         for name, uid in losers_list:
-            esc = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', name)
+            esc = re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', name)
             mention = f"[{esc}](tg://user?id={uid})"
             standings += f"🎲 {mention}: No wins yet\n"
 
@@ -10529,8 +10529,177 @@ async def handle_stale_polls_and_reschedule(context, timeout=60):
 
 
 
+# CARD_VALUES = list(range(1, 12))
+
+# # Command: /duel user_id 50
+# async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     if update.effective_chat.type != "group" and update.effective_chat.type != "supergroup":
+#         await update.message.reply_text("❗ This command must be used in a group.")
+#         return
+
+#     args = context.args
+#     if len(args) != 2:
+#         await update.message.reply_text("Usage: /duel user_id 50")
+#         return
+
+#     opponent_id_str, amount_str = args
+#     amount = int(amount_str)
+#     challenger_id = update.effective_user.id
+#     challenger = await sync_to_async(Player.objects.get)(id=challenger_id)
+
+#     try:
+#         opponent_id = int(opponent_id_str)
+#         opponent = await sync_to_async(Player.objects.get)(id=opponent_id)
+#     except:
+#         await update.message.reply_text("❌ Invalid opponent.")
+#         return
+
+#     await send_duel_request(context, challenger, opponent, amount, update.effective_chat.id)
+#     await update.message.reply_text(f"🕹️ Duel request sent to {opponent.name}!")
 
 
+# async def send_duel_request(context, challenger, opponent, amount, group_chat_id):
+#     keyboard = InlineKeyboardMarkup([
+#         [
+#             InlineKeyboardButton("✅ Accept", callback_data=f"duel_response:accept:{challenger.id}:{amount}:{group_chat_id}"),
+#             InlineKeyboardButton("❌ Decline", callback_data="duel_response:decline")
+#         ]
+#     ])
+#     await context.bot.send_message(
+#         chat_id=opponent.id,
+#         text=f"You were challenged by {challenger.name} for a blackjack duel worth {amount} chips!",
+#         reply_markup=keyboard
+#     )
+
+
+# async def handle_duel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     query = update.callback_query
+#     await query.answer()
+#     data = query.data
+
+#     if data == "duel_response:decline":
+#         await query.edit_message_text("❌ Duel declined.")
+#         return
+
+#     _, action, challenger_id, amount, group_chat_id = data.split(":")
+#     if action != "accept":
+#         await query.edit_message_text("Invalid action.")
+#         return
+
+#     challenger = await sync_to_async(Player.objects.get)(id=int(challenger_id))
+#     opponent = await sync_to_async(Player.objects.get)(id=query.from_user.id)
+#     amount = int(amount)
+
+#     if challenger.chips < amount or opponent.chips < amount:
+#         await query.edit_message_text("❌ One of the players doesn’t have enough chips.")
+#         return
+
+#     challenger.chips -= amount
+#     opponent.chips -= amount
+#     await sync_to_async(challenger.save)()
+#     await sync_to_async(opponent.save)()
+
+#     duel = await sync_to_async(Duel.objects.create)(
+#         challenger=challenger,
+#         opponent=opponent,
+#         game_type="blackjack",
+#         amount=amount,
+#         is_accepted=True
+#     )
+
+#     await sync_to_async(BlackjackDuelState.objects.create)(
+#         duel=duel,
+#         current_turn=challenger
+#     )
+
+#     await context.bot.send_message(chat_id=challenger.id, text="🎮 Duel started! Use /card to draw or /stop to stand.")
+#     await context.bot.send_message(chat_id=opponent.id, text="🎮 Duel started! Please wait for your turn.")
+#     await context.bot.send_message(chat_id=int(group_chat_id), text=f"✅ {opponent.name} accepted the duel!")
+#     await query.edit_message_text("Duel accepted!")
+
+
+# async def hit_command(update, context):
+#     player = await sync_to_async(Player.objects.get)(id=update.effective_user.id)
+#     state = await sync_to_async(lambda: BlackjackDuelState.objects.select_related("duel").get(current_turn=player, duel__is_active=True))()
+
+#     current_turn = await sync_to_async(lambda: state.current_turn)()
+#     if current_turn.id != player.id:
+
+#         await update.message.reply_text("❌ Not your turn!")
+#         return
+
+#     hand_field = "challenger_hand" if state.duel.challenger_id == player.id else "opponent_hand"
+#     hand = getattr(state, hand_field)
+#     card = random.choice(CARD_VALUES)
+#     hand.append(card)
+#     setattr(state, hand_field, hand)
+
+#     total = sum(hand)
+#     if total > 21:
+#         challenger_id = await sync_to_async(lambda: state.duel.challenger_id)()
+#         opponent = await sync_to_async(lambda: state.duel.opponent)()
+#         challenger = await sync_to_async(lambda: state.duel.challenger)()
+
+#         winner = opponent if challenger_id == player.id else challenger
+
+#         prize = state.duel.amount * 2
+#         winner.chips += prize
+#         await sync_to_async(winner.save)()
+
+#         state.duel.winner = winner
+#         state.duel.is_active = False
+#         await sync_to_async(state.duel.save)()
+#         await sync_to_async(state.delete)()
+
+#         await context.bot.send_message(player.id, f"💥 You busted! {winner.name} wins and earns {prize} chips.")
+#         await context.bot.send_message(winner.id, f"🏆 You won! {prize} chips awarded.")
+#     else:
+#         await sync_to_async(state.save)()
+#         await update.message.reply_text(f"🎯 Drew {card}. Total: {total}")
+
+
+# async def stand_command(update, context):
+#     player = await sync_to_async(Player.objects.get)(id=update.effective_user.id)
+#     state = await sync_to_async(lambda: BlackjackDuelState.objects.select_related("duel").get(current_turn=player, duel__is_active=True))()
+
+#     current_turn = await sync_to_async(lambda: state.current_turn)()
+#     if current_turn.id != player.id:
+#         await update.message.reply_text("❌ Not your turn!")
+#         return
+
+#     is_challenger = state.duel.challenger_id == player.id
+#     state.challenger_stood = is_challenger or state.challenger_stood
+#     state.opponent_stood = not is_challenger or state.opponent_stood
+#     state.current_turn = state.duel.opponent if is_challenger else state.duel.challenger
+#     await sync_to_async(state.save)()
+
+#     if state.challenger_stood and state.opponent_stood:
+#         c_total = sum(state.challenger_hand)
+#         o_total = sum(state.opponent_hand)
+#         winner = None
+#         if c_total > o_total:
+#             winner = state.duel.challenger
+#         elif o_total > c_total:
+#             winner = state.duel.opponent
+
+#         state.duel.winner = winner
+#         state.duel.is_active = False
+#         await sync_to_async(state.duel.save)()
+#         await sync_to_async(state.delete)()
+
+#         if winner:
+#             prize = state.duel.amount * 2
+#             winner.chips += prize
+#             await sync_to_async(winner.save)()
+#             await context.bot.send_message(winner.id, f"🏆 You won! {prize} chips awarded.")
+#             await context.bot.send_message(player.id, f"🏁 Duel complete. {winner.name} wins!")
+#         else:
+#             await context.bot.send_message(state.duel.challenger.id, "🤝 It's a tie. Nobody wins.")
+#             await context.bot.send_message(state.duel.opponent.id, "🤝 It's a tie. Nobody wins.")
+#     else:
+#         next_player = state.current_turn
+#         await context.bot.send_message(next_player.id, f"🎮 It's your turn! Use /card or /stop")
+#         await update.message.reply_text("👌 You stood. Waiting for your opponent.")
 
 
 DEBUG = os.getenv("DEBUG")
@@ -10545,7 +10714,11 @@ asyncio.get_event_loop().run_until_complete(handle_stale_polls_and_reschedule(ap
 app.add_handler(CommandHandler("teachme", teachme))
 
 
-
+# Register handlers
+# app.add_handler(CommandHandler("duel", duel_command))
+# app.add_handler(CommandHandler("card", hit_command))
+# app.add_handler(CommandHandler("stop", stand_command))
+# app.add_handler(CallbackQueryHandler(handle_duel_response, pattern=r"duel_response:"))
 
 
 app.add_handler(CommandHandler("referral", referral_leaderboard))

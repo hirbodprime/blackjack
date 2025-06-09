@@ -3283,9 +3283,9 @@ async def create_highroller_poll(update: Update, context: ContextTypes.DEFAULT_T
         "100000000 (100M) chips💰",
         "200000000 (200M) chips💰",
         "500000000 (500M) chips💰",
-        "1000000000 (1B) chips💰"
-        "10000000000 (10B) chips💰"
-        "100000000000 (100B) chips💰"
+        "1000000000 (1B) chips💰",
+        "10000000000 (10B) chips💰",
+        "100000000000 (100B) chips💰",
     ]
 
     question = "High-roller Bet (in chips 💰):"

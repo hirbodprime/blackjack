@@ -3089,78 +3089,65 @@ async def check_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bo
         return False  # Player does not exist
 
 from datetime import timedelta
-
-
 async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
 
-    # 1) Ensure they’re a registered player
+    # 1) Check if player exists
     if not await check_player(update, context):
         return
 
-    # 2) Fetch the Player row
     player = await sync_to_async(Player.objects.get)(id=user_id)
     now = timezone.now()
 
-    # 3) If they’ve never claimed, or if their last claim was ≥24 h ago, reset counter:
+    # 2) If never claimed or more than 24h passed, reset claim window
     if player.last_claimed_tokens is None or (now - player.last_claimed_tokens) >= timedelta(hours=24):
-        print("nigga what")
         player.tokens_claimed_today = 0
         player.last_claimed_tokens = now
         await sync_to_async(player.save)()
 
-    # 4) If they’ve already rolled twice in the past 24 h, tell them how much longer to wait
-    print("baba",player.tokens_claimed_today)
+    # 3) If already claimed 3 times, calculate time remaining
     if player.tokens_claimed_today >= 3:
-        print("boo0",player.tokens_claimed_today)
+        next_window = player.last_claimed_tokens + timedelta(hours=24)
+        remaining = next_window - now
 
-        # Next allowed time = last_claimed_tokens + 24 h
-        next_allowed = player.last_claimed_tokens + timedelta(hours=24)
-        remaining = next_allowed - now
-
-        # If somehow “remaining” is negative, we treat it as zero
         if remaining.total_seconds() <= 0:
-            # in case of clock drift, do a final reset and let them roll now:
+            # Force reset in case of weird clock issue
             player.tokens_claimed_today = 0
             player.last_claimed_tokens = now
             await sync_to_async(player.save)()
         else:
-            # Compute hours and minutes
-            total_seconds = math.floor(remaining.total_seconds())
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
+            hours = remaining.seconds // 3600
+            minutes = (remaining.seconds % 3600) // 60
 
-            # Build a friendly “X h Y m” string
-            if hours > 0:
-                time_str = f"{hours} hour{'s' if hours != 1 else ''}"
-                if minutes > 0:
-                    time_str += f" and {minutes} minute{'s' if minutes != 1 else ''}"
-            else:
-                time_str = f"{minutes} minute{'s' if minutes != 1 else ''}"
+            time_str = f"{hours} hour{'s' if hours != 1 else ''}"
+            if minutes > 0:
+                time_str += f" and {minutes} minute{'s' if minutes != 1 else ''}"
 
             await update.message.reply_text(
-                f"You’ve already 3 Times in the past 24 hours.\n"
-                f"Please try again in {time_str}."
+                f"You’ve already claimed 3 times in the past 24 hours.\n"
+                f"Try again in {time_str}."
             )
             return
+
+    # 4) Allow claim
     player.tokens_claimed_today += 1
-    player.last_claimed_tokens = now
     await sync_to_async(player.save)()
 
-    # 5) If we get here, they have at least one roll left. Send the 🎯 dice.
+    # 5) Send 🎯 and wait for result
     message = await context.bot.send_dice(chat_id=update.message.chat_id, emoji="🎯")
     await asyncio.sleep(3)
 
-    # 6) Check result
+    # 6) Check if bullseye
     if message.dice.value == 6:
         player.chips += 200
         await update_daily_quest_progress(player, "minigames", "dart", 1, context)
-
         await update.message.reply_text(
             f"🎯 Bullseye! You've received 💰200 chips! You now have 💰{player.chips} chips."
         )
     else:
         await update.message.reply_text("🎯 You missed the bullseye! Better luck next time!")
+
+    await sync_to_async(player.save)()
 
 
 

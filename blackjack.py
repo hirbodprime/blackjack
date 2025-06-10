@@ -5222,9 +5222,14 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if max_rounds_won == 5:
         # If dealer won all 5 rounds
         if dealer_rounds_won == 5:
-            for round_win in player_rounds:
-                player = await sync_to_async(lambda: round_win.winner)()
-                await unlock_achievement(player, "Dealer_wins_5_rounds", context)
+            # Get all players who joined this game
+            participants = await sync_to_async(list)(
+                JoinGame.objects.filter(game=game).select_related("player")
+            )
+
+            for participant in participants:
+                await unlock_achievement(participant.player, "Dealer_wins_5_rounds", context)
+
             await context.bot.send_message(chat_id=chat_id, text="🤖 Dealer won all 5 rounds!")
         else:
             # If any player won all 5 rounds
@@ -6924,6 +6929,8 @@ async def spinrewards(update: Update, context: ContextTypes.DEFAULT_TYPE):
 RED_NUMS = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
 
 async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_amt,context):
+    await asyncio.sleep(0.5)
+
     # animation
     for _ in range(2):
         spun = random.randint(0, 36)

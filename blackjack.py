@@ -5353,12 +5353,25 @@ async def get_player_instance(user_id):
 
 # Asynchronous version of get_player_chips
 def format_number(n):
-    if n >= 1_000_000:
-        return f"{n:,} ({n / 1_000_000:.1f}M)"
-    elif n >= 1_000:
-        return f"{n:,} ({n / 1_000:.1f}K)"
-    else:
-        return f"{n:,}"
+    units = [
+        (10**33, 'D'),  # Decillion
+        (10**30, 'N'),  # Nonillion
+        (10**27, 'O'),  # Octillion
+        (10**24, 'S'),  # Septillion
+        (10**21, 's'),  # Sextillion
+        (10**18, 'q'),  # Quintillion
+        (10**15, 'Q'),  # Quadrillion
+        (10**12, 'T'),  # Trillion
+        (10**9,  'B'),  # Billion
+        (10**6,  'M'),  # Million
+        (10**3,  'K'),  # Thousand
+    ]
+
+    for value, suffix in units:
+        if n >= value:
+            return f"{n:,} ({n / value:.1f}{suffix})"
+
+    return f"{n:,}"
 
 async def get_player_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id

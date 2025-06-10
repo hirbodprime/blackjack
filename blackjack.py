@@ -6962,7 +6962,8 @@ async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_am
             pass
 
     player = await sync_to_async(Player.objects.get)(id=user_id)
-    player.chips += (payout - bet_amt)
+    total = payout + bet_amt
+    player.chips += (total)
     await sync_to_async(player.save)()
 
     result_text = (
@@ -6970,7 +6971,7 @@ async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_am
         f"({'🔴' if number in RED_NUMS else '⚫️' if number!=0 else '0️⃣'})\n"
     )
     if win:
-        total = payout + bet_amt
+        
         await apply_referral_bonus(player, total, context)
 
         result_text += f"🎉 You win {total} chips!"

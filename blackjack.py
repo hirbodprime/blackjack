@@ -4587,12 +4587,14 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
         winners_list.sort(key=lambda x: x[1], reverse=True)
 
         for name, wins, uid in winners_list:
-            esc = re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', name)
+            esc = escape_markdown_v2(name)
+
             mention = f"[{esc}](tg://user?id={uid})"
             standings += f"🏆 {mention}: {wins} round\\(s\\) won\n"
 
         for name, uid in losers_list:
-            esc = re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', name)
+            esc = escape_markdown_v2(name)
+
             mention = f"[{esc}](tg://user?id={uid})"
             standings += f"🎲 {mention}: No wins yet\n"
 
@@ -7349,8 +7351,7 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 # ─── Helper: Escape MarkdownV2 ───
 def escape_markdown_v2(text: str) -> str:
-    escape_chars = r'[_*\[\]()~`>#+\-=\|{}.!]'
-    return re.sub(escape_chars, r'\\\g<0>', text)
+    return re.sub(r'([_*\[\]()~`>#+=|{}.!\\-])', r'\\\1', text)
 
 # ─── Helper: Safe send message with flood control ───
 async def safe_send_message(bot, chat_id, text, parse_mode="MarkdownV2", max_retries=10):

@@ -6971,12 +6971,9 @@ async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_am
         f"({'🔴' if number in RED_NUMS else '⚫️' if number!=0 else '0️⃣'})\n"
     )
     if win:
-        total = payout - bet_amt
-        player.chips += (total)
-        
-        await apply_referral_bonus(player, total, context)
+        await apply_referral_bonus(player, payout, context)
 
-        result_text += f"🎉 You win {total} chips!"
+        result_text += f"🎉 You win {payout} chips!"
     else:
         result_text += f"😢 You lose {bet_amt} chips."
     await asyncio.sleep(1)

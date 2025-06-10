@@ -5352,23 +5352,35 @@ async def get_player_instance(user_id):
         return None
 
 # Asynchronous version of get_player_chips
+def format_number(n):
+    if n >= 1_000_000:
+        return f"{n:,} ({n / 1_000_000:.1f}M)"
+    elif n >= 1_000:
+        return f"{n:,} ({n / 1_000:.1f}K)"
+    else:
+        return f"{n:,}"
+
 async def get_player_chips(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    
+
     # Fetch the player instance
     player = await get_player_instance(user_id)
-    
+
     if player:
+        chips_display = format_number(player.chips)
+        tokens_display = format_number(player.real_tokens)
+
         stats_message = (
-            f"💰 Chips: {player.chips}\n"
-            f"💵 Real Tokens: {player.real_tokens}\n"
+            f"💰 Chips: {chips_display}\n"
+            # f"💵 Real Tokens: {tokens_display}\n"
         )
-        
-        # Send the stats message to the chat
+
         await context.bot.send_message(chat_id=update.message.chat_id, text=stats_message)
     else:
-        # Handle the case where the player does not exist
-        await context.bot.send_message(chat_id=update.message.chat_id, text="You don't have a player profile yet. Start the bot in private to create one.")
+        await context.bot.send_message(
+            chat_id=update.message.chat_id,
+            text="You don't have a player profile yet. Start the bot in private to create one."
+        )
 
 # Asynchronous version of get_dealer_blackjack_stats
 async def get_dealer_blackjack_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):

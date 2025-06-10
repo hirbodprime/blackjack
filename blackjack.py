@@ -6975,7 +6975,7 @@ async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_am
         await sync_to_async(player.save)()
         result_text += f"🎉 You win {payout} chips!"
     else:
-        player.chips += (bet_amt)
+        player.chips -= (bet_amt)
         await sync_to_async(player.save)()  
         result_text += f"😢 You lose {bet_amt} chips."
     await asyncio.sleep(1)

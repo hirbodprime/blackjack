@@ -10239,7 +10239,7 @@ async def catch_buy_horse_number(update: Update, context: ContextTypes.DEFAULT_T
     params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
 
     if params.buyhorse_event:
-        cost = params.today_horse_price
+        cost = params.todays_horse_price
     else:
         if len(s) == 1:
             cost = 100_000

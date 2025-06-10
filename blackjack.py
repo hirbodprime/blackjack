@@ -6923,7 +6923,7 @@ async def spinrewards(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 RED_NUMS = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
 
-async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_amt):
+async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_amt,context):
     # animation
     for _ in range(2):
         spun = random.randint(0, 36)
@@ -6961,7 +6961,10 @@ async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_am
         f"({'🔴' if number in RED_NUMS else '⚫️' if number!=0 else '0️⃣'})\n"
     )
     if win:
-        result_text += f"🎉 You win {payout - bet_amt} chips!"
+        total = payout + bet_amt
+        await apply_referral_bonus(player, total, context)
+
+        result_text += f"🎉 You win {total} chips!"
     else:
         result_text += f"😢 You lose {bet_amt} chips."
     await asyncio.sleep(1)
@@ -6997,7 +7000,8 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg.message_id,
             user_id,
             bet_type,
-            bet_amt
+            bet_amt,
+            context
         )
     )
 

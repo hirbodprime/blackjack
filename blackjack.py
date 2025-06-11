@@ -1533,7 +1533,10 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         # We assume handle_items_callback(...) is already defined elsewhere
         await handle_items_callback(update, context)
         return True
-    
+    if data.startswith("menu:buy_sale:"):
+        # We assume handle_items_callback(...) is already defined elsewhere
+        await horse_menu_callback(update, context)
+        return True    
 
 
     if data in MYSTERY_BOXES:
@@ -4687,6 +4690,12 @@ async def safe_send_message_async(bot, chat_id, text, parse_mode="MarkdownV2", m
             retries += 1
     
 
+async def is_on_cooldown(join_game, cooldown_seconds=4):
+    from django.utils import timezone
+    if not join_game.last_action_time:
+        return False
+    return timezone.now() - join_game.last_action_time < timedelta(seconds=cooldown_seconds)
+
 async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_id = update.message.from_user.id
@@ -4718,6 +4727,13 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("It's not your turn!")
         return
+    if await is_on_cooldown(join_game):
+        await update.message.reply_text("⏳ Please wait a few seconds before taking your next action.")
+        return
+
+    join_game.last_action_time = timezone.now()
+    await sync_to_async(join_game.save)()
+
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
     if hand_value > 21:
@@ -4860,7 +4876,12 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("You are automatically standing")
             return
         # Check if the player has already chosen to stand
-        
+    if await is_on_cooldown(join_game):
+        await update.message.reply_text("⏳ Please wait a few seconds before taking your next action.")
+        return
+
+    join_game.last_action_time = timezone.now()
+    await sync_to_async(join_game.save)()
 
     # Mark the player as having stood
     join_game.has_stood = True
@@ -8581,7 +8602,7 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
                 # (a) Base label: custom name or “Horse <number>”
                 if oh.name:
-                    display_label = f"{oh.name} ({number})"
+                    display_label = f"{oh.name} \\({number}\\)"
                 else:
                     display_label = f"Horse {number}"
 
@@ -8951,68 +8972,82 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-
-    #
-    # ─── “Buy Sale Listing” handler ───
-    #
+#
+# ─── “Buy Sale Listing” handler ────────────────────────────────────────────────
+#
     if data.startswith("menu:buy_sale:"):
         horse_number = int(data.split(":")[2])
         buyer_id = query.from_user.id
+        print(f"[BUY_SALE] Buyer {buyer_id} clicked horse #{horse_number}")
 
         # 1) Fetch the listing & related OwnedHorse
         try:
-            sale = await sync_to_async(HorseSale.objects.select_related("horse__user").get)(
-                horse__horse_number=horse_number
-            )
+            sale = await sync_to_async(
+                HorseSale.objects.select_related("horse__user").get
+            )(horse__horse_number=horse_number)
+            print(f"[BUY_SALE] Found sale listing id={sale.id}")
         except HorseSale.DoesNotExist:
+            print("[BUY_SALE] Listing no longer exists")
             await query.edit_message_text("❌ That listing no longer exists.\n\n↩️ Back")
             return
 
         owned_horse = sale.horse
-        seller = owned_horse.user
-        price = sale.price
+        seller      = owned_horse.user
+        price       = sale.price
+        print(
+            f"[BUY_SALE] Horse owner={seller.id} price={price:,} "
+            f"emoji='{owned_horse.emoji}' name='{owned_horse.name}'"
+        )
 
         # 2) Prevent self-purchase
         if seller.id == buyer_id:
-            await query.edit_message_text(
-                "❌ You cannot buy your own listing.\n\n↩️ Back"
-            )
+            print("[BUY_SALE] Buyer tried to buy own horse – blocked")
+            await query.edit_message_text("❌ You cannot buy your own listing.\n\n↩️ Back")
             return
 
-        # 3) Check buyer has enough chips
+        # 3) Check buyer balance
         buyer = await sync_to_async(Player.objects.get)(id=buyer_id)
+        print(f"[BUY_SALE] Buyer chips BEFORE: {buyer.chips:,}")
         if buyer.chips < price:
+            print("[BUY_SALE] Insufficient funds – blocked")
             await query.edit_message_text(
                 f"❌ Not enough chips! You need {price:,} but you have {buyer.chips:,}.\n\n↩️ Back"
             )
             return
 
-        # 4) Transfer chips: deduct from buyer, add to seller
+        # 4) Transfer chips
         buyer.chips -= price
         await sync_to_async(buyer.save)()
+        print(f"[BUY_SALE] Buyer chips AFTER: {buyer.chips:,}")
 
         seller_player = await sync_to_async(Player.objects.get)(id=seller.id)
+        print(f"[BUY_SALE] Seller chips BEFORE: {seller_player.chips:,}")
         seller_player.chips += price
         await sync_to_async(seller_player.save)()
+        print(f"[BUY_SALE] Seller chips AFTER: {seller_player.chips:,}")
 
-        # 5) Transfer ownership: change OwnedHorse.user → buyer
+        # 5) Transfer ownership
         owned_horse.user = buyer
         await sync_to_async(owned_horse.save)()
+        print(f"[BUY_SALE] Horse #{horse_number} ownership moved to {buyer_id}")
 
-        # 6) Delete the sale listing
+        # 6) Delete listing
         await sync_to_async(sale.delete)()
+        print(f"[BUY_SALE] Sale listing id={sale.id} deleted")
 
         # 7) Notify both parties
-        if owned_horse.name:
-            display_label = f"{owned_horse.name} ({horse_number})"
-        else:
-            display_label = f"Horse {horse_number}"
+        display_label = (
+            f"{owned_horse.name} ({horse_number})" if owned_horse.name
+            else f"Horse {horse_number}"
+        )
 
         await query.edit_message_text(
             f"✅ You bought {display_label} from {seller_player.name or seller_player.id} "
             f"for {price:,} chips!"
         )
-        # Notify seller via DM if possible
+        print(f"[BUY_SALE] Buyer message sent")
+
+        # Try DM’ing the seller
         try:
             await context.bot.send_message(
                 chat_id=seller_player.id,
@@ -9021,8 +9056,9 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"{buyer.name or buyer.id} for {price:,} chips!"
                 )
             )
-        except Exception:
-            pass
+            print(f"[BUY_SALE] Seller DM sent")
+        except Exception as e:
+            print(f"[BUY_SALE] Could not DM seller: {e}")
 
         return
 
@@ -10254,7 +10290,7 @@ async def catch_buy_horse_number(update: Update, context: ContextTypes.DEFAULT_T
             "❌ Horse 1, 2, and 3 are reserved and cannot be purchased. ↩️ Run /horse again to pick a different number."
         )
         return
-
+    
     # 3) Check if already owned (any existing record for this number)
     exists = await sync_to_async(OwnedHorse.objects.filter)(horse_number=horse_number)
     if await sync_to_async(exists.exists)():

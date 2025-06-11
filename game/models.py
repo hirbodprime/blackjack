@@ -304,6 +304,7 @@ class JoinGame(models.Model):
     is_active = models.BooleanField(default=False)
     hand = models.JSONField(default=list)
     has_stood = models.BooleanField(default=False)
+    last_action_time = models.DateTimeField(null=True, blank=True)
 
 # New model for tracking round winners
 class RoundWinner(models.Model):

@@ -3961,18 +3961,39 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await sync_to_async(group_game.save)()
 
     params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
-    if params.join_bonus and params.join_bonus_amount > 0:
+
+    # Join bonus logic
+    if params.join_bonus:
+        rewarded_names = []
+
         for joined in joined_players:
             try:
-                player = await sync_to_async(Player.objects.get)(id=joined.user.id)
-                player.chips += params.start_bonus_amount
+                # Use player_id directly
+                player = await sync_to_async(Player.objects.get)(id=joined.player_id)
+                player.chips += params.join_bonus_amount
                 await sync_to_async(player.save)()
+
+                name = player.name or f"User {player.id}"
+                rewarded_names.append(name)
+
                 await context.bot.send_message(
                     chat_id=player.id,
-                    text=f"🎁 You received a start bonus of {params.start_bonus_amount} chips for joining This Blackjack game!"
+                    text=f"🎁 You received a start bonus of {params.join_bonus_amount} chips for joining this Blackjack game!"
                 )
-            except Exception:
+
+            except Exception as e:
+                print(f"[JOIN_BONUS_ERROR] Failed to message or update player {joined.player_id}: {e}")
                 continue
+
+
+        # Announce in the group
+        if rewarded_names:
+            names_text = ", ".join(rewarded_names)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🎉 All joined players received a start bonus of {params.join_bonus_amount}"
+            )
+
 
     # Determine currency type (real tokens vs. chips)
     is_real_token_game = group_game.vip and group_game.real_money

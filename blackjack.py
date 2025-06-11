@@ -6125,7 +6125,7 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = await update.message.reply_text("🪙 Flipping the coin...")
 
     # Simulate the flipping effect with several edits
-    flip_animation = ['🪙 Heads...', '🪙 Tails...', '🪙 Heads...', '🪙 Tails...']
+    flip_animation = ['🪙 Heads...', '🪙 Tails...']
 
     for flip in flip_animation:
         await message.edit_text(flip)

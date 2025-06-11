@@ -6097,7 +6097,7 @@ async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await asyncio.sleep(0.9)
+    await asyncio.sleep(1)
 
     user_id = update.message.from_user.id
     guess = context.args[0].lower() if context.args else 'heads'  # Default to heads if no argument
@@ -6129,7 +6129,7 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for flip in flip_animation:
         await message.edit_text(flip)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.5)
 
     # Final coin flip result
     flip_result = random.choice(['heads', 'tails'])

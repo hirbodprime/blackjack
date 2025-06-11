@@ -4211,6 +4211,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     chat_id = update.message.chat_id
 
     print(game.current_round)
+    game.is_round_starting = True
+    await sync_to_async(game.save)()
 
     if game.current_round >= 2:
 
@@ -4343,6 +4345,9 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
         game.current_round += 1
         await check_for_next_round(update, context, game, joined_players)
+        game.is_round_starting = False
+        await sync_to_async(game.save)()
+
         return
 
     if player_blackjacks:
@@ -4369,6 +4374,9 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=join_entry.player)
 
         game.current_round += 1
+        game.is_round_starting = False
+        await sync_to_async(game.save)()
+
         await check_for_next_round(update, context, game, joined_players)
         return
 
@@ -4376,7 +4384,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
         if join_entry not in player_blackjacks:
             stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
             await sync_to_async(stats.save)()
-
+    game.is_round_starting = False
+    await sync_to_async(game.save)()
     await player_turn(update, context)
 
 async def send_vote_results(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id=None, poll_id=None, game=None):
@@ -4812,6 +4821,9 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Game.DoesNotExist:
         await update.message.reply_text("No active game or the game has not started.")
         return
+    if game.is_round_starting:
+        await update.message.reply_text("⏳ Please wait, the round is still starting.")
+        return
 
     try:
         player = await sync_to_async(Player.objects.get)(id=user_id)
@@ -4949,6 +4961,9 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
         game = await sync_to_async(Game.objects.get)(chat_id=chat_id, started=True, ended=False)
     except Game.DoesNotExist:
         await update.message.reply_text("No active game or the game has not started.")
+        return
+    if game.is_round_starting:
+        await update.message.reply_text("⏳ Please wait, the round is still starting.")
         return
 
     try:

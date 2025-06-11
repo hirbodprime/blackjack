@@ -59,6 +59,7 @@ class Game(models.Model):
     bet_phase = models.CharField(choices=BET_PHASE_CHOICES, max_length=50,default="total_pot")  # Time when join period starts
     dealer_bet_timer = models.IntegerField(default=30)
     poll_id = models.CharField(max_length=100, null=True, blank=True)
+    is_round_starting = models.BooleanField(default=False)
 
 
 

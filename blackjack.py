@@ -4745,7 +4745,8 @@ async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Game.DoesNotExist:
         await update.message.reply_text("No active game or the game has not started.")
         return
-
+    game.is_round_starting = False
+    await sync_to_async(game.save)()
     # Get the players in turn order for the current game
     players_in_game = await sync_to_async(list)(
         JoinGame.objects.filter(game=game, is_active=True).order_by('id')
@@ -4769,8 +4770,7 @@ async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if update.message.from_user.id == current_player_id:
         # Notify the current player it is their turn
-        game.is_round_starting = False
-        await sync_to_async(game.save)()
+
         await asyncio.sleep(2)  # Non-blocking sleep
         await context.bot.send_message(
             chat_id=chat_id, 
@@ -5060,7 +5060,8 @@ async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Game.DoesNotExist:
         await update.message.reply_text("No active game or the game has not started.")
         return
-
+    game.is_round_starting = False
+    await sync_to_async(game.save)()
     if not game.turn_order:
         # If no players are left in the turn order, proceed to the dealer's turn
         await dealer_turn(update, context)
@@ -5079,8 +5080,7 @@ async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         mention = f"[{escaped_user_name}](tg://user?id={next_player_id})"
         await asyncio.sleep(3)  # Non-blocking sleep
-        game.is_round_starting = False
-        await sync_to_async(game.save)()
+
         await safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
     else:
         # All players have finished their turns, now it's the dealer's turn

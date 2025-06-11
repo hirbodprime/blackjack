@@ -45,7 +45,8 @@ def notify_game_parameter_events(sender, instance, created, **kwargs):
     # Avoid circular import
 
     messages = []
-
+    if instance.new_quests:
+        messages.append(f"🎲 New quests: Check /start --> quests and rewards to see the current quests available.")
     if instance.join_bonus:
         messages.append(f"🎁 Bonus Event: Players joining Blackjack games receive {instance.join_bonus_amount} chips!")
 
@@ -57,6 +58,9 @@ def notify_game_parameter_events(sender, instance, created, **kwargs):
 
     if instance.double_chance_event:
         messages.append(f"🎲 Double Chance Event: Your odds just got better! 🎯 Chance to Double Your chips is now `{instance.double_chance}`.")
+
+
+
     if instance.horse_move_event:
         messages.append("🐴 Fast Horse Event: Dealer horses move slower! Win races more easily!")
 

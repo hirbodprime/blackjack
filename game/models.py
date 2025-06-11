@@ -214,7 +214,9 @@ class GameParameter(models.Model):
     join_bonus_amount = models.PositiveIntegerField(default=0,
         help_text="Amount of chips to give if start bonus is enabled")
     
-
+    new_quests = models.PositiveIntegerField(default=0,
+        help_text="New quests are now available")
+    
     buyhorse_event = models.BooleanField(default=False,
         help_text="If True, all horse numbers cost the same (see 'today_horse_price')")
     todays_horse_price = models.PositiveIntegerField(default=50_000,

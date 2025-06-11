@@ -2005,7 +2005,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "🎰 `/slot` – Try your luck at the slot machine. Will you hit the jackpot? (`/slot [chips amount]`)\n\n"
             "🪙 `/coin` – Flip a coin and see if it’s heads or tails. (`/coin [heads/tails] [chips amount]`)\n\n"
             "🎟 `/draw` – Participate in a lucky draw. Will you be the lucky one? (`/draw [chips amount]`)\n\n"
-            "🎯 `/dart` – Play dart twice a day to win 200 chips.\n\n"
+            "🎯 `/dart` – /dart [chip amount].\n\n"
             "✊🖐✌️ `/rps` – Play Rock, Paper, Scissors against the bot. (`/rps [rock/paper/scissors] [chips amount]`)\n\n"
             "🎡 `/spin` – Spin the wheel once a day for a chance to win chips, XP, or levels! Type `/spin <low/mid/high>` and let the wheel decide your fate.\n\n"
             "🎲 `/roulette` – Bet on red, black, or a number (`0–36`).\n"
@@ -3153,6 +3153,48 @@ async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await sync_to_async(player.save)()
 
 
+async def dart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.message.from_user
+    user_id = user.id
+    chat_id = update.message.chat_id
+
+    # 1) Check player exists
+    if not await check_player(update, context):
+        return
+
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+
+    # 2) Get bet amount or default to 50
+    try:
+        bet = int(context.args[0]) if context.args else 50
+        if bet <= 0:
+            raise ValueError()
+    except (IndexError, ValueError):
+        await update.message.reply_text("❌ Invalid amount. Usage: `/dart 100`", parse_mode="Markdown")
+        return
+
+    if player.chips < bet:
+        await update.message.reply_text(f"❌ Not enough chips! You only have {player.chips:,}.")
+        return
+
+    # 3) Deduct bet
+    player.chips -= bet
+    await sync_to_async(player.save)()
+
+    # 4) Send dice
+    message = await context.bot.send_dice(chat_id=chat_id, emoji="🎯")
+    await asyncio.sleep(3)
+
+    # 5) Check outcome
+    if message.dice.value == 6:
+        win_amount = bet * 2
+        player.chips += win_amount
+        await update_daily_quest_progress(player, "minigames", "dart", 1, context)
+        await update.message.reply_text(f"🎯 Bullseye! You win 💰{win_amount:,} chips! 🎉")
+    else:
+        await update.message.reply_text(f"😢 You missed the bullseye and lost 💸{bet:,} chips.")
+
+    await sync_to_async(player.save)()
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -5581,7 +5623,7 @@ Minigames & Side Games:
     – Play Rock-Paper-Scissors against the bot. Win or tie.
 
   • /dart  
-    – Throw a dart and earn up to 200 XP. Available twice per day.
+    – /dart [chip amount]
   
   • /spin - Spin the wheel once a day for a chance to win chips, XP, or levels! Type /spin <low/mid/high> and let the wheel decide your fate
     
@@ -6498,7 +6540,7 @@ async def minigames(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🎰 `/slot` – Try your luck at the slot machine. Will you hit the jackpot? (`/slot [chips amount]`)\n\n"
         "🪙 `/coin` – Flip a coin and see if it’s heads or tails. (`/coin [heads/tails] [chips amount]`)\n\n"
         "🎟 `/draw` – Participate in a lucky draw. Will you be the lucky one? (`/draw [chips amount]`)\n\n"
-        "🎯 `/dart` – Play dart twice a day to win 200 chips.\n\n"
+        "🎯 `/dart` – /dart [chip amount].\n\n"
         "✊🖐✌️ `/rps` – Play Rock, Paper, Scissors against the bot. (`/rps [rock/paper/scissors] [chips amount]`)\n\n"
         "🎡 `/spin` – Spin the wheel once a day for a chance to win chips, XP, or levels! Type `/spin <low/mid/high>` and let the wheel decide your fate.\n\n"
         "🎲 `/roulette` – Bet on red, black, or a number (`0–36`).\n"
@@ -10853,7 +10895,7 @@ app.add_handler(CommandHandler("slot", slot_machine))
 app.add_handler(CommandHandler("coin", coinflip))
 app.add_handler(CommandHandler("draw", lucky_draw))
 app.add_handler(CommandHandler("rps", rps_game))
-app.add_handler(CommandHandler("dart", claim_tokens))
+app.add_handler(CommandHandler("dart", dart))
 app.add_handler(CommandHandler("daily_token", claim_daily_tokens))
 app.add_handler(CommandHandler("leaderboard", leaderboard))
 app.add_handler(CommandHandler("group", group))

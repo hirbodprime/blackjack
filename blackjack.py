@@ -4841,10 +4841,14 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Check if it's the player's turn
     try:
+        print(f"[DEBUG] user_id: {user_id}")
+        print(f"[DEBUG] turn_order: {game.turn_order}")
+
         if user_id != game.turn_order[0]:
             await update.message.reply_text("It's not your turn!")
             return
-    except:
+    except Exception as e:
+        print(f"[ERROR] Checking turn: {e}")
         await update.message.reply_text("It's not your turn!")
         return
     if await is_on_cooldown(join_game):

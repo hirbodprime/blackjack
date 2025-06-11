@@ -4769,6 +4769,8 @@ async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if update.message.from_user.id == current_player_id:
         # Notify the current player it is their turn
+        game.is_round_starting = False
+        await sync_to_async(game.save)()
         await asyncio.sleep(2)  # Non-blocking sleep
         await context.bot.send_message(
             chat_id=chat_id, 
@@ -5073,6 +5075,8 @@ async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         mention = f"[{escaped_user_name}](tg://user?id={next_player_id})"
         await asyncio.sleep(3)  # Non-blocking sleep
+        game.is_round_starting = False
+        await sync_to_async(game.save)()
         await safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
     else:
         # All players have finished their turns, now it's the dealer's turn

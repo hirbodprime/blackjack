@@ -2740,72 +2740,115 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]])
         )
         return
-
     if data == "quests:quest_history":
         player = await sync_to_async(Player.objects.get)(id=query.from_user.id)
         histories = await sync_to_async(list)(
-            QuestHistory.objects.filter(player=player).order_by("-date_completed")[:10]
+            QuestHistory.objects.filter(player=player).order_by("-date_completed")
         )
 
-        if not histories:
-            text = "📜 You have no completed quests yet."
-        else:
-            lines = ["🏅 *Your Completed Quests:*"]
-            type_display = {
-                "blackjack": "🃏 Blackjack",
-                "minigames": "🎯 Minigames",
-                "race": "🐎 Horse Race"
-            }
+        type_display = {
+            "blackjack": "🃏 Blackjack",
+            "minigames": "🎯 Minigames",
+            "race": "🐎 Horse Race"
+        }
 
+        if not histories:
+            preview_text = "📜 You have no completed quests yet."
+            await query.edit_message_text(
+                text=preview_text,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]
+                ]),
+                parse_mode="Markdown"
+            )
+            return
+
+        # If too many quests, send preview and full details via DM
+        if len(histories) > 10:
+            await query.edit_message_text(
+                text="📬 You’ve completed a lot of quests! Check your private messages for the full list.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]
+                ]),
+                parse_mode="Markdown"
+            )
+
+            # Compose long message and split if too big
+            chunks = []
+            chunk = "🏅 *Your Completed Quests:*\n"
             for quest in histories:
+                quest_type_label = type_display.get(quest.quest_type, quest.quest_type)
+                line = (
+                    f"\n*{quest_type_label}*\n"
+                    f"• {quest.description}\n"
+                    f"🎯 {quest.progress}/{quest.target} | 💰 {quest.reward_chips} chips | XP: {quest.reward_xp}\n"
+                    f"📆 {quest.date_assigned.strftime('%Y-%m-%d')}\n"
+                )
+                if len(chunk + line) >= 3900:  # Leave room for Markdown and safety
+                    chunks.append(chunk)
+                    chunk = ""
+                chunk += line
+            if chunk:
+                chunks.append(chunk)
+
+            for i, msg in enumerate(chunks):
+                try:
+                    await context.bot.send_message(
+                        chat_id=player.id,
+                        text=msg,
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    print(f"[QUEST_HISTORY] Failed to DM user: {e}")
+                    break
+        else:
+            # Send normal preview if few quests
+            lines = ["🏅 *Your Completed Quests:*"]
+            for quest in histories[:10]:
                 quest_type_label = type_display.get(quest.quest_type, quest.quest_type)
                 line = (
                     f"*{quest_type_label}*\n"
                     f"• {quest.description}\n"
-                    f"🎯 {quest.progress}/{quest.target} | Chips: {quest.reward_chips} 💰 XP: {quest.reward_xp}\n"
+                    f"🎯 {quest.progress}/{quest.target} | 💰 {quest.reward_chips} chips | XP: {quest.reward_xp}\n"
                     f"📆 {quest.date_assigned.strftime('%Y-%m-%d')}"
                 )
                 lines.append(line)
 
-            text = "\n\n".join(lines)
-
-        await query.edit_message_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]
-            ]),
-            parse_mode="Markdown"
-        )
-        return
+            preview_text = "\n\n".join(lines)
+            await query.edit_message_text(
+                text=preview_text,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]
+                ]),
+                parse_mode="Markdown"
+            )
 
 
 
-    if data == "menu:social":
-        await query.edit_message_text(
-            text="🗣️ *Social* 🗣️\n\nChoose an option:",
-            parse_mode="Markdown",
-            reply_markup=build_social_menu()
-        )
-        return
 
-    if data == "menu:settings":
-        await query.edit_message_text(
-            text="⚙️ *Settings* ⚙️\n\nChoose an option:",
-            parse_mode="Markdown",
-            reply_markup=build_settings_menu()
-        )
-        return
+        if data == "menu:social":
+            await query.edit_message_text(
+                text="🗣️ *Social* 🗣️\n\nChoose an option:",
+                parse_mode="Markdown",
+                reply_markup=build_social_menu()
+            )
+            return
 
-    if data == "menu:support":
-        await query.edit_message_text(
-            text="❓ *Support* ❓\n\nChoose an option:",
-            parse_mode="Markdown",
-            reply_markup=build_support_menu()
-        )
-        return
+        if data == "menu:settings":
+            await query.edit_message_text(
+                text="⚙️ *Settings* ⚙️\n\nChoose an option:",
+                parse_mode="Markdown",
+                reply_markup=build_settings_menu()
+            )
+            return
 
-
-
+        if data == "menu:support":
+            await query.edit_message_text(
+                text="❓ *Support* ❓\n\nChoose an option:",
+                parse_mode="Markdown",
+                reply_markup=build_support_menu()
+            )
+            return
 
 
 

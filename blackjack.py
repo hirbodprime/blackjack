@@ -8676,7 +8676,7 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 number = oh.horse_number
 
                 if oh.name:
-                    display_label = f"{oh.name} ({number})"
+                    display_label = f"{oh.name} \\({number}\\)"
                 else:
                     display_label = f"Horse {number}"
 

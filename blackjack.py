@@ -24,7 +24,7 @@ import re
 from game.models import (Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,ITEM_TYPE_CHOICES,
                          PlayerItem,PlayerActiveItem,UserSettings,
                          NextGameNotification,Achievement,ReferralEarning,
-                         DailyQuest,PlayerDailyQuestProgress,
+                         DailyQuest,PlayerDailyQuestProgress,GroupSettings,
                          PlayerAchievement,HorseRaceWin,OwnedHorse,
                          GameParameter,QuestHistory,ActivePoll,
                          HorseAppliedUpgrade,HorseSale,CrashGame,
@@ -37,7 +37,7 @@ from game.models import HorseRace, HorseBet, Player
 
 from datetime import datetime, timedelta
 from django.utils import timezone
-
+from lang import t
 load_dotenv()
 from asgiref.sync import sync_to_async
 
@@ -207,28 +207,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id   = tg_user.id
     user_name = tg_user.first_name
 
-    print(f"➡️ /start from {user_id} - {user_name}")
     
     try:
         player = await sync_to_async(Player.objects.get)(id=user_id)
         settings, _ = await sync_to_async(UserSettings.objects.get_or_create)(player=player)
 
-        print(f"✅ Player {user_id} already exists")
 
         if not player.referral_code:
-            print("🔧 Generating referral code for existing user")
             code = generate_referral_code()
             while await sync_to_async(Player.objects.filter(referral_code=code).exclude(id=user_id).exists)():
                 code = generate_referral_code()
             player.referral_code = code
             await sync_to_async(player.save)()
-            print(f"✅ Referral code set: {player.referral_code}")
 
     except Player.DoesNotExist:
-        print(f"🆕 New player: {user_id}")
 
         if update.message.chat.type != ChatType.PRIVATE:
-            print("❗️ Not in private chat — aborting.")
             await update.message.reply_text(
                 "❗️Please message me in *private* to activate your profile.\nTap below 👇",
                 parse_mode="Markdown",
@@ -555,16 +549,27 @@ def build_social_menu():
         [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
     ]
     return InlineKeyboardMarkup(keyboard)
-
+# language
 # 7. Settings submenu
 def build_settings_menu():
     keyboard = [
         [
+            InlineKeyboardButton("🌐 Change Language", callback_data="settings:language"),
+        ],
+        [
             InlineKeyboardButton("🔔 Notification Preferences", callback_data="settings:notifications"),
         ],
-        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
+        [
+            InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main"),
+        ],
     ]
     return InlineKeyboardMarkup(keyboard)
+def build_language_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🇺🇸 English", callback_data="language:set:en")],
+        [InlineKeyboardButton("🇮🇷 فارسی", callback_data="language:set:fa")],
+        [InlineKeyboardButton("🔙 Back", callback_data="settings:menu")],
+    ])
 
 # 8. Support submenu
 
@@ -1537,7 +1542,9 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         # We assume handle_items_callback(...) is already defined elsewhere
         await horse_menu_callback(update, context)
         return True    
-
+    if data.startswith("language:set:"):
+        handle_language_callback(update,context)
+        return True    
 
     if data in MYSTERY_BOXES:
         return await handle_mystery_box_callback(update, context)
@@ -4211,8 +4218,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
     chat_id = update.message.chat_id
 
     print(game.current_round)
-    game.is_round_starting = True
-    await sync_to_async(game.save)()
+    # game.is_round_starting = True
+    # await sync_to_async(game.save)()
 
     if game.current_round >= 2:
 
@@ -4345,8 +4352,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
         game.current_round += 1
         await check_for_next_round(update, context, game, joined_players)
-        game.is_round_starting = False
-        await sync_to_async(game.save)()
+        # game.is_round_starting = False
+        # await sync_to_async(game.save)()
 
         return
 
@@ -4374,8 +4381,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
             await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, winner=join_entry.player)
 
         game.current_round += 1
-        game.is_round_starting = False
-        await sync_to_async(game.save)()
+        # game.is_round_starting = False
+        # await sync_to_async(game.save)()
 
         await check_for_next_round(update, context, game, joined_players)
         return
@@ -4384,8 +4391,8 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
         if join_entry not in player_blackjacks:
             stats = await sync_to_async(Stats.objects.get)(player=join_entry.player)
             await sync_to_async(stats.save)()
-    game.is_round_starting = False
-    await sync_to_async(game.save)()
+    # game.is_round_starting = False
+    # await sync_to_async(game.save)()
     await player_turn(update, context)
 
 async def send_vote_results(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id=None, poll_id=None, game=None):
@@ -4745,8 +4752,8 @@ async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Game.DoesNotExist:
         await update.message.reply_text("No active game or the game has not started.")
         return
-    game.is_round_starting = False
-    await sync_to_async(game.save)()
+    # game.is_round_starting = False
+    # await sync_to_async(game.save)()
     # Get the players in turn order for the current game
     players_in_game = await sync_to_async(list)(
         JoinGame.objects.filter(game=game, is_active=True).order_by('id')
@@ -4823,9 +4830,9 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Game.DoesNotExist:
         await update.message.reply_text("No active game or the game has not started.")
         return
-    if game.is_round_starting:
-        await update.message.reply_text("⏳ Please wait, the round is still starting.")
-        return
+    # if game.is_round_starting:
+    #     await update.message.reply_text("⏳ Please wait, the round is still starting.")
+    #     return
 
     try:
         player = await sync_to_async(Player.objects.get)(id=user_id)
@@ -4968,9 +4975,9 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Game.DoesNotExist:
         await update.message.reply_text("No active game or the game has not started.")
         return
-    if game.is_round_starting:
-        await update.message.reply_text("⏳ Please wait, the round is still starting.")
-        return
+    # if game.is_round_starting:
+    #     await update.message.reply_text("⏳ Please wait, the round is still starting.")
+    #     return
 
     try:
         player = await sync_to_async(Player.objects.get)(id=user_id)
@@ -5060,8 +5067,8 @@ async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Game.DoesNotExist:
         await update.message.reply_text("No active game or the game has not started.")
         return
-    game.is_round_starting = False
-    await sync_to_async(game.save)()
+    # game.is_round_starting = False
+    # await sync_to_async(game.save)()
     if not game.turn_order:
         # If no players are left in the turn order, proceed to the dealer's turn
         await dealer_turn(update, context)
@@ -10722,177 +10729,54 @@ async def handle_stale_polls_and_reschedule(context, timeout=60):
 
 
 
-# CARD_VALUES = list(range(1, 12))
 
-# # Command: /duel user_id 50
-# async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-#     if update.effective_chat.type != "group" and update.effective_chat.type != "supergroup":
-#         await update.message.reply_text("❗ This command must be used in a group.")
-#         return
-
-#     args = context.args
-#     if len(args) != 2:
-#         await update.message.reply_text("Usage: /duel user_id 50")
-#         return
-
-#     opponent_id_str, amount_str = args
-#     amount = int(amount_str)
-#     challenger_id = update.effective_user.id
-#     challenger = await sync_to_async(Player.objects.get)(id=challenger_id)
-
-#     try:
-#         opponent_id = int(opponent_id_str)
-#         opponent = await sync_to_async(Player.objects.get)(id=opponent_id)
-#     except:
-#         await update.message.reply_text("❌ Invalid opponent.")
-#         return
-
-#     await send_duel_request(context, challenger, opponent, amount, update.effective_chat.id)
-#     await update.message.reply_text(f"🕹️ Duel request sent to {opponent.name}!")
+# language 
 
 
-# async def send_duel_request(context, challenger, opponent, amount, group_chat_id):
-#     keyboard = InlineKeyboardMarkup([
-#         [
-#             InlineKeyboardButton("✅ Accept", callback_data=f"duel_response:accept:{challenger.id}:{amount}:{group_chat_id}"),
-#             InlineKeyboardButton("❌ Decline", callback_data="duel_response:decline")
-#         ]
-#     ])
-#     await context.bot.send_message(
-#         chat_id=opponent.id,
-#         text=f"You were challenged by {challenger.name} for a blackjack duel worth {amount} chips!",
-#         reply_markup=keyboard
-#     )
 
-
-# async def handle_duel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# async def handle_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #     query = update.callback_query
 #     await query.answer()
 #     data = query.data
 
-#     if data == "duel_response:decline":
-#         await query.edit_message_text("❌ Duel declined.")
-#         return
+#     if data.startswith("language:set:"):
+#         lang_code = data.split(":")[-1]
+#         chat_id = query.message.chat_id
 
-#     _, action, challenger_id, amount, group_chat_id = data.split(":")
-#     if action != "accept":
-#         await query.edit_message_text("Invalid action.")
-#         return
+#         group, _ = await sync_to_async(Group.objects.get_or_create)(group_chat_id=chat_id)
+#         settings, _ = await sync_to_async(GroupSettings.objects.get_or_create)(group=group)
+#         settings.language = lang_code
+#         await sync_to_async(settings.save)()
 
-#     challenger = await sync_to_async(Player.objects.get)(id=int(challenger_id))
-#     opponent = await sync_to_async(Player.objects.get)(id=query.from_user.id)
-#     amount = int(amount)
-
-#     if challenger.chips < amount or opponent.chips < amount:
-#         await query.edit_message_text("❌ One of the players doesn’t have enough chips.")
-#         return
-
-#     challenger.chips -= amount
-#     opponent.chips -= amount
-#     await sync_to_async(challenger.save)()
-#     await sync_to_async(opponent.save)()
-
-#     duel = await sync_to_async(Duel.objects.create)(
-#         challenger=challenger,
-#         opponent=opponent,
-#         game_type="blackjack",
-#         amount=amount,
-#         is_accepted=True
-#     )
-
-#     await sync_to_async(BlackjackDuelState.objects.create)(
-#         duel=duel,
-#         current_turn=challenger
-#     )
-
-#     await context.bot.send_message(chat_id=challenger.id, text="🎮 Duel started! Use /card to draw or /stop to stand.")
-#     await context.bot.send_message(chat_id=opponent.id, text="🎮 Duel started! Please wait for your turn.")
-#     await context.bot.send_message(chat_id=int(group_chat_id), text=f"✅ {opponent.name} accepted the duel!")
-#     await query.edit_message_text("Duel accepted!")
+#         lang_display = "English" if lang_code == "en" else "فارسی"
+#         await query.edit_message_text(f"🌍 Language updated to {lang_display}")
 
 
-# async def hit_command(update, context):
-#     player = await sync_to_async(Player.objects.get)(id=update.effective_user.id)
-#     state = await sync_to_async(lambda: BlackjackDuelState.objects.select_related("duel").get(current_turn=player, duel__is_active=True))()
-
-#     current_turn = await sync_to_async(lambda: state.current_turn)()
-#     if current_turn.id != player.id:
-
-#         await update.message.reply_text("❌ Not your turn!")
-#         return
-
-#     hand_field = "challenger_hand" if state.duel.challenger_id == player.id else "opponent_hand"
-#     hand = getattr(state, hand_field)
-#     card = random.choice(CARD_VALUES)
-#     hand.append(card)
-#     setattr(state, hand_field, hand)
-
-#     total = sum(hand)
-#     if total > 21:
-#         challenger_id = await sync_to_async(lambda: state.duel.challenger_id)()
-#         opponent = await sync_to_async(lambda: state.duel.opponent)()
-#         challenger = await sync_to_async(lambda: state.duel.challenger)()
-
-#         winner = opponent if challenger_id == player.id else challenger
-
-#         prize = state.duel.amount * 2
-#         winner.chips += prize
-#         await sync_to_async(winner.save)()
-
-#         state.duel.winner = winner
-#         state.duel.is_active = False
-#         await sync_to_async(state.duel.save)()
-#         await sync_to_async(state.delete)()
-
-#         await context.bot.send_message(player.id, f"💥 You busted! {winner.name} wins and earns {prize} chips.")
-#         await context.bot.send_message(winner.id, f"🏆 You won! {prize} chips awarded.")
-#     else:
-#         await sync_to_async(state.save)()
-#         await update.message.reply_text(f"🎯 Drew {card}. Total: {total}")
 
 
-# async def stand_command(update, context):
-#     player = await sync_to_async(Player.objects.get)(id=update.effective_user.id)
-#     state = await sync_to_async(lambda: BlackjackDuelState.objects.select_related("duel").get(current_turn=player, duel__is_active=True))()
 
-#     current_turn = await sync_to_async(lambda: state.current_turn)()
-#     if current_turn.id != player.id:
-#         await update.message.reply_text("❌ Not your turn!")
-#         return
+# async def get_group_language(chat_id):
+#     try:
+#         group = await sync_to_async(Group.objects.get)(group_chat_id=chat_id)
+#         settings = await sync_to_async(GroupSettings.objects.get)(group=group)
+#         return settings.language
+#     except GroupSettings.DoesNotExist:
+#         return "en"
 
-#     is_challenger = state.duel.challenger_id == player.id
-#     state.challenger_stood = is_challenger or state.challenger_stood
-#     state.opponent_stood = not is_challenger or state.opponent_stood
-#     state.current_turn = state.duel.opponent if is_challenger else state.duel.challenger
-#     await sync_to_async(state.save)()
 
-#     if state.challenger_stood and state.opponent_stood:
-#         c_total = sum(state.challenger_hand)
-#         o_total = sum(state.opponent_hand)
-#         winner = None
-#         if c_total > o_total:
-#             winner = state.duel.challenger
-#         elif o_total > c_total:
-#             winner = state.duel.opponent
 
-#         state.duel.winner = winner
-#         state.duel.is_active = False
-#         await sync_to_async(state.duel.save)()
-#         await sync_to_async(state.delete)()
 
-#         if winner:
-#             prize = state.duel.amount * 2
-#             winner.chips += prize
-#             await sync_to_async(winner.save)()
-#             await context.bot.send_message(winner.id, f"🏆 You won! {prize} chips awarded.")
-#             await context.bot.send_message(player.id, f"🏁 Duel complete. {winner.name} wins!")
-#         else:
-#             await context.bot.send_message(state.duel.challenger.id, "🤝 It's a tie. Nobody wins.")
-#             await context.bot.send_message(state.duel.opponent.id, "🤝 It's a tie. Nobody wins.")
-#     else:
-#         next_player = state.current_turn
-#         await context.bot.send_message(next_player.id, f"🎮 It's your turn! Use /card or /stop")
-#         await update.message.reply_text("👌 You stood. Waiting for your opponent.")
+
+
+
+
+
+
+
+
+
+
+
 
 
 DEBUG = os.getenv("DEBUG")
@@ -10924,6 +10808,7 @@ app.add_handler(
         pattern=r"^(menu:items|items:)"     # any callback_data exactly "menu:items" or starting with "items:"
     )
 )
+app.add_handler(CallbackQueryHandler(handle_language_callback, pattern=r"^language:set:"))
 
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q

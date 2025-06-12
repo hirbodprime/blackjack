@@ -61,6 +61,18 @@ class Game(models.Model):
     poll_id = models.CharField(max_length=100, null=True, blank=True)
     is_round_starting = models.BooleanField(default=False)
 
+# class GroupSettings(models.Model):
+#     group = models.OneToOneField("Group", on_delete=models.CASCADE, related_name="settings")
+    
+#     LANGUAGE_CHOICES = [
+#         ("en", "English"),
+#         ("fa", "فارسی"),
+#         # Add more languages here
+#     ]
+#     language = models.CharField(max_length=5, choices=LANGUAGE_CHOICES, default="en")
+
+#     def __str__(self):
+#         return f"Settings for group {self.group.group_chat_id}"
 
 
 class Group(models.Model):

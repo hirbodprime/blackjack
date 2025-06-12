@@ -10808,7 +10808,7 @@ app.add_handler(
         pattern=r"^(menu:items|items:)"     # any callback_data exactly "menu:items" or starting with "items:"
     )
 )
-app.add_handler(CallbackQueryHandler(handle_language_callback, pattern=r"^language:set:"))
+# app.add_handler(CallbackQueryHandler(handle_language_callback, pattern=r"^language:set:"))
 
 # real token 7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118
 # test token 7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q

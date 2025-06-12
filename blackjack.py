@@ -24,7 +24,7 @@ import re
 from game.models import (Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,ITEM_TYPE_CHOICES,
                          PlayerItem,PlayerActiveItem,UserSettings,
                          NextGameNotification,Achievement,ReferralEarning,
-                         DailyQuest,PlayerDailyQuestProgress,GroupSettings,
+                         DailyQuest,PlayerDailyQuestProgress,
                          PlayerAchievement,HorseRaceWin,OwnedHorse,
                          GameParameter,QuestHistory,ActivePoll,
                          HorseAppliedUpgrade,HorseSale,CrashGame,

@@ -6830,15 +6830,15 @@ async def claim_daily_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # If already claimed today, bail out
     if player.last_claimed_tokens and player.last_claimed_tokens.date() == now.date():
-        await update.message.reply_text("🎁 You’ve already claimed your daily 200 chips! Come back tomorrow.")
+        await update.message.reply_text("🎁 You’ve already claimed your daily 50 chips! Come back tomorrow.")
         return
 
-    # Grant daily 200 chips
-    player.chips += 200
+    # Grant daily 50 chips
+    player.chips += 50
     player.last_claimed_tokens = now
     await sync_to_async(player.save)()
 
-    await update.message.reply_text(f"🎉 Here are your 200 daily chips! You now have 💰{player.chips} chips.")
+    await update.message.reply_text(f"🎉 Here are your 50 daily chips! You now have 💰{player.chips} chips.")
 async def group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     group_link = "https://t.me/+JLQINcmYLZg3NDM0"  # ← replace with your real link
     await update.message.reply_text(
@@ -7618,7 +7618,9 @@ async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if horse_number == 1:
         await update.message.reply_text("❌ You can’t bet on the dealer’s horse!")
         return
-
+    if horse_number < 1:
+        await update.message.reply_text("❌ Don't do that!")
+        return
     owned_entry = await sync_to_async(OwnedHorse.objects.filter)(horse_number=horse_number)
     owned_entry = await sync_to_async(owned_entry.first)()
 

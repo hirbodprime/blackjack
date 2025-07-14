@@ -7901,7 +7901,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 continue
 
             # 5) Default: random 1–3 for any non-dealer, non-spell horse
-            new_movements[h] = random.randint(1, 3)
+            new_movements[h] = random.randint(1, 5)
 
         # 12c) Apply all movements to positions
         prev_positions = positions.copy()

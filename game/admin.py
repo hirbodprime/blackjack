@@ -2,6 +2,7 @@ from django.contrib import admin
 from .models import *
 
 
+admin.site.register(HorseBet)
 admin.site.register(ActivePoll)
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):

@@ -3488,42 +3488,42 @@ async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         game.betting = True
         game.started = False
         await sync_to_async(game.save)()
-
-        # Notify users who subscribed to the next game
-        next_game_users = await sync_to_async(list)(
-            NextGameNotification.objects.filter(chat_id=chat_id)
-        )
-
-        # Send a message to each user in their private chat, using the group's actual name
-        for next_user in next_game_users:
-            try:
-                await context.bot.send_message(
-                    chat_id=next_user.user_id,
-                    text=f"A new Blackjack game has started in the group {group_name}!"
-                )
-            except Exception as e:
-                print(f"Failed to send message to {next_user.user_id}: {e}")
-
-
-        # 1. Notify users with notify_classic_blackjack_start=True
-        notified_users = await sync_to_async(list)(
-            UserSettings.objects.filter(notify_classic_blackjack_start=True)
-                                .select_related("player")
-        )
-
         if update.effective_chat.type in ["group", "supergroup"]:
-            for setting in notified_users:
-                user_id = setting.player.id
+
+            # Notify users who subscribed to the next game
+            next_game_users = await sync_to_async(list)(
+                NextGameNotification.objects.filter(chat_id=chat_id)
+            )
+
+            # Send a message to each user in their private chat, using the group's actual name
+            for next_user in next_game_users:
                 try:
-                    # Check if the user is still in the group
-                    member = await context.bot.get_chat_member(chat_id, user_id)
-                    if member.status not in ["left", "kicked"]:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=f"A new Blackjack game has started in the group {group_name}!"
-                        )
+                    await context.bot.send_message(
+                        chat_id=next_user.user_id,
+                        text=f"A new Blackjack game has started in the group {group_name}!"
+                    )
                 except Exception as e:
-                    print(f"❌ Failed to notify {user_id}: {e}")
+                    print(f"Failed to send message to {next_user.user_id}: {e}")
+
+
+            # 1. Notify users with notify_classic_blackjack_start=True
+            notified_users = await sync_to_async(list)(
+                UserSettings.objects.filter(notify_classic_blackjack_start=True)
+                                    .select_related("player")
+            )
+
+            for setting in notified_users:
+                    user_id = setting.player.id
+                    try:
+                        # Check if the user is still in the group
+                        member = await context.bot.get_chat_member(chat_id, user_id)
+                        if member.status not in ["left", "kicked"]:
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text=f"A new Blackjack game has started in the group {group_name}!"
+                            )
+                    except Exception as e:
+                        print(f"❌ Failed to notify {user_id}: {e}")
 
 
         # Optionally, clear the list after notifying
@@ -10428,7 +10428,11 @@ async def catch_buy_horse_number(update: Update, context: ContextTypes.DEFAULT_T
             "❌ Horse 1, 2, and 3 are reserved and cannot be purchased. ↩️ Run /horse again to pick a different number."
         )
         return
-    
+    if horse_number <= 1:
+        await update.message.reply_text(
+            "❌ Don't, just.... Don't. ↩️ Run /horse again to pick a different number."
+        )
+        return
     # 3) Check if already owned (any existing record for this number)
     exists = await sync_to_async(OwnedHorse.objects.filter)(horse_number=horse_number)
     if await sync_to_async(exists.exists)():

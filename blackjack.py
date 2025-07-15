@@ -7111,11 +7111,11 @@ async def spinrewards(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 RED_NUMS = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
-
-async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_amt,context):
+async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_number, bet_amt, context):
+    # brief pause before animation
     await asyncio.sleep(0.5)
 
-    # animation
+    # spinning animation
     for _ in range(2):
         spun = random.randint(0, 36)
         await bot.edit_message_text(
@@ -7126,65 +7126,70 @@ async def _roulette_sequence(bot, chat_id, message_id, user_id, bet_type, bet_am
         await asyncio.sleep(2.5)
 
     # final outcome
-    number = random.randint(0,36)
-    win = False
-    payout = 0
+    number = random.randint(0, 36)
+    win = (bet_number == number)
+    payout = bet_amt * 35 if win else 0
 
-    if bet_type.lower() in ("red","black"):
-        color = "red" if number in RED_NUMS else "black" if number != 0 else "green"
-        win = (color == bet_type.lower())
-        payout = bet_amt * 2 if win else 0
-    else:
-        try:
-            guess = int(bet_type)
-            if 0 <= guess <= 36 and guess == number:
-                win = True
-                payout = bet_amt * 35
-        except ValueError:
-            pass
-
+    # load & update player
     player = await sync_to_async(Player.objects.get)(id=user_id)
-    
-    
 
-    result_text = (
-        f"🛑 Landed on **{number}** "
-        f"({'🔴' if number in RED_NUMS else '⚫️' if number!=0 else '0️⃣'})\n"
-    )
+    # build result text
+    result_text = f"🛑 Landed on **{number}**\n"
     if win:
+        # apply any referral bonus first
         await apply_referral_bonus(player, payout, context)
-        player.chips += (payout)
+        player.chips += payout
         await sync_to_async(player.save)()
         result_text += f"🎉 You win {payout} chips!"
     else:
-        player.chips -= (bet_amt)
-        await sync_to_async(player.save)()  
+        player.chips -= bet_amt
+        await sync_to_async(player.save)()
         result_text += f"😢 You lose {bet_amt} chips."
-    await asyncio.sleep(1)
 
+    # pause then edit with final result
+    await asyncio.sleep(1)
     await bot.edit_message_text(
-    chat_id=chat_id,
-    message_id=message_id,
-    text=result_text,
-    parse_mode="Markdown"
-)
+        chat_id=chat_id,
+        message_id=message_id,
+        text=result_text,
+        parse_mode="Markdown"
+    )
 
 
 async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # small delay for UX
     await asyncio.sleep(1)
+
     if not await check_player(update, context):
         return
+
     args = context.args
     if len(args) != 2:
-        return await update.message.reply_text("Usage: /roulette <red|black|0-36> <bet>")
-    bet_type, bet_amt = args[0], int(args[1])
+        return await update.message.reply_text("Usage: /roulette <0-36> <bet>")
+
+    bet_str, bet_amt_str = args
+
+    # validate number
+    if not bet_str.isdigit() or not (0 <= int(bet_str) <= 36):
+        return await update.message.reply_text("❌ Invalid number. Please choose 0–36.")
+    bet_number = int(bet_str)
+
+    # validate amount
+    try:
+        bet_amt = int(bet_amt_str)
+    except ValueError:
+        return await update.message.reply_text("❌ Invalid bet amount. It must be an integer.")
+
     if not await validate_bet_amount(update, bet_amt):
         return
+
+    # check player balance
     user_id = update.effective_user.id
     player = await sync_to_async(Player.objects.get)(id=user_id)
     if player.chips < bet_amt:
         return await update.message.reply_text("❌ Not enough chips.")
 
+    # start the animation & resolution in the background
     msg = await update.message.reply_text("🎲 Starting roulette…")
     asyncio.create_task(
         _roulette_sequence(
@@ -7192,11 +7197,12 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update.effective_chat.id,
             msg.message_id,
             user_id,
-            bet_type,
+            bet_number,
             bet_amt,
             context
         )
     )
+
 
 
 

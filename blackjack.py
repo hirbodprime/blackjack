@@ -184,7 +184,7 @@ def build_main_menu():
             InlineKeyboardButton("✨ Events", callback_data="menu:tournaments"),
             InlineKeyboardButton("📦 Items",    callback_data="menu:items"),],
         [
-        InlineKeyboardButton("🎁 Mystery Boxes",    callback_data="shop:mystery_box"),
+        # InlineKeyboardButton("🎁 Mystery Boxes",    callback_data="shop:mystery_box"),
         
         ],
         [

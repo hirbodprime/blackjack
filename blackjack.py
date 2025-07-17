@@ -2733,17 +2733,17 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         if player.last_claimed_tokens and player.last_claimed_tokens.date() == now.date():
             await query.edit_message_text(
-                "✨ You’ve already claimed your 50 XP today! Come back tomorrow.",
+                "✨ You’ve already claimed your 10 XP today! Come back tomorrow.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]])
             )
             return
 
-        await add_xp(player, 50, context)
+        await add_xp(player, 10, context)
         player.last_claimed_tokens = now
         await sync_to_async(player.save)()
 
         await query.edit_message_text(
-            f"✅ You claimed +50 XP. Keep it up!",
+            f"✅ You claimed +10 XP. Keep it up!",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu:quests")]])
         )
         return
@@ -10866,7 +10866,7 @@ app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_cha
 app.add_handler(CommandHandler("roulette", roulette))
 app.add_handler(CommandHandler("sync_groups", sync_group_names))
 
-app.add_handler(CommandHandler("spin", spin))
+# app.add_handler(CommandHandler("spin", spin))
 app.add_handler(CommandHandler("givechips", give_chips))
 
 app.add_handler(CommandHandler("broadcast", broadcast))
@@ -10884,7 +10884,7 @@ app.add_handler(CommandHandler("daily_token", claim_daily_tokens))
 app.add_handler(CommandHandler("leaderboard", leaderboard))
 app.add_handler(CommandHandler("group", group))
 
-app.add_handler(CommandHandler("spinrewards", spinrewards))
+# app.add_handler(CommandHandler("spinrewards", spinrewards))
 
 app.add_handler(photo_handler)
 app.add_handler(CommandHandler("user_id", get_user_id_command))

@@ -1534,6 +1534,7 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     data    = query.data                       # E.g. "shop:double_xp_potion"
     user_id = query.from_user.id
     # ── If the user tapped “📦 Items” (or any items:… callback), redirect here ──
+    print(data)
     if data in ("menu:items", "menu:boosters")  or data.startswith("items:"):
         # We assume handle_items_callback(...) is already defined elsewhere
         await handle_items_callback(update, context)

@@ -1534,14 +1534,9 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     data    = query.data                       # E.g. "shop:double_xp_potion"
     user_id = query.from_user.id
     # ── If the user tapped “📦 Items” (or any items:… callback), redirect here ──
-    
-    if data in ("menu:items", "menu:boosters")  or data.startswith("items:"):
+    if data in ("menu:items", "menu:boosters") or data.startswith("items:"):
         # We assume handle_items_callback(...) is already defined elsewhere
         await handle_items_callback(update, context)
-        return True
-    
-    if data in ("menu:settings",):
-        await handle_menu_callback(update,context)
         return True
     if data.startswith("menu:buy_sale:"):
         # We assume handle_items_callback(...) is already defined elsewhere
@@ -1924,13 +1919,16 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await query.answer()
 # Inside your handle_menu_callback(...) function:
-    if data != "menu:settings":
-        handled = await handle_shop_callback(update, context)
-        if handled:
-            return
-    # handled = await handle_shop_callback(update, context)
-    # if handled:
-    #     return
+    handled = await handle_shop_callback(update, context)
+    if handled:
+        return
+    if data == "menu:settings":
+        await query.edit_message_text(
+            text="⚙️ *Settings* ⚙️\n\nChoose an option below:",
+            parse_mode="Markdown",
+            reply_markup=build_settings_menu()  # You need to implement this function
+        )
+        return
     if data == "settings:notifications":
         user_id = query.from_user.id
 

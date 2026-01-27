@@ -59,7 +59,7 @@ class Game(models.Model):
     bet_phase = models.CharField(choices=BET_PHASE_CHOICES, max_length=50,default="total_pot")  # Time when join period starts
     dealer_bet_timer = models.IntegerField(default=30)
     poll_id = models.CharField(max_length=100, null=True, blank=True)
-    is_round_starting = models.BooleanField(default=False)
+    # is_round_starting = models.BooleanField(default=False)
 
 # class GroupSettings(models.Model):
 #     group = models.OneToOneField("Group", on_delete=models.CASCADE, related_name="settings")

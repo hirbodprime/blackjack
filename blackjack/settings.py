@@ -180,7 +180,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-STATIC_ROOT = '../blackjack/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 #production
 # STATIC_URL = '/blackjack/static/'
 # STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # or absolute path

@@ -24,7 +24,8 @@ load_dotenv()
 SECRET_KEY = 'django-insecure-p!y0x5c_z%-44hxy%g_rgdu=e=9q$^1u6g!=01go5(adawz%yw'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DEBUG")
+DEBUG = os.getenv("DEBUG", "False")  # default
+
 if DEBUG == "True":
     ALLOWED_HOSTS = []
     CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1', 'http://localhost']
@@ -32,8 +33,8 @@ if DEBUG == "True":
     SESSION_COOKIE_SECURE = False
     CSRF_COOKIE_SECURE = False
 elif DEBUG == "False":
-    ALLOWED_HOSTS = ["hirbots.com","www.hirbots.com"]
-    CSRF_TRUSTED_ORIGINS = ["https://hirbots.com","https://www.hirbots.com"]
+    ALLOWED_HOSTS = ["fuckthemullahs.space","www.fuckthemullahs.space"]
+    CSRF_TRUSTED_ORIGINS = ["https://fuckthemullahs.space","https://www.fuckthemullahs.space"]
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True

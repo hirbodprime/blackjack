@@ -10798,7 +10798,7 @@ async def handle_stale_polls_and_reschedule(context, timeout=60):
 
 
 
-DEBUG = os.getenv("DEBUG")
+DEBUG = os.getenv("DEBUG", "False")  # default
 if DEBUG == "True":
     app = ApplicationBuilder().token("7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q").concurrent_updates(True).build()
 elif DEBUG == "False":

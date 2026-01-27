@@ -37,7 +37,7 @@ from game.models import HorseRace, HorseBet, Player
 
 from datetime import datetime, timedelta
 from django.utils import timezone
-from lang import t
+# from lang import t
 load_dotenv()
 from asgiref.sync import sync_to_async
 

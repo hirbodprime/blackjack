@@ -21,7 +21,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-    path('xpcal/', process_game_results),
+    path('xpcal/', process_game_results, name='process-game-results'),
     path('admin/', admin.site.urls),
-    # path('game/',include('game.urls'))
+    path('game/', include('game.urls')),
 ]+ static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

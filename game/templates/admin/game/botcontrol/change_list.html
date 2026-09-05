@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+
+{% block content %}
+<div class="row" style="margin-bottom: 1rem;">
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Active games</strong><br>{{ operations.active_games }}</div></div></div>
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Active players</strong><br>{{ operations.active_players }}</div></div></div>
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Active races</strong><br>{{ operations.active_races }}</div></div></div>
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Active crash games</strong><br>{{ operations.active_crash_games }}</div></div></div>
+</div>
+{{ block.super }}
+{% endblock %}

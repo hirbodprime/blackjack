@@ -1,16 +1,10 @@
-# lang.py
+"""Backward-compatible translation entry point.
 
-LANG = {
-    "welcome": {
-        "en": "Welcome to the game!",
-        "fa": "به بازی خوش آمدید!",
-    },
-    "settings": {
-        "en": "Settings",
-        "fa": "تنظیمات",
-    },
-    # Add more keys here...
-}
+New code should import :func:`game.i18n.translate` directly.
+"""
 
-def t(key, lang="en"):
-    return LANG.get(key, {}).get(lang, LANG.get(key, {}).get("en", key))
+from game.i18n import translate
+
+
+def t(key, lang="en", **values):
+    return translate(key, lang, **values)

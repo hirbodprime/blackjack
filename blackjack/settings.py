@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 from pathlib import Path
 from dotenv import load_dotenv
 import os
+import json
+from django.core.exceptions import ImproperlyConfigured
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -21,27 +23,55 @@ load_dotenv()
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-p!y0x5c_z%-44hxy%g_rgdu=e=9q$^1u6g!=01go5(adawz%yw'
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY must be set in the environment.")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DEBUG")
-if DEBUG == "True":
+DEBUG = os.getenv("DEBUG", "False").strip().lower() in {"1", "true", "yes", "on"}
+APP_ENV = os.getenv("APP_ENV", "test" if DEBUG else "production").strip().lower()
+if APP_ENV not in {"development", "test", "production"}:
+    raise ImproperlyConfigured("APP_ENV must be development, test, or production.")
+if DEBUG:
     ALLOWED_HOSTS = []
     CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1', 'http://localhost']
     SECURE_SSL_REDIRECT = False
     SESSION_COOKIE_SECURE = False
     CSRF_COOKIE_SECURE = False
-elif DEBUG == "False":
-    ALLOWED_HOSTS = ["hirbots.com","www.hirbots.com"]
-    CSRF_TRUSTED_ORIGINS = ["https://hirbots.com","https://www.hirbots.com"]
+else:
+    ALLOWED_HOSTS = [
+        value.strip() for value in os.getenv(
+            "DJANGO_ALLOWED_HOSTS", "hirbots.com,www.hirbots.com"
+        ).split(",") if value.strip()
+    ]
+    CSRF_TRUSTED_ORIGINS = [
+        value.strip() for value in os.getenv(
+            "DJANGO_CSRF_TRUSTED_ORIGINS", "https://hirbots.com,https://www.hirbots.com"
+        ).split(",") if value.strip()
+    ]
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-if DEBUG == "True":
-    TELEGRAM_BOT_TOKEN="7094966045:AAEbis5HH6W20Gg1vvziCmc0f9imO2FQ47Q"
-else:
-    TELEGRAM_BOT_TOKEN="7041648826:AAFMkq1-fX740ZTT3OVbPowzbzJooMCi118"
+TELEGRAM_BOT_TOKEN = os.getenv(
+    "TELEGRAM_TEST_BOT_TOKEN" if DEBUG else "TELEGRAM_BOT_TOKEN"
+)
+SUSPICIOUS_TRANSACTION_AMOUNT = int(os.getenv("SUSPICIOUS_TRANSACTION_AMOUNT", "1000000"))
+SUSPICIOUS_TRANSACTION_BURST = int(os.getenv("SUSPICIOUS_TRANSACTION_BURST", "20"))
+try:
+    EXPECTED_PAYOUT_RATES = json.loads(
+        os.getenv(
+            "EXPECTED_PAYOUT_RATES",
+            '{"slot":83.33,"coin":95.0,"draw":95.38,"rps":96.67,'
+            '"double":95.0,"dice":66.67,"roulette":97.3,"horse_race":95.0}',
+        )
+    )
+except json.JSONDecodeError as exc:
+    raise ImproperlyConfigured("EXPECTED_PAYOUT_RATES must be valid JSON.") from exc
 # Secure session and CSRF cookies (only sent over HTTPS)
 
 # Application definition
@@ -58,7 +88,6 @@ INSTALLED_APPS = [
     'game','rest_framework',
     
 ]
-CORS_ALLOW_ALL_ORIGINS = True   
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -135,10 +164,16 @@ WSGI_APPLICATION = 'blackjack.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+default_database_path = BASE_DIR / (
+    "db.test.sqlite3" if APP_ENV == "test" else "db.sqlite3"
+)
+database_path = os.getenv("DJANGO_DB_PATH", str(default_database_path))
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': database_path,
+        'OPTIONS': {'timeout': 20},
+        'TEST': {'NAME': None},
     }
 }
 
@@ -179,15 +214,53 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-STATIC_ROOT = '../blackjack/static/'
+STATIC_ROOT = os.getenv("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles"))
 #production
 # STATIC_URL = '/blackjack/static/'
 # STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # or absolute path
 
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = '../blackjack/media/'
+MEDIA_ROOT = os.getenv("DJANGO_MEDIA_ROOT", str(BASE_DIR / "media"))
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework.authentication.SessionAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAdminUser",
+    ),
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "user": os.getenv("API_USER_RATE", "120/minute"),
+        "anon": os.getenv("API_ANON_RATE", "10/minute"),
+    },
+}
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "structured": {
+            "()": "game.logging.JsonFormatter",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "structured",
+        },
+    },
+    "loggers": {
+        "blackjack": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "game": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "telegram": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+    },
+}

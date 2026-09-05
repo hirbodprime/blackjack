@@ -2,15 +2,16 @@
 __pycache__/
 *.py[cod]
 
-# Django migrations
-migrations/
-
 # Virtual environment
 venv/
+.venv/
 .env
 
 # Log files
 *.log
+nohup.out
+*.session
+git.zip
 
 # IDE/editor configuration files
 .vscode/

@@ -1,0 +1,36 @@
+{% extends "admin/change_list.html" %}
+
+{% block content %}
+<div class="row" style="margin-bottom: 1rem;">
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Total supply</strong><br>{{ economy.total_supply|floatformat:0 }}</div></div></div>
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Created (24h)</strong><br>{{ economy.created_24h|floatformat:0 }}</div></div></div>
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Destroyed (24h)</strong><br>{{ economy.destroyed_24h|floatformat:0 }}</div></div></div>
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Net inflation (24h)</strong><br>{{ economy.net_24h|floatformat:0 }}</div></div></div>
+</div>
+<div class="row" style="margin-bottom: 1rem;">
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Ledger entries (24h)</strong><br>{{ economy.entries_24h }}</div></div></div>
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Average balance</strong><br>{{ economy.average_balance|floatformat:0 }}</div></div></div>
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Median balance</strong><br>{{ analytics.median_balance|floatformat:0 }}</div></div></div>
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Outstanding loans</strong><br>{{ economy.outstanding_loans|floatformat:0 }}</div></div></div>
+  <div class="col-sm-3"><div class="card"><div class="card-body"><strong>Dealer win rate (%)</strong><br>{{ analytics.dealer_win_rate|default_if_none:"No results" }}</div></div></div>
+</div>
+<div class="row" style="margin-bottom: 1rem;">
+  <div class="col-sm-6"><div class="card"><div class="card-body">
+    <strong>Game/economy flows (all ledger history)</strong>
+    <table class="table table-sm"><thead><tr><th>Type</th><th>Transactions</th><th>Player net</th><th>Casino net</th><th>Actual %</th><th>Expected %</th><th>Variance</th></tr></thead><tbody>
+    {% for row in analytics.game_flows %}<tr><td>{{ row.game_type }}</td><td>{{ row.transactions }}</td><td>{{ row.net_player_change }}</td><td>{{ row.casino_profit }}</td><td>{{ row.actual_payout_rate|default_if_none:"N/A" }}</td><td>{{ row.expected_payout_rate|default_if_none:"Not configured" }}</td><td>{{ row.payout_variance|default_if_none:"N/A" }}</td></tr>{% empty %}<tr><td colspan="7">No ledger data</td></tr>{% endfor %}
+    </tbody></table>
+  </div></div></div>
+  <div class="col-sm-6"><div class="card"><div class="card-body">
+    <strong>Item inventory ({{ analytics.active_items }} currently active)</strong>
+    <table class="table table-sm"><thead><tr><th>Item</th><th>Owners</th><th>Unused quantity</th></tr></thead><tbody>
+    {% for row in analytics.item_inventory %}<tr><td>{{ row.item_type }}</td><td>{{ row.owners }}</td><td>{{ row.quantity }}</td></tr>{% empty %}<tr><td colspan="3">No items</td></tr>{% endfor %}
+    </tbody></table>
+  </div></div></div>
+</div>
+<div class="row" style="margin-bottom: 1rem;">
+  <div class="col-sm-6"><div class="card"><div class="card-body"><strong>Largest credits</strong><ol>{% for row in analytics.largest_wins %}<li>{{ row.player__name }}: +{{ row.amount }} ({{ row.category }})</li>{% empty %}<li>None</li>{% endfor %}</ol></div></div></div>
+  <div class="col-sm-6"><div class="card"><div class="card-body"><strong>Largest debits</strong><ol>{% for row in analytics.largest_losses %}<li>{{ row.player__name }}: {{ row.amount }} ({{ row.category }})</li>{% empty %}<li>None</li>{% endfor %}</ol></div></div></div>
+</div>
+{{ block.super }}
+{% endblock %}

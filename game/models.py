@@ -63,7 +63,7 @@ class Game(models.Model):
 
 # class GroupSettings(models.Model):
 #     group = models.OneToOneField("Group", on_delete=models.CASCADE, related_name="settings")
-    
+
 #     LANGUAGE_CHOICES = [
 #         ("en", "English"),
 #         ("fa", "فارسی"),
@@ -76,8 +76,13 @@ class Game(models.Model):
 
 
 class Group(models.Model):
+    class Language(models.TextChoices):
+        ENGLISH = "en", "English"
+        PERSIAN = "fa", "فارسی"
+
     group_chat_id = models.CharField(max_length=100)
     group_name = models.CharField(max_length=255, null=True, blank=True)  # New field for the group's name
+    language = models.CharField(max_length=2, choices=Language.choices, default=Language.ENGLISH)
     games = models.IntegerField(default=0)
     vip = models.BooleanField(default=False)
     real_money = models.BooleanField(default=False)
@@ -106,6 +111,10 @@ class HorseSale(models.Model):
 
 
 class UserSettings(models.Model):
+    class Language(models.TextChoices):
+        ENGLISH = "en", "English"
+        PERSIAN = "fa", "فارسی"
+
     player = models.OneToOneField("Player", on_delete=models.CASCADE, related_name="settings")
 
     notify_classic_blackjack_start = models.BooleanField(default=True)
@@ -115,6 +124,15 @@ class UserSettings(models.Model):
     daily_token_reminder_enabled = models.BooleanField(default=True)
     daily_dart_reminder = models.BooleanField(default=True)
     notify_high_roller_blackjack_start = models.BooleanField(default=True)
+    notify_tournaments = models.BooleanField(default=True)
+    notify_quests = models.BooleanField(default=True)
+    notify_marketplace = models.BooleanField(default=True)
+    language = models.CharField(max_length=2, choices=Language.choices, default=Language.ENGLISH)
+    compact_mode = models.BooleanField(default=False)
+    onboarding_complete = models.BooleanField(
+        default=True,
+        help_text="Existing accounts remain complete; new accounts explicitly enter onboarding.",
+    )
     def __str__(self):
         return f"Settings for {self.player}"
 # await update_daily_quest_progress(player_obj, "race", "win", 1, context)
@@ -174,6 +192,33 @@ class QuestHistory(models.Model):
 
     def __str__(self):
         return f"{self.player.name} completed {self.quest_type} quest on {self.date_completed.date()}"
+
+
+class WeeklyMission(models.Model):
+    quest_type = models.CharField(max_length=50, choices=DailyQuest.QUEST_TYPES)
+    description = models.TextField()
+    target = models.PositiveIntegerField()
+    reward_xp = models.PositiveIntegerField(default=0)
+    reward_chips = models.PositiveIntegerField(default=0)
+    week_start = models.DateField(default=timezone.now, db_index=True)
+    subtype = models.CharField(max_length=50, blank=True, null=True)
+    available = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.description} ({self.week_start})"
+
+
+class PlayerWeeklyMissionProgress(models.Model):
+    player = models.ForeignKey("Player", on_delete=models.CASCADE, related_name="weekly_mission_progress")
+    mission = models.ForeignKey(WeeklyMission, on_delete=models.CASCADE, related_name="progresses")
+    progress = models.PositiveIntegerField(default=0)
+    completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("player", "mission"), name="unique_player_weekly_mission")
+        ]
 
 
 
@@ -259,6 +304,8 @@ class Player(models.Model):
     level = models.IntegerField(default=1)  # Add Level field
     loan = models.IntegerField(default=0)  # New field to track player's loan
     last_spin = models.DateField(null=True, blank=True)
+    is_frozen = models.BooleanField(default=False)
+    freeze_reason = models.CharField(max_length=255, blank=True)
     referrer = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="referred_friends"
     )
@@ -280,6 +327,103 @@ class Player(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.id}) – code={self.referral_code}"
+
+
+class ChipTransaction(models.Model):
+    class Category(models.TextChoices):
+        BET = "bet", "Bet placed"
+        REFUND = "refund", "Bet refunded"
+        BLACKJACK_PAYOUT = "blackjack_payout", "Blackjack payout"
+        POKER_BUY_IN = "poker_buy_in", "Poker buy-in"
+        POKER_CASH_OUT = "poker_cash_out", "Poker cash-out"
+        RACE_PAYOUT = "race_payout", "Race payout"
+        MINIGAME_PAYOUT = "minigame_payout", "Minigame payout"
+        DAILY_REWARD = "daily_reward", "Daily reward"
+        QUEST_REWARD = "quest_reward", "Quest reward"
+        REFERRAL_REWARD = "referral_reward", "Referral reward"
+        ITEM_PURCHASE = "item_purchase", "Item purchase"
+        HORSE_PURCHASE = "horse_purchase", "Horse purchase"
+        LOAN = "loan", "Loan"
+        LOAN_REPAYMENT = "loan_repayment", "Loan repayment"
+        TRANSFER = "transfer", "Player transfer"
+        ADMIN_ADJUSTMENT = "admin_adjustment", "Admin adjustment"
+        LEVEL_REWARD = "level_reward", "Level reward"
+        OTHER = "other", "Other"
+
+    player = models.ForeignKey(
+        Player,
+        on_delete=models.PROTECT,
+        related_name="chip_transactions",
+    )
+    amount = models.BigIntegerField(help_text="Signed balance change")
+    balance_before = models.BigIntegerField()
+    balance_after = models.BigIntegerField()
+    category = models.CharField(max_length=32, choices=Category.choices)
+    description = models.CharField(max_length=255, blank=True)
+    reference_type = models.CharField(max_length=50, blank=True)
+    reference_id = models.CharField(max_length=100, blank=True)
+    idempotency_key = models.CharField(
+        max_length=150,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text="Prevents a retry from applying the same balance change twice.",
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        indexes = [
+            models.Index(fields=("player", "created_at"), name="chip_tx_player_time"),
+            models.Index(fields=("category", "created_at"), name="chip_tx_category_time"),
+        ]
+
+    def __str__(self):
+        return f"{self.player_id}: {self.amount:+,} ({self.category})"
+
+
+class BotControl(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    maintenance_mode = models.BooleanField(default=False)
+    betting_paused = models.BooleanField(default=False)
+    broadcasts_muted = models.BooleanField(default=False)
+    maintenance_message = models.CharField(
+        max_length=255,
+        default="The bot is undergoing maintenance. Please try again shortly.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return "Bot operational controls"
+
+    class Meta:
+        verbose_name = "Bot Control"
+        verbose_name_plural = "Bot Controls"
+
+
+class OperationalEvent(models.Model):
+    class Severity(models.TextChoices):
+        INFO = "info", "Info"
+        WARNING = "warning", "Warning"
+        ERROR = "error", "Error"
+        CRITICAL = "critical", "Critical"
+
+    severity = models.CharField(max_length=10, choices=Severity.choices, db_index=True)
+    category = models.CharField(max_length=50, db_index=True)
+    message = models.TextField()
+    chat_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    game_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    context = models.JSONField(default=dict, blank=True)
+    resolved = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+    def __str__(self):
+        return f"[{self.severity}] {self.category}: {self.message[:80]}"
 
 
 class ReferralEarning(models.Model):
@@ -320,6 +464,8 @@ class JoinGame(models.Model):
     hand = models.JSONField(default=list)
     has_stood = models.BooleanField(default=False)
     last_action_time = models.DateTimeField(null=True, blank=True)
+    consecutive_timeouts = models.PositiveSmallIntegerField(default=0)
+    turn_token = models.CharField(max_length=36, blank=True)
 
 # New model for tracking round winners
 class RoundWinner(models.Model):
@@ -334,6 +480,8 @@ class RoundWinner(models.Model):
 class HorseRace(models.Model):
     chat_id = models.BigIntegerField()
     race_started = models.BooleanField(default=False)
+    completed = models.BooleanField(default=False, db_index=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
     race_distance = models.IntegerField(default=20)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -365,7 +513,7 @@ class OwnedHorse(models.Model):
 class HorseRaceWin(models.Model):
     race = models.ForeignKey(
         "HorseRace",
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="wins"
     )
     # If user is NULL, that indicates the dealer took the pot
@@ -464,6 +612,50 @@ class PlayerItem(models.Model):
         return f"{self.player.name} owns {self.quantity} × {self.get_item_type_display()}"
 
 
+class ItemListing(models.Model):
+    seller = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="item_listings")
+    item_type = models.CharField(max_length=32, choices=ITEM_TYPE_CHOICES)
+    quantity = models.PositiveIntegerField()
+    price = models.PositiveIntegerField(help_text="Total listing price in chips")
+    active = models.BooleanField(default=True, db_index=True)
+    listed_at = models.DateTimeField(auto_now_add=True)
+    buyer = models.ForeignKey(Player, null=True, blank=True, on_delete=models.SET_NULL, related_name="item_purchases")
+    sold_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.quantity}× {self.item_type} for {self.price:,}"
+
+
+class FriendChallenge(models.Model):
+    class Mode(models.TextChoices):
+        BLACKJACK = "blackjack", "Blackjack"
+        DICE = "dice", "Dice"
+        RPS = "rps", "Rock Paper Scissors"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACTIVE = "active", "Active"
+        COMPLETED = "completed", "Completed"
+        DECLINED = "declined", "Declined"
+        CANCELLED = "cancelled", "Cancelled"
+
+    challenger = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="challenges_sent")
+    opponent = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="challenges_received")
+    mode = models.CharField(max_length=12, choices=Mode.choices)
+    stake = models.PositiveIntegerField()
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING, db_index=True)
+    challenger_score = models.PositiveSmallIntegerField(default=0)
+    opponent_score = models.PositiveSmallIntegerField(default=0)
+    round_number = models.PositiveSmallIntegerField(default=1)
+    round_state = models.JSONField(default=dict, blank=True)
+    winner = models.ForeignKey(Player, null=True, blank=True, on_delete=models.SET_NULL, related_name="challenges_won")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.challenger} vs {self.opponent} ({self.mode})"
+
+
 # ─── Items currently active/equipped by a player (one‐time or “in‐effect”) ─────
 class PlayerActiveItem(models.Model):
     player = models.ForeignKey(
@@ -481,4 +673,109 @@ class PlayerActiveItem(models.Model):
     def __str__(self):
         status = "active" if self.is_active else "used"
         return f"{self.player.name} → {self.get_item_type_display()} ({status})"
-    
+
+
+class PokerTable(models.Model):
+    class Status(models.TextChoices):
+        LOBBY = "lobby", "Lobby"
+        PLAYING = "playing", "Hand in progress"
+        BETWEEN_HANDS = "between", "Between hands"
+        CLOSED = "closed", "Closed"
+
+    chat_id = models.BigIntegerField(db_index=True)
+    host = models.ForeignKey(Player, on_delete=models.PROTECT, related_name="poker_tables_hosted")
+    buy_in = models.PositiveIntegerField()
+    small_blind = models.PositiveIntegerField()
+    max_players = models.PositiveSmallIntegerField(default=8)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.LOBBY, db_index=True)
+    dealer_seat = models.SmallIntegerField(default=-1)
+    message_id = models.BigIntegerField(null=True, blank=True)
+    hand_number = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("chat_id",),
+                condition=~models.Q(status="closed"),
+                name="unique_active_poker_table_per_chat",
+            )
+        ]
+
+    def __str__(self):
+        return f"Poker table #{self.pk} in {self.chat_id}"
+
+
+class PokerSeat(models.Model):
+    table = models.ForeignKey(PokerTable, on_delete=models.CASCADE, related_name="seats")
+    player = models.ForeignKey(Player, null=True, blank=True, on_delete=models.PROTECT, related_name="poker_seats")
+    is_bot = models.BooleanField(default=False)
+    bot_name = models.CharField(max_length=40, blank=True)
+    bot_style = models.CharField(
+        max_length=12,
+        choices=(("cautious", "Cautious"), ("balanced", "Balanced"), ("aggressive", "Aggressive"), ("wild", "Wild")),
+        blank=True,
+    )
+    seat_number = models.PositiveSmallIntegerField()
+    stack = models.PositiveIntegerField()
+    hole_cards = models.JSONField(default=list, blank=True)
+    committed_round = models.PositiveIntegerField(default=0)
+    committed_hand = models.PositiveIntegerField(default=0)
+    folded = models.BooleanField(default=False)
+    all_in = models.BooleanField(default=False)
+    acted = models.BooleanField(default=False)
+    consecutive_timeouts = models.PositiveSmallIntegerField(default=0)
+    leave_after_hand = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("table", "player"), name="unique_poker_table_player"),
+            models.UniqueConstraint(fields=("table", "seat_number"), name="unique_poker_table_seat"),
+        ]
+        ordering = ("seat_number",)
+
+    def __str__(self):
+        name = self.bot_name if self.is_bot else self.player.name
+        return f"{name} at table {self.table_id} seat {self.seat_number}"
+
+
+class PokerHand(models.Model):
+    class Phase(models.TextChoices):
+        PREFLOP = "preflop", "Pre-flop"
+        FLOP = "flop", "Flop"
+        TURN = "turn", "Turn"
+        RIVER = "river", "River"
+        COMPLETE = "complete", "Complete"
+
+    table = models.ForeignKey(PokerTable, on_delete=models.CASCADE, related_name="hands")
+    number = models.PositiveIntegerField()
+    phase = models.CharField(max_length=10, choices=Phase.choices, default=Phase.PREFLOP)
+    deck = models.JSONField(default=list)
+    community_cards = models.JSONField(default=list)
+    pot = models.PositiveIntegerField(default=0)
+    current_bet = models.PositiveIntegerField(default=0)
+    min_raise = models.PositiveIntegerField(default=0)
+    current_seat = models.SmallIntegerField(null=True, blank=True)
+    action_token = models.CharField(max_length=36, blank=True)
+    summary = models.TextField(blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("table", "number"), name="unique_poker_table_hand")
+        ]
+        ordering = ("-number",)
+
+    def __str__(self):
+        return f"Poker hand {self.table_id}/{self.number} ({self.phase})"
+
+
+class RPSBotProfile(models.Model):
+    player = models.OneToOneField(Player, on_delete=models.CASCADE, related_name="rps_bot_profile")
+    recent_choices = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"RPS memory for {self.player}"

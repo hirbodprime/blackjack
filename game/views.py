@@ -1,47 +1,25 @@
 from django.shortcuts import get_object_or_404
 from .models import Player, Stats, PlayerAchievement
 from django.http import HttpResponse
+from django.contrib.admin.views.decorators import staff_member_required
+from django.views.decorators.http import require_POST
+from .services.progression import award_xp, deduct_xp_amount, xp_for_level
 
 def calculate_xp_for_next_level(level):
-    return level * 50  # XP required for each level increases by 50
+    return xp_for_level(level)
 
 
 def check_level_up(player):
-    leveled_up = False
-    while True:
-        next_level_xp = calculate_xp_for_next_level(player.level)
-        
-        if player.xp >= next_level_xp:
-            player.xp -= next_level_xp
-            player.level += 1
-            # Reward the player with 50 chips per level
-            chips_reward = player.level * 50
-            player.chips += chips_reward
-
-            # Save player data and mark as leveled up
-            player.save()
-            leveled_up = True
-        else:
-            break
-
-    return leveled_up
+    return award_xp(player, 0).level_changed
 
 def update_player_xp(player, amount):
-    player.xp += amount
-    leveled_up = check_level_up(player)
-    return leveled_up
+    return award_xp(player, amount).level_changed
 
 def deduct_player_xp(player, amount):
     """
     Function to deduct XP and handle leveling down if necessary.
     """
-    player.xp -= amount
-    while player.xp < 0 and player.level > 1:
-        # Level down the player
-        player.level -= 1
-        player.xp += calculate_xp_for_next_level(player.level)
-    
-    player.save()
+    deduct_xp_amount(player, amount)
 
 # Function to reset XP for all players at the start
 def reset_all_player_xp():
@@ -52,6 +30,8 @@ def reset_all_player_xp():
         player.save()
 
 # Function to process all player stats and update XP accordingly
+@staff_member_required
+@require_POST
 def process_game_results(request):
     # Reset XP for all players at the start of the game processing
     reset_all_player_xp()

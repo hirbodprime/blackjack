@@ -1,10 +1,56 @@
 from django.db.models.signals import pre_save,post_save
 from django.dispatch import receiver
-from .models import DailyQuest, PlayerDailyQuestProgress, QuestHistory,GameParameter, UserSettings, Player
+from .models import (
+    BotControl,
+    ChipTransaction,
+    DailyQuest,
+    GameParameter,
+    OperationalEvent,
+    Player,
+    PlayerDailyQuestProgress,
+    QuestHistory,
+    UserSettings,
+)
 
 from django.conf import settings
 import asyncio
+import logging
+from datetime import timedelta
 from telegram import Bot
+from django.utils import timezone
+
+logger = logging.getLogger("game.signals")
+
+
+@receiver(post_save, sender=ChipTransaction)
+def flag_suspicious_transaction(sender, instance, created, **kwargs):
+    if not created:
+        return
+    amount_threshold = getattr(settings, "SUSPICIOUS_TRANSACTION_AMOUNT", 1_000_000)
+    burst_threshold = getattr(settings, "SUSPICIOUS_TRANSACTION_BURST", 20)
+    reasons = []
+    if abs(instance.amount) >= amount_threshold:
+        reasons.append("large_amount")
+    recent_count = ChipTransaction.objects.filter(
+        player_id=instance.player_id,
+        created_at__gte=timezone.now() - timedelta(minutes=1),
+    ).count()
+    if recent_count == burst_threshold:
+        reasons.append("transaction_burst")
+    if reasons:
+        OperationalEvent.objects.create(
+            severity=OperationalEvent.Severity.WARNING,
+            category="suspicious_economy",
+            message="Potentially suspicious chip activity detected.",
+            player_id=instance.player_id,
+            context={
+                "transaction_id": instance.pk,
+                "amount": instance.amount,
+                "category": instance.category,
+                "reasons": reasons,
+                "transactions_last_minute": recent_count,
+            },
+        )
 
 @receiver(pre_save, sender=DailyQuest)
 def handle_quest_change(sender, instance, **kwargs):
@@ -41,6 +87,10 @@ def handle_quest_change(sender, instance, **kwargs):
 def notify_game_parameter_events(sender, instance, created, **kwargs):
     if created:
         return  # Don't notify on initial creation
+    control = BotControl.objects.filter(pk=1).first()
+    if control and control.broadcasts_muted:
+        logger.info("Event broadcast skipped because broadcasts are muted")
+        return
 
     # Avoid circular import
 
@@ -89,4 +139,16 @@ async def send_event_notifications(messages):
                 text=f"📣 New Event Update!\n\n{full_message}"
             )
         except Exception as e:
-            print(f"[Event Notify Error] Could not notify {user_setting.player.id}: {e}")
+            logger.warning(
+                "Event notification failed",
+                exc_info=True,
+                extra={"player_id": user_setting.player.id},
+            )
+            await asyncio.to_thread(
+                OperationalEvent.objects.create,
+                severity=OperationalEvent.Severity.WARNING,
+                category="telegram_send_failure",
+                message=str(e)[:4000],
+                player_id=user_setting.player.id,
+                context={"message_type": "event_broadcast"},
+            )

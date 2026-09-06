@@ -74,6 +74,18 @@ def _is_chat_member(chat_id: int, user_id: int) -> bool:
 
 
 @require_GET
+def casino_home(request):
+    response = render(request, "casino/home.html")
+    response["Cache-Control"] = "public, max-age=300"
+    response["Content-Security-Policy"] = (
+        "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' https://bigpapagames.com; "
+        "connect-src 'none'; frame-ancestors 'none';"
+    )
+    return response
+
+
+@require_GET
 @xframe_options_exempt
 def roulette_app(request):
     response = render(request, "casino/roulette.html")

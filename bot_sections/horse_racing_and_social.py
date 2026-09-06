@@ -26,6 +26,10 @@ async def horserace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     group_name = update.effective_chat.title or "a group"  # fallback if no title
     language = await sync_to_async(group_language)(chat_id)
 
+    # Older dealer-win races could have a recorded result without their
+    # completion flag. Repair only those proven-finished rows before checking.
+    await repair_recorded_races_async(chat_id)
+
     existing_race = await sync_to_async(HorseRace.objects.filter)(chat_id=chat_id, completed=False)
     if await sync_to_async(existing_race.exists)():
         await update.message.reply_text("❗️ A race is already active in this chat!")
@@ -508,6 +512,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
 
+        await complete_race_async(race.id)
         return
 
     # ─── Players won ───────────────────────────────────────────────────────────────
@@ -599,9 +604,7 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
 
-    race.completed = True
-    race.completed_at = timezone.now()
-    await sync_to_async(race.save)(update_fields=("completed", "completed_at"))
+    await complete_race_async(race.id)
 
     # ─── Cleanup Used-Up Spells ────────────────────────────────────────────────────────
     # used_up_spells = await sync_to_async(list)(

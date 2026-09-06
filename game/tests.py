@@ -16,6 +16,7 @@ from game.models import (
     Game,
     HorseBet,
     HorseRace,
+    HorseRaceWin,
     HorseSale,
     HorseUpgrade,
     JoinGame,
@@ -821,6 +822,20 @@ class StartupRecoveryTests(TestCase):
         self.assertEqual(player.chips, 1_000)
         self.assertEqual(report.races, 1)
         self.assertFalse(HorseRace.objects.exists())
+
+    def test_settled_race_with_recorded_winner_is_preserved_and_closed(self):
+        race = HorseRace.objects.create(chat_id=-20004, race_started=True)
+        HorseRaceWin.objects.create(
+            race=race, user=None, horse_number=1, horse_name="Dealer", amount=300
+        )
+
+        report = recover_interrupted_games()
+
+        race.refresh_from_db()
+        self.assertTrue(race.completed)
+        self.assertIsNotNone(race.completed_at)
+        self.assertEqual(report.races, 0)
+        self.assertTrue(HorseRaceWin.objects.filter(race=race).exists())
 
     def test_started_blackjack_game_is_refunded(self):
         player = Player.objects.create(id=9203, name="Blackjack Recovery", chips=1_000)

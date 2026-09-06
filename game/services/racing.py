@@ -2,6 +2,7 @@
 
 from asgiref.sync import sync_to_async
 from django.db import transaction
+from django.utils import timezone
 
 from game.models import ChipTransaction, HorseBet, HorseRace, Player
 from game.services.economy import InsufficientChips, adjust_balance
@@ -59,8 +60,29 @@ def place_race_bet(
     )
 
 
+@transaction.atomic
+def complete_race(race_id: int) -> bool:
+    """Close a persisted race exactly once after its result is recorded."""
+    return bool(HorseRace.objects.filter(pk=race_id, completed=False).update(
+        completed=True, completed_at=timezone.now()
+    ))
+
+
+@transaction.atomic
+def repair_recorded_races(chat_id: int | None = None) -> int:
+    """Repair legacy races that have a winner record but were never closed."""
+    races = HorseRace.objects.filter(completed=False, wins__isnull=False)
+    if chat_id is not None:
+        races = races.filter(chat_id=chat_id)
+    return races.update(completed=True, completed_at=timezone.now())
+
+
 async def place_race_bet_async(**kwargs) -> HorseBet:
     return await sync_to_async(place_race_bet, thread_sensitive=True)(**kwargs)
+
+
+complete_race_async = sync_to_async(complete_race, thread_sensitive=True)
+repair_recorded_races_async = sync_to_async(repair_recorded_races, thread_sensitive=True)
 
 
 __all__ = [
@@ -69,5 +91,7 @@ __all__ = [
     "BettingPaused",
     "InsufficientChips",
     "RaceAlreadyStarted",
+    "complete_race_async",
     "place_race_bet_async",
+    "repair_recorded_races_async",
 ]

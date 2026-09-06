@@ -246,8 +246,14 @@ def recover_interrupted_games() -> RecoveryReport:
         report.player_refunds += 1
         crash.delete()
 
+    # A result row proves settlement finished even if an older handler exited
+    # before flipping the completion flag. Preserve that history and repair it.
+    HorseRace.objects.filter(
+        race_started=True, completed=False, wins__isnull=False
+    ).update(completed=True, completed_at=timezone.now())
+
     for race in HorseRace.objects.select_for_update().filter(
-        race_started=True, completed=False
+        race_started=True, completed=False, wins__isnull=True
     ):
         bets = list(HorseBet.objects.select_for_update().filter(race=race))
         for bet in bets:

@@ -80,7 +80,9 @@ from game.services.racing import (
     ActiveRaceBet,
     AlreadyBet,
     RaceAlreadyStarted,
+    complete_race_async,
     place_race_bet_async,
+    repair_recorded_races_async,
 )
 from game.services.crash import (
     ActiveCrashGame,

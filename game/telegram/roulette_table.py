@@ -6,7 +6,6 @@ import asyncio
 from collections import defaultdict
 
 from asgiref.sync import sync_to_async
-from django.conf import settings
 from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatType
@@ -21,7 +20,9 @@ from game.services.table_games import GroupTableBusy
 
 def _launch_url(bot_username: str, table: RouletteTable) -> str:
     payload = f"rt_{table.pk}_{table.access_token}"
-    return f"https://t.me/{bot_username}/{settings.TELEGRAM_CASINO_APP_NAME}?startapp={payload}"
+    # Use the bot's Main Mini App link. A named-app path silently falls back to
+    # opening the bot chat when BotFather configured a Main Mini App instead.
+    return f"https://t.me/{bot_username}?startapp={payload}"
 
 
 def _open_text(table, language):

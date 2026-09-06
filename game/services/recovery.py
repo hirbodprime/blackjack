@@ -20,6 +20,7 @@ from game.models import (
     PokerHand,
     PokerSeat,
     PokerTable,
+    RouletteTable,
 )
 from game.services.economy import adjust_balance
 
@@ -188,6 +189,40 @@ def cancel_poker_table(table_id: int, *, reason: str = "Cancelled by operator") 
         context={"game_type": "poker", "refunds": refunded},
     )
     return refunded
+
+
+@transaction.atomic
+def cancel_roulette_table(table_id: int, *, reason: str = "Cancelled by operator") -> int:
+    table = RouletteTable.objects.select_for_update().filter(
+        pk=table_id, status__in=(RouletteTable.Status.BETTING, RouletteTable.Status.SPINNING)
+    ).first()
+    if table is None:
+        return 0
+    bets = list(table.bets.select_for_update().all())
+    dealer = Dealer.objects.select_for_update().first()
+    total = 0
+    for bet in bets:
+        adjust_balance(
+            bet.player_id, bet.amount,
+            category=ChipTransaction.Category.REFUND,
+            description=reason,
+            reference_type="roulette_table", reference_id=table.pk,
+            idempotency_key=f"cancel:roulette:{table.pk}:bet:{bet.pk}:refund",
+        )
+        total += bet.amount
+    if dealer and total:
+        dealer.chips -= total
+        dealer.save(update_fields=("chips",))
+    table.status = RouletteTable.Status.CANCELLED
+    table.completed_at = timezone.now()
+    table.save(update_fields=("status", "completed_at"))
+    OperationalEvent.objects.create(
+        severity=OperationalEvent.Severity.WARNING,
+        category="operator_cancel", message=reason,
+        chat_id=str(table.chat_id), game_id=str(table.pk),
+        context={"game_type": "roulette", "refunds": len(bets)},
+    )
+    return len(bets)
 
 
 @transaction.atomic

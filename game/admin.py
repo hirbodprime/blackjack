@@ -3,7 +3,7 @@ from django.db.models import Avg, Count, Q, Sum
 from django.utils import timezone
 from datetime import timedelta
 from .models import *
-from .services.recovery import cancel_blackjack_game, cancel_crash_game, cancel_poker_table, cancel_race
+from .services.recovery import cancel_blackjack_game, cancel_crash_game, cancel_poker_table, cancel_race, cancel_roulette_table
 from .services.economy import (
     InsufficientChips,
     TransactionAlreadyReversed,
@@ -454,6 +454,28 @@ class PokerHandAdmin(admin.ModelAdmin):
     list_display = ("id", "table", "number", "phase", "pot", "current_seat", "created_at", "completed_at")
     list_filter = ("phase", "created_at")
     readonly_fields = ("deck", "community_cards", "summary", "created_at", "completed_at")
+
+
+@admin.register(RouletteTable)
+class RouletteTableAdmin(admin.ModelAdmin):
+    list_display = ("id", "chat_id", "created_by", "status", "closes_at", "winning_number", "created_at")
+    list_filter = ("status", "created_at")
+    search_fields = ("chat_id", "created_by__name", "created_by__id")
+    readonly_fields = ("seed_hash", "seed_reveal", "access_token", "message_id", "created_at", "completed_at")
+    actions = ("cancel_and_refund",)
+
+    @admin.action(description="Emergency cancel selected roulette tables and refund bets")
+    def cancel_and_refund(self, request, queryset):
+        refunds = sum(cancel_roulette_table(pk) for pk in queryset.values_list("pk", flat=True))
+        self.message_user(request, f"Cancelled selected roulette tables; issued {refunds} refund(s).")
+
+
+@admin.register(RouletteTableBet)
+class RouletteTableBetAdmin(admin.ModelAdmin):
+    list_display = ("id", "table", "player", "kind", "selection", "amount", "won", "payout", "created_at")
+    list_filter = ("kind", "won", "created_at")
+    search_fields = ("table__id", "player__name", "player__id", "idempotency_key")
+    readonly_fields = ("table", "player", "kind", "selection", "amount", "payout", "won", "idempotency_key", "created_at", "settled_at")
 
 
 @admin.register(RPSBotProfile)

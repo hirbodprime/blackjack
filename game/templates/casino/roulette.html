@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <title>Big Papa Casino Roulette</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root{color-scheme:dark;--gold:#f2c75c;--felt:#063f31;--felt2:#092a24;--red:#d94141;--black:#191c22;--green:#18a36b;--line:#ffffff35;--text:#f7f3e8}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -10%,#17644d,var(--felt2) 52%,#071411);color:var(--text);font-family:system-ui,-apple-system,sans-serif;min-height:100vh;padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom)}
+    .app{max-width:720px;margin:auto}.brand{text-align:center;padding:12px 0 5px;color:var(--gold);font-weight:900;letter-spacing:.12em}.status{display:flex;justify-content:space-between;gap:8px;font-size:13px;background:#0005;border:1px solid var(--line);border-radius:13px;padding:10px 12px}.status b{color:var(--gold)}
+    .wheel-wrap{height:280px;display:grid;place-items:center;position:relative}.wheel{width:240px;height:240px;border-radius:50%;border:10px solid #c99c36;box-shadow:0 0 0 4px #4b3514,0 12px 40px #0009,inset 0 0 30px #000;position:relative;background:conic-gradient(from -4.86deg,#15915f 0 9.72deg,#d13b3b 9.72deg 19.44deg,#181a1f 19.44deg 29.16deg,#d13b3b 29.16deg 38.88deg,#181a1f 38.88deg 48.6deg,#d13b3b 48.6deg 58.32deg,#181a1f 58.32deg 68.04deg,#d13b3b 68.04deg 77.76deg,#181a1f 77.76deg 87.48deg,#d13b3b 87.48deg 97.2deg,#181a1f 97.2deg 106.92deg,#d13b3b 106.92deg 116.64deg,#181a1f 116.64deg 126.36deg,#d13b3b 126.36deg 136.08deg,#181a1f 136.08deg 145.8deg,#d13b3b 145.8deg 155.52deg,#181a1f 155.52deg 165.24deg,#d13b3b 165.24deg 174.96deg,#181a1f 174.96deg 184.68deg,#d13b3b 184.68deg 194.4deg,#181a1f 194.4deg 204.12deg,#d13b3b 204.12deg 213.84deg,#181a1f 213.84deg 223.56deg,#d13b3b 223.56deg 233.28deg,#181a1f 233.28deg 243deg,#d13b3b 243deg 252.72deg,#181a1f 252.72deg 262.44deg,#d13b3b 262.44deg 272.16deg,#181a1f 272.16deg 281.88deg,#d13b3b 281.88deg 291.6deg,#181a1f 291.6deg 301.32deg,#d13b3b 301.32deg 311.04deg,#181a1f 311.04deg 320.76deg,#d13b3b 320.76deg 330.48deg,#181a1f 330.48deg 340.2deg,#d13b3b 340.2deg 349.92deg,#181a1f 349.92deg 360deg)}
+    .wheel:after{content:"";position:absolute;inset:43%;border-radius:50%;background:radial-gradient(circle,#f7df91,#987022);border:3px solid #4a3210}.ball{position:absolute;top:8px;left:50%;width:13px;height:13px;border-radius:50%;background:white;box-shadow:0 1px 8px #fff;transform:translateX(-50%);transform-origin:6px 106px}.pointer{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:12px solid transparent;border-right:12px solid transparent;border-top:24px solid var(--gold);z-index:4}.result{position:absolute;font-size:42px;font-weight:1000;text-shadow:0 3px 8px #000;z-index:3}
+    .chips{display:flex;justify-content:center;gap:8px;margin:0 0 12px}.chip{border-radius:50%;width:48px;height:48px;border:3px dashed #fff9;background:#334;color:white;font-weight:800}.chip.active{outline:3px solid var(--gold);transform:scale(1.08)}
+    .board{display:grid;grid-template-columns:52px repeat(3,1fr);gap:3px;background:#d8b852;padding:3px;border-radius:10px;overflow:hidden}.bet{border:0;color:white;background:var(--black);min-height:44px;font-weight:800;font-size:15px;border-radius:4px}.bet.red{background:var(--red)}.bet.green{background:var(--green);grid-row:span 12}.outside{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:6px}.outside .bet{border:1px solid var(--line)}
+    .slip{margin:12px 0;background:#0005;border:1px solid var(--line);border-radius:12px;padding:10px;min-height:45px}.slip-row{display:flex;justify-content:space-between;font-size:13px;padding:3px}.notice{text-align:center;color:#d7d5cb;font-size:12px;padding:10px}.error{background:#7b2020;padding:10px;border-radius:10px;margin:8px 0;display:none}.pulse{animation:pulse .8s infinite alternate}@keyframes pulse{to{transform:scale(1.07)}}
+  </style>
+</head>
+<body><main class="app">
+  <div class="brand">BIG PAPA CASINO · ROULETTE</div>
+  <div id="error" class="error"></div>
+  <section class="status"><span>Balance <b id="balance">—</b></span><span>Players <b id="players">0</b></span><span>Closes <b id="timer">—</b></span><span>Pot <b id="pot">0</b></span></section>
+  <section class="wheel-wrap"><div class="pointer"></div><div id="wheel" class="wheel"><div id="ball" class="ball"></div></div><div id="result" class="result">?</div></section>
+  <div class="chips" id="chips"></div>
+  <section class="board" id="board"><button class="bet green" data-kind="straight" data-value="0">0</button></section>
+  <section class="outside" id="outside"></section>
+  <section class="slip"><b>Your bets</b><div id="slip">No bets yet</div></section>
+  <div class="notice">European roulette · 0–36 · Server-authoritative result<br>Each bet: 10–5,000 chips</div>
+</main>
+<script>
+const tg=window.Telegram?.WebApp; if(tg){tg.ready();tg.expand();tg.setHeaderColor('#092a24');tg.setBackgroundColor('#092a24')}
+let token=null,state=null,chip=50,lastResult=null,spinning=false;
+const red=new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+const $=id=>document.getElementById(id); const err=m=>{const e=$('error');e.textContent=m;e.style.display='block'};
+for(const n of [10,50,100,500,1000]){const b=document.createElement('button');b.className='chip'+(n===chip?' active':'');b.textContent=n;b.onclick=()=>{chip=n;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('active',x===b));tg?.HapticFeedback?.selectionChanged()};$('chips').appendChild(b)}
+for(let row=0;row<12;row++)for(let col=1;col<=3;col++){const n=row*3+col,b=document.createElement('button');b.className='bet '+(red.has(n)?'red':'');b.textContent=n;b.dataset.kind='straight';b.dataset.value=n;$('board').appendChild(b)}
+const outs=[['RED','red','red'],['BLACK','black','black'],['ODD','odd','odd'],['EVEN','even','even'],['1–18','low','low'],['19–36','high','high'],['1st 12','dozen','1'],['2nd 12','dozen','2'],['3rd 12','dozen','3'],['Column 1','column','1'],['Column 2','column','2'],['Column 3','column','3']];
+for(const [label,kind,value] of outs){const b=document.createElement('button');b.className='bet '+(kind==='red'?'red':'');b.textContent=label;b.dataset.kind=kind;b.dataset.value=value;$('outside').appendChild(b)}
+document.querySelectorAll('.bet').forEach(b=>b.onclick=()=>place(b.dataset.kind,b.dataset.value));
+async function api(path,options={}){options.headers={...(options.headers||{}),'Content-Type':'application/json',...(token?{'Authorization':'Bearer '+token}:{})};const r=await fetch(path,options),j=await r.json();if(!r.ok||!j.ok)throw Error(j.error||'Request failed');return j}
+async function auth(){if(!tg?.initData){err('Open this game from its Telegram bot button.');return}const j=await api('api/auth/',{method:'POST',body:JSON.stringify({init_data:tg.initData})});token=j.token;await refresh();setInterval(refresh,1000)}
+async function place(kind,selection){try{if(!state||state.table.status!=='betting')throw Error('Betting is closed.');state=await api('api/bet/',{method:'POST',body:JSON.stringify({kind,selection,amount:chip,request_id:crypto.randomUUID()})});render();tg?.HapticFeedback?.impactOccurred('light')}catch(e){err(e.message)}}
+function render(){if(!state)return;$('balance').textContent=state.player.chips.toLocaleString();$('players').textContent=state.table.participants;$('pot').textContent=state.table.total_bets.toLocaleString();const left=Math.max(0,Math.ceil((new Date(state.table.closes_at)-Date.now())/1000));$('timer').textContent=state.table.status==='betting'?left+'s':state.table.status;$('timer').classList.toggle('pulse',left<=10&&left>0);$('slip').innerHTML=state.bets.length?state.bets.map(x=>`<div class="slip-row"><span>${x.kind}: ${x.selection}</span><b>${x.amount.toLocaleString()}</b></div>`).join(''):'No bets yet';if(state.table.status==='complete'&&state.table.winning_number!==lastResult){lastResult=state.table.winning_number;spinTo(lastResult)}}
+async function refresh(){try{state=await api('api/table/');render()}catch(e){err(e.message)}}
+function spinTo(number){if(spinning)return;spinning=true;const wheel=$('wheel'),ball=$('ball'),target=360-(number/37)*360;wheel.style.transition='transform 4.8s cubic-bezier(.12,.72,.15,1)';ball.style.transition='transform 4.8s cubic-bezier(.2,.65,.1,1)';wheel.style.transform=`rotate(${1440+target}deg)`;ball.style.transform=`translateX(-50%) rotate(${-1800-target}deg)`;$('result').textContent='';setTimeout(()=>{$('result').textContent=number;$('result').style.color=number===0?'#35d391':red.has(number)?'#ff6868':'#fff';tg?.HapticFeedback?.notificationOccurred('success');spinning=false},4900)}
+auth().catch(e=>err(e.message));
+</script></body></html>

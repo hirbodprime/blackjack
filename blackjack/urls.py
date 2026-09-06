@@ -21,6 +21,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
+    path('casino/', include('game.casino_urls')),
     path('xpcal/', process_game_results, name='process-game-results'),
     path('admin/', admin.site.urls),
     path('game/', include('game.urls')),

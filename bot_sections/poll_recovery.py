@@ -1,9 +1,11 @@
 async def handle_stale_polls_and_reschedule(context, timeout=60):
     from asgiref.sync import sync_to_async
     from game.telegram.poker import resume_poker_tables
+    from game.telegram.roulette_table import resume_roulette_tables
 
     await recover_interrupted_games_async()
     await resume_poker_tables(context)
+    await resume_roulette_tables(context)
 
     english_commands = [
         BotCommand("play", "Open the main menu"),
@@ -15,6 +17,7 @@ async def handle_stale_polls_and_reschedule(context, timeout=60):
         BotCommand("language", "Change language: en or fa"),
         BotCommand("help", "Show game help"),
         BotCommand("poker", "Create a Texas Hold'em table"),
+        BotCommand("roulette", "Open a multiplayer roulette table"),
     ]
     persian_commands = [
         BotCommand("play", "باز کردن منوی اصلی"),
@@ -26,6 +29,7 @@ async def handle_stale_polls_and_reschedule(context, timeout=60):
         BotCommand("language", "تغییر زبان: en یا fa"),
         BotCommand("help", "راهنمای بازی"),
         BotCommand("poker", "ساخت میز پوکر تگزاس هولدم"),
+        BotCommand("roulette", "باز کردن میز رولِت چندنفره"),
     ]
     await context.bot.set_my_commands(english_commands)
     await context.bot.set_my_commands(persian_commands, language_code="fa")
@@ -94,7 +98,6 @@ async def handle_stale_polls_and_reschedule(context, timeout=60):
 #         return settings.language
 #     except GroupSettings.DoesNotExist:
 #         return "en"
-
 
 
 

@@ -1,5 +1,6 @@
 from django.conf import settings
 from game.telegram.poker import poker_callback, poker_command, poker_custom_raise_text, poker_raise_command
+from game.telegram.roulette_table import roulette_table_command
 
 if not settings.TELEGRAM_BOT_TOKEN:
     token_name = "TELEGRAM_TEST_BOT_TOKEN" if settings.DEBUG else "TELEGRAM_BOT_TOKEN"
@@ -112,7 +113,7 @@ app.add_handler(CommandHandler("listgroups", list_groups))
 app.add_handler(CommandHandler("broadcastgroup", broadcastgroups))
 
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_chat_members))
-app.add_handler(CommandHandler("roulette", roulette))
+app.add_handler(CommandHandler("roulette", roulette_table_command))
 app.add_handler(CommandHandler("sync_groups", sync_group_names))
 
 # app.add_handler(CommandHandler("spin", spin))

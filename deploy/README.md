@@ -12,6 +12,10 @@ change. Logs are available with:
 journalctl -u blackjackbot.service
 ```
 
+The authenticated Telegram casino Mini App is exposed through
+`casino.bigpapagames.com` using `nginx-casino.conf`. Only `/casino/` is routed
+to Django; the administration site remains on its separate hostname.
+
 Before each release, stop the service, back up the SQLite database, synchronize
 the application, install dependencies, run migrations and `bot_audit`, then
 start the service. Keep the database and environment file out of the application

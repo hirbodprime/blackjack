@@ -62,6 +62,8 @@ TELEGRAM_BOT_TOKEN = os.getenv(
 )
 SUSPICIOUS_TRANSACTION_AMOUNT = int(os.getenv("SUSPICIOUS_TRANSACTION_AMOUNT", "1000000"))
 SUSPICIOUS_TRANSACTION_BURST = int(os.getenv("SUSPICIOUS_TRANSACTION_BURST", "20"))
+CASINO_PUBLIC_URL = os.getenv("CASINO_PUBLIC_URL", "https://casino.bigpapagames.com")
+TELEGRAM_CASINO_APP_NAME = os.getenv("TELEGRAM_CASINO_APP_NAME", "casino")
 try:
     EXPECTED_PAYOUT_RATES = json.loads(
         os.getenv(

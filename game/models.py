@@ -779,3 +779,64 @@ class RPSBotProfile(models.Model):
 
     def __str__(self):
         return f"RPS memory for {self.player}"
+
+
+class RouletteTable(models.Model):
+    class Status(models.TextChoices):
+        BETTING = "betting", "Betting open"
+        SPINNING = "spinning", "Wheel spinning"
+        COMPLETE = "complete", "Complete"
+        CANCELLED = "cancelled", "Cancelled"
+
+    chat_id = models.BigIntegerField(db_index=True)
+    created_by = models.ForeignKey(Player, on_delete=models.PROTECT, related_name="roulette_tables_created")
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.BETTING, db_index=True)
+    closes_at = models.DateTimeField(db_index=True)
+    winning_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    seed_hash = models.CharField(max_length=64)
+    seed_reveal = models.CharField(max_length=64, blank=True)
+    access_token = models.CharField(max_length=32, unique=True)
+    message_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("chat_id",), condition=models.Q(status="betting"),
+                name="unique_open_roulette_table_per_chat",
+            )
+        ]
+
+    def __str__(self):
+        return f"Roulette table #{self.pk} in {self.chat_id} ({self.status})"
+
+
+class RouletteTableBet(models.Model):
+    class Kind(models.TextChoices):
+        STRAIGHT = "straight", "Exact number"
+        RED = "red", "Red"
+        BLACK = "black", "Black"
+        ODD = "odd", "Odd"
+        EVEN = "even", "Even"
+        LOW = "low", "1-18"
+        HIGH = "high", "19-36"
+        DOZEN = "dozen", "Dozen"
+        COLUMN = "column", "Column"
+
+    table = models.ForeignKey(RouletteTable, on_delete=models.PROTECT, related_name="bets")
+    player = models.ForeignKey(Player, on_delete=models.PROTECT, related_name="roulette_table_bets")
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    selection = models.CharField(max_length=12)
+    amount = models.PositiveIntegerField()
+    payout = models.PositiveIntegerField(default=0)
+    won = models.BooleanField(default=False)
+    idempotency_key = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("created_at", "id")
+
+    def __str__(self):
+        return f"{self.player} {self.amount} on {self.kind}:{self.selection}"

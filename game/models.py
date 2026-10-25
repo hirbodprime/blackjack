@@ -1005,3 +1005,18 @@ class ArcadeRound(models.Model):
 
     def __str__(self):
         return f"{self.get_game_display()} #{self.pk} ({self.status})"
+
+
+class BroadcastDelivery(models.Model):
+    """One row per (campaign, chat) so a re-run never messages anyone twice."""
+
+    campaign = models.CharField(max_length=40)
+    chat_id = models.BigIntegerField()
+    delivered = models.BooleanField(default=False)
+    error = models.CharField(max_length=120, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("campaign", "chat_id"), name="unique_campaign_chat")
+        ]

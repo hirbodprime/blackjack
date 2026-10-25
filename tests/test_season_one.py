@@ -347,3 +347,42 @@ class StableScreenTests(TestCase):
         self.assertTrue(has_starter)
         self.assertIn("#150 Bolt", text)
         self.assertIn("Power Burst (4)", text)
+
+
+class ComebackBroadcastTests(TestCase):
+    async def test_admin_sends_once_per_chat_and_records_blocks(self):
+        from telegram.error import Forbidden
+        from game.models import BroadcastDelivery, Group
+        from game.telegram import comeback
+
+        await Player.objects.acreate(id=60100, name="Admin", admin=True)
+        await Player.objects.acreate(id=60101, name="Fan")
+        await Player.objects.acreate(id=60102, name="Gone")
+        await Group.objects.acreate(group_chat_id="-100500")
+
+        async def send_message(chat_id, *args, **kwargs):
+            if chat_id == 60102:
+                raise Forbidden("blocked")
+            return mock.Mock(edit_text=mock.AsyncMock())
+
+        bot = mock.Mock(username="bot", send_message=mock.AsyncMock(side_effect=send_message))
+        update = mock.Mock()
+        update.effective_user.id = 60100
+        update.effective_message.reply_text = mock.AsyncMock(return_value=mock.Mock(edit_text=mock.AsyncMock()))
+        with mock.patch.object(comeback, "SEND_INTERVAL", 0):
+            await comeback.comeback_command(update, mock.Mock(bot=bot, args=["players"]))
+            await comeback.comeback_command(update, mock.Mock(bot=bot, args=["players"]))
+            await comeback.comeback_command(update, mock.Mock(bot=bot, args=["groups"]))
+        self.assertEqual(bot.send_message.await_count, 4)  # 3 players + 1 group, no repeats
+        self.assertEqual(await BroadcastDelivery.objects.filter(delivered=True).acount(), 3)
+        self.assertEqual(await BroadcastDelivery.objects.filter(delivered=False).acount(), 1)
+
+    async def test_non_admin_is_refused(self):
+        from game.telegram import comeback
+
+        await Player.objects.acreate(id=60110, name="Nope")
+        update = mock.Mock()
+        update.effective_user.id = 60110
+        update.effective_message.reply_text = mock.AsyncMock()
+        await comeback.comeback_command(update, mock.Mock(args=["players"]))
+        update.effective_message.reply_text.assert_awaited_once_with("🚫 Admins only.")

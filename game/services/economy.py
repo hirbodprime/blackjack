@@ -7,6 +7,7 @@ from asgiref.sync import sync_to_async
 from django.db import transaction
 
 from game.models import ChipTransaction, Dealer, Player, PlayerItem
+from game.services.ranks import xp_for_level
 
 
 class InsufficientChips(ValueError):
@@ -123,7 +124,7 @@ def reverse_chip_transaction(transaction_id: int, *, operator: str) -> BalanceCh
 
 
 def _xp_for_next_level(level: int) -> int:
-    return level * 50
+    return xp_for_level(level)
 
 
 @transaction.atomic

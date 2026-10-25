@@ -57,8 +57,10 @@ from game.services.blackjack import (
 from game.services.economy import (
     adjust_balance_async,
 )
+from game.telegram.hub import starter_name_text
 from game.services.horses import (
     HorseNotOwned,
+    StarterHorseLocked,
     HorseUnavailable,
     InvalidHorseSale,
     UpgradeAlreadyOwned,
@@ -1803,6 +1805,13 @@ async def _horse_list_choose(update, context, query, data):
         await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
         return
 
+    if owned_horse.is_starter:
+        await query.edit_message_text(
+            "🔒 Your starter horse is yours for good — it can't be sold or gifted.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]])
+        )
+        return
+
     # Make sure it isn't already listed
     if await sync_to_async(
         HorseSale.objects.filter(horse=owned_horse).exists
@@ -2689,6 +2698,9 @@ async def catch_gift_owned_recipient(update: Update, context: ContextTypes.DEFAU
     except HorseNotOwned:
         await update.message.reply_text("❌ You no longer own that horse. Aborting.")
         return
+    except StarterHorseLocked:
+        await update.message.reply_text("🔒 Starter horses can't be gifted.")
+        return
 
     # Notify both parties
     if owned_horse.name:
@@ -2852,6 +2864,9 @@ async def catch_all_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
+    if await starter_name_text(update, context):
+        return
+
     # ─── 1) If we’re in “awaiting_list_horse” mode → the text is the sale price ───
     if context.user_data.get("awaiting_list_horse"):
         horse_number = context.user_data.pop("awaiting_list_horse")
@@ -2861,6 +2876,10 @@ async def catch_all_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except OwnedHorse.DoesNotExist:
             await update.message.reply_text("❌ You no longer own that horse. Aborting.")
+            return
+
+        if owned_horse.is_starter:
+            await update.message.reply_text("🔒 Starter horses can't be sold.")
             return
 
         if not text.isdigit() or int(text) <= 0:

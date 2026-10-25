@@ -478,7 +478,7 @@ class LoanServiceTests(TestCase):
 
         self.player.refresh_from_db()
         self.assertEqual(self.player.level, 1)
-        self.assertEqual(self.player.xp, 35)
+        self.assertEqual(self.player.xp, 85)
 
     def test_unaffordable_xp_rolls_back_loan(self):
         self.player.level = 1
@@ -915,7 +915,7 @@ class MysteryBoxSettlementTests(TestCase):
             id=9301,
             name="Mystery Tester",
             chips=1_000,
-            xp=40,
+            xp=90,
             level=1,
         )
 
@@ -937,8 +937,8 @@ class MysteryBoxSettlementTests(TestCase):
         self.player.refresh_from_db()
         self.assertEqual(self.player.level, 2)
         self.assertEqual(self.player.xp, 10)
-        self.assertEqual(self.player.chips, 900)
-        self.assertEqual(result.level_rewards, ((2, 100),))
+        self.assertEqual(self.player.chips, 1_000)
+        self.assertEqual(result.level_rewards, ((2, 200),))
         self.assertEqual(ChipTransaction.objects.count(), 2)
 
     def test_item_reward_and_cost_commit_together(self):
@@ -1061,7 +1061,7 @@ class HorseEconomyTests(TestCase):
 class ItemConsumptionTests(TestCase):
     def setUp(self):
         self.player = Player.objects.create(
-            id=9451, name="Item Tester", chips=100, xp=40
+            id=9451, name="Item Tester", chips=100, xp=90
         )
 
     def test_booster_consumption_and_rewards_are_atomic(self):
@@ -1073,7 +1073,7 @@ class ItemConsumptionTests(TestCase):
         self.player.refresh_from_db()
         self.assertEqual(item.quantity, 0)
         self.assertEqual((result.level, result.xp), (2, 10))
-        self.assertEqual(self.player.chips, 200)
+        self.assertEqual(self.player.chips, 300)
         with self.assertRaises(ItemUnavailable):
             consume_xp_booster(self.player.id, item.item_type, 20)
 
@@ -1118,21 +1118,21 @@ class ProgressionServiceTests(TestCase):
         self.assertFalse(ChipTransaction.objects.exists())
 
     def test_multiple_levels_create_one_audited_reward(self):
-        result = award_xp(self.player, 200)
+        result = award_xp(self.player, 300)
         self.player.refresh_from_db()
-        self.assertEqual((self.player.level, self.player.xp), (3, 60))
-        self.assertEqual(result.level_rewards, ((2, 100), (3, 150)))
-        self.assertEqual(self.player.chips, 1_250)
+        self.assertEqual((self.player.level, self.player.xp), (3, 65))
+        self.assertEqual(result.level_rewards, ((2, 200), (3, 300)))
+        self.assertEqual(self.player.chips, 1_500)
         transaction = ChipTransaction.objects.get()
         self.assertEqual(transaction.category, ChipTransaction.Category.LEVEL_REWARD)
-        self.assertEqual(transaction.amount, 250)
+        self.assertEqual(transaction.amount, 500)
 
     def test_deduction_can_cross_multiple_levels(self):
         self.player.level = 3
         self.player.xp = 20
         self.player.save(update_fields=("level", "xp"))
         result = deduct_xp_amount(self.player, 100)
-        self.assertEqual((result.level, result.xp), (2, 20))
+        self.assertEqual((result.level, result.xp), (2, 65))
         self.assertTrue(result.level_changed)
 
     def test_deduction_clamps_at_level_one(self):
@@ -1170,7 +1170,7 @@ class ReferralServiceTests(TestCase):
 
 class DailyRewardServiceTests(TestCase):
     def setUp(self):
-        self.player = Player.objects.create(id=9701, name="Daily Tester", chips=100, xp=45)
+        self.player = Player.objects.create(id=9701, name="Daily Tester", chips=100, xp=95)
 
     def test_daily_chips_are_audited_and_cannot_be_reclaimed(self):
         now = timezone.now()
@@ -1192,7 +1192,7 @@ class DailyRewardServiceTests(TestCase):
         self.player.refresh_from_db()
         self.assertEqual(result.balance, 350)
         self.assertEqual((self.player.level, self.player.xp), (2, 5))
-        self.assertEqual(self.player.chips, 450)
+        self.assertEqual(self.player.chips, 550)
         self.assertEqual(PlayerItem.objects.get(player=self.player).quantity, 1)
         self.assertEqual(ChipTransaction.objects.count(), 2)
 
@@ -1200,7 +1200,7 @@ class DailyRewardServiceTests(TestCase):
         result = claim_daily_xp(self.player.id, 10, timezone.now())
         self.player.refresh_from_db()
         self.assertEqual((result.level, result.xp), (2, 5))
-        self.assertEqual(self.player.chips, 200)
+        self.assertEqual(self.player.chips, 300)
         self.assertEqual(ChipTransaction.objects.count(), 1)
         with self.assertRaises(RewardAlreadyClaimed):
             claim_daily_xp(self.player.id, 10, timezone.now())
@@ -1208,7 +1208,7 @@ class DailyRewardServiceTests(TestCase):
 
 class DailyQuestServiceTests(TestCase):
     def setUp(self):
-        self.player = Player.objects.create(id=9751, name="Quest Tester", chips=100, xp=45)
+        self.player = Player.objects.create(id=9751, name="Quest Tester", chips=100, xp=95)
         self.quest = DailyQuest.objects.create(
             quest_type="minigames",
             subtype="dart",
@@ -1232,7 +1232,7 @@ class DailyQuestServiceTests(TestCase):
         self.assertTrue(progress.completed)
         self.assertEqual(progress.progress, 2)
         self.assertEqual((self.player.level, self.player.xp), (2, 5))
-        self.assertEqual(self.player.chips, 275)
+        self.assertEqual(self.player.chips, 375)
         self.assertEqual(ChipTransaction.objects.count(), 2)
 
     def test_completed_quest_cannot_pay_twice(self):
@@ -1240,7 +1240,7 @@ class DailyQuestServiceTests(TestCase):
         replay = advance_daily_quest(self.player.id, self.quest.id, amount=2)
         self.player.refresh_from_db()
         self.assertFalse(replay.completed_now)
-        self.assertEqual(self.player.chips, 275)
+        self.assertEqual(self.player.chips, 375)
         self.assertEqual(ChipTransaction.objects.count(), 2)
 
 

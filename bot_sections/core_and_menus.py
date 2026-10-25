@@ -21,6 +21,7 @@ from game.models import (
 from game.services.economy import (
     adjust_balance_async,
 )
+from game.services.challenges import record_daily_completion_async
 from game.services.quests import advance_daily_quest_async
 from game.services.referrals import award_referral_bonus_async
 from game.telegram.player_experience import (
@@ -91,6 +92,16 @@ async def update_daily_quest_progress(player, quest_type, subtype=None, amount=1
                 chat_id=player.id,
                 text=f"✅ Daily Quest Completed: {quest.description}\n🎁 Rewards: {quest.reward_xp} XP, {quest.reward_chips} Chips!"
             )
+        if result.completed_now and quest.auto_generated:
+            streak = await record_daily_completion_async(player.id, quest.date_assigned)
+            if streak and context and quest_notifications:
+                await context.bot.send_message(
+                    chat_id=player.id,
+                    text=(
+                        f"🔥 All daily challenges cleared! Streak: {streak.streak} day"
+                        f"{'s' if streak.streak != 1 else ''}\n🎁 Streak bonus: +{streak.bonus:,} chips"
+                    ),
+                )
     weekly_completed = await advance_weekly_missions_async(
         player.id, quest_type, subtype, amount
     )

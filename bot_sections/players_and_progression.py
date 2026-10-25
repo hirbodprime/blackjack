@@ -43,6 +43,8 @@ from game.services.economy import (
 from game.services.operations import (
     get_bot_control_async,
 )
+from game.services.achievements import unlock_async, unlock_message
+from game.services.ranks import xp_for_level
 from game.services.progression import (
     award_xp_async,
     deduct_xp_amount_async,
@@ -50,11 +52,7 @@ from game.services.progression import (
 
 
 def xp_for_next_level(level: int) -> int:
-    """
-    Returns the XP required *to complete* the current `level` and bump to `level+1`.
-    E.g. level=1 → need 50 XP, level=2 → need 100 XP, level=3 → need 150 XP, etc.
-    """
-    return level * 50
+    return xp_for_level(level)
 
 # Function to add XP, check for level-up, and give rewards
 async def add_xp(player, amount, context):
@@ -128,34 +126,13 @@ async def deduct_xp(player, amount, context):
 
 
 async def unlock_achievement(player, condition_name, context):
+    achievement = await unlock_async(player, condition_name)
+    if achievement is None:
+        return
     try:
-        # Fetch the achievement by its condition name
-        achievement = await sync_to_async(Achievement.objects.get)(condition=condition_name)
-        
-        # Check if the player already has this achievement
-        already_unlocked = await sync_to_async(lambda: PlayerAchievement.objects.filter(player=player, achievement=achievement).exists())()
-
-        if not already_unlocked:
-            # Unlock the achievement for the player
-            await sync_to_async(PlayerAchievement.objects.create)(
-                player=player, achievement=achievement, unlocked_at=datetime.now()
-            )
-
-            # Notify the player
-            await add_xp(player, 20, context)
-
-            await context.bot.send_message(
-                chat_id=player.id,
-                text=f"🎉 Congratulations! You've unlocked the '{achievement.name}' achievement: {achievement.description}"
-            )
-        else:
-            print(f"{player.name} already has the {achievement.name} achievement.")
-
-    except ObjectDoesNotExist:
-        print(f"Achievement with condition '{condition_name}' does not exist.")
-
-
-
+        await context.bot.send_message(chat_id=player.id, text=unlock_message(achievement))
+    except Exception:
+        pass
 
 
 async def my_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

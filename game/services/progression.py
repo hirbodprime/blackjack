@@ -7,6 +7,8 @@ from django.db import transaction
 
 from game.models import ChipTransaction, Player
 from game.services.economy import adjust_balance
+from game.services.ranks import RANK_TIERS, level_reward, xp_for_level
+from game.services.seasons import add_season_points
 
 
 @dataclass(frozen=True)
@@ -17,9 +19,12 @@ class ProgressionResult:
     level_changed: bool = False
 
 
-def xp_for_level(level: int) -> int:
-    """Return the XP needed to advance from ``level``."""
-    return max(1, level) * 50
+def _unlock_rank_achievements(player_id: int, old_level: int, new_level: int) -> None:
+    from game.services.achievements import RANK_ACHIEVEMENTS, unlock
+
+    for tier in RANK_TIERS:
+        if old_level < tier.min_level <= new_level and tier.key in RANK_ACHIEVEMENTS:
+            unlock(player_id, RANK_ACHIEVEMENTS[tier.key])
 
 
 @transaction.atomic
@@ -35,9 +40,10 @@ def award_xp(player: Player | int, amount: int) -> ProgressionResult:
     while locked.xp >= xp_for_level(locked.level):
         locked.xp -= xp_for_level(locked.level)
         locked.level += 1
-        rewards.append((locked.level, locked.level * 50))
+        rewards.append((locked.level, level_reward(locked.level)))
 
     locked.save(update_fields=("xp", "level"))
+    add_season_points(locked.pk, amount)
     if rewards:
         adjust_balance(
             locked,
@@ -48,6 +54,10 @@ def award_xp(player: Player | int, amount: int) -> ProgressionResult:
             reference_id=locked.level,
             metadata={"rewards": rewards},
         )
+
+    if rewards:
+        _unlock_rank_achievements(locked.pk, rewards[0][0] - 1, locked.level)
+        locked.refresh_from_db(fields=("chips", "xp", "level"))
 
     if isinstance(player, Player):
         player.xp = locked.xp

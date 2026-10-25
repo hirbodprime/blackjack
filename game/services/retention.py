@@ -21,13 +21,9 @@ class RetentionError(ValueError):
 
 
 def _unlock(player, condition):
-    achievement = Achievement.objects.filter(condition=condition).first()
-    if achievement:
-        _, created = PlayerAchievement.objects.get_or_create(
-            player=player, achievement=achievement
-        )
-        if created:
-            award_xp(player, 20)
+    from game.services.achievements import unlock
+
+    unlock(player, condition)
 
 
 def ensure_current_weekly_missions():

@@ -29,10 +29,23 @@ class NextGameNotification(models.Model):
         return f"User {self.user_id} in chat {self.chat_id}"
 
 class Achievement(models.Model):
+    class Category(models.TextChoices):
+        BLACKJACK = "blackjack", "Blackjack"
+        HORSES = "horses", "Horses"
+        MINIGAMES = "minigames", "Minigames"
+        PROGRESS = "progress", "Progress"
+        COMPETITION = "competition", "Competitions"
+        SOCIAL = "social", "Social"
+        LEGACY = "legacy", "Legacy"
+
     name = models.CharField(max_length=100)
     description = models.TextField()
     condition = models.CharField(max_length=100)  # e.g., "win_10_games", "reach_21_five_times"
     icon = models.CharField(max_length=100, null=True, blank=True)  # Optional, could be an emoji or icon
+    category = models.CharField(max_length=16, choices=Category.choices, default=Category.BLACKJACK)
+    reward_chips = models.PositiveIntegerField(default=0)
+    reward_xp = models.PositiveIntegerField(default=20)
+    hidden = models.BooleanField(default=False, help_text="Hidden until unlocked")
 
 
 BET_PHASE_CHOICES = (
@@ -154,6 +167,8 @@ class DailyQuest(models.Model):
     subtype = models.CharField(max_length=50, blank=True, null=True,
         help_text="Optional specific subtype (e.g., 'draw', 'coin', 'rps') for minigames or others.")
     available = models.BooleanField(default=False)
+    difficulty = models.CharField(max_length=8, blank=True, help_text="easy/medium/hard for generated challenges")
+    auto_generated = models.BooleanField(default=False, db_index=True)
     def __str__(self):
         return f"{self.get_quest_type_display()} ({self.date_assigned})"
 
@@ -310,6 +325,9 @@ class Player(models.Model):
         "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="referred_friends"
     )
     total_referral_bonus = models.IntegerField(default=0)
+    daily_streak = models.PositiveIntegerField(default=0)
+    best_daily_streak = models.PositiveIntegerField(default=0)
+    last_streak_date = models.DateField(null=True, blank=True)
 
     # ← New field: a 6-char code, unique
     referral_code = models.CharField(max_length=6, unique=True, blank=True)
@@ -348,6 +366,9 @@ class ChipTransaction(models.Model):
         TRANSFER = "transfer", "Player transfer"
         ADMIN_ADJUSTMENT = "admin_adjustment", "Admin adjustment"
         LEVEL_REWARD = "level_reward", "Level reward"
+        COMPETITION_PRIZE = "competition_prize", "Competition prize"
+        ACHIEVEMENT_REWARD = "achievement_reward", "Achievement reward"
+        SEASON_RESET = "season_reset", "Season reset"
         OTHER = "other", "Other"
 
     player = models.ForeignKey(
@@ -504,8 +525,17 @@ class OwnedHorse(models.Model):
     horse_number = models.IntegerField(unique=True)
     emoji = models.CharField(max_length=10, blank=True, null=True)
     name = models.CharField(max_length=50, blank=True, null=True)   # ← new field
+    is_starter = models.BooleanField(default=False, help_text="Free Season horse; cannot be sold or gifted")
 
     bought_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user",), condition=models.Q(is_starter=True),
+                name="one_starter_horse_per_player",
+            )
+        ]
 
     def __str__(self):
         return f"Horse {self.horse_number} owned by {self.user}"
@@ -840,3 +870,92 @@ class RouletteTableBet(models.Model):
 
     def __str__(self):
         return f"{self.player} {self.amount} on {self.kind}:{self.selection}"
+
+
+class Season(models.Model):
+    number = models.PositiveSmallIntegerField(unique=True)
+    name = models.CharField(max_length=60)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField(db_index=True)
+    starting_chips = models.PositiveIntegerField(default=10_000)
+    is_active = models.BooleanField(default=False, db_index=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-number",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("is_active",), condition=models.Q(is_active=True),
+                name="single_active_season",
+            )
+        ]
+
+    def __str__(self):
+        return f"Season {self.number}: {self.name}"
+
+
+class SeasonProgress(models.Model):
+    season = models.ForeignKey(Season, on_delete=models.CASCADE, related_name="progress")
+    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="season_progress")
+    points = models.PositiveIntegerField(default=0, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("season", "player"), name="unique_season_player")
+        ]
+
+    def __str__(self):
+        return f"{self.player} – S{self.season.number}: {self.points}"
+
+
+class Tournament(models.Model):
+    class Kind(models.TextChoices):
+        BLACKJACK = "blackjack", "Blackjack"
+        HORSES = "horses", "Horse racing"
+        MINIGAMES = "minigames", "Minigames"
+        POKER = "poker", "Poker"
+        ALL = "all", "All games"
+
+    class Status(models.TextChoices):
+        SCHEDULED = "scheduled", "Scheduled"
+        LIVE = "live", "Live"
+        SETTLED = "settled", "Settled"
+
+    title = models.CharField(max_length=80)
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    starts_at = models.DateTimeField(db_index=True)
+    ends_at = models.DateTimeField(db_index=True)
+    prize_pool = models.PositiveIntegerField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.SCHEDULED, db_index=True)
+    announced = models.BooleanField(default=False)
+    settled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("starts_at",)
+        constraints = [
+            models.UniqueConstraint(fields=("kind", "starts_at"), name="unique_tournament_slot")
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.starts_at:%Y-%m-%d %H:%M})"
+
+
+class CompetitionPayout(models.Model):
+    """One prize per (competition, rank); the unique key makes settlement idempotent."""
+
+    competition = models.CharField(max_length=60, db_index=True)
+    rank = models.PositiveSmallIntegerField()
+    player = models.ForeignKey(Player, on_delete=models.PROTECT, related_name="competition_payouts")
+    score = models.BigIntegerField()
+    prize_chips = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("competition", "rank")
+        constraints = [
+            models.UniqueConstraint(fields=("competition", "rank"), name="unique_competition_rank")
+        ]
+
+    def __str__(self):
+        return f"{self.competition} #{self.rank}: {self.player_id} +{self.prize_chips:,}"

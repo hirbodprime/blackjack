@@ -7,6 +7,7 @@ from django.db import transaction
 
 from game.models import ChipTransaction, Player, PlayerItem
 from game.services.economy import InsufficientChips, adjust_balance
+from game.services.ranks import level_reward, xp_for_level
 
 
 @dataclass(frozen=True)
@@ -72,10 +73,10 @@ def open_mystery_box(
         xp = int(reward_value or 0)
         player.xp += xp
         total_level_chips = 0
-        while player.xp >= player.level * 50:
-            player.xp -= player.level * 50
+        while player.xp >= xp_for_level(player.level):
+            player.xp -= xp_for_level(player.level)
             player.level += 1
-            reward = player.level * 50
+            reward = level_reward(player.level)
             total_level_chips += reward
             level_rewards.append((player.level, reward))
         player.save(update_fields=("xp", "level"))

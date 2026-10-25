@@ -105,6 +105,7 @@ from game.telegram.retention import (
     sell_item_command,
     weekly_command,
 )
+from game.telegram.hub import hub_callback, section_command
 from game.telegram.roulette_table import roulette_table_command
 from game.telegram.runtime import (
     telegram_error_handler,
@@ -152,6 +153,9 @@ def register_handlers(app):
     app.add_handler(CommandHandler("compact", compact_command))
     app.add_handler(CommandHandler("onboarding", onboarding_command))
     app.add_handler(CallbackQueryHandler(play_menu_callback, pattern=r"^play:"))
+    app.add_handler(CallbackQueryHandler(hub_callback, pattern=r"^hub:"))
+    for page in ("daily", "compete", "season", "tournament"):
+        app.add_handler(CommandHandler(page, section_command(page)))
     app.add_handler(CallbackQueryHandler(onboarding_callback, pattern=r"^onboarding:"))
     app.add_handler(CommandHandler("poker", poker_command))
     app.add_handler(CommandHandler("pokerraise", poker_raise_command))

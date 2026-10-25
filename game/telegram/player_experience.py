@@ -49,7 +49,7 @@ def _back_keyboard(language: str) -> InlineKeyboardMarkup:
 
 
 def _home_button(language: str):
-    return [InlineKeyboardButton(translate("hub.home", language), callback_data="play:main")]
+    return [InlineKeyboardButton(translate("hub.home", language), callback_data="hub:home")]
 
 
 def _section_keyboard(page: str, language: str, compact_mode: bool = False):
@@ -94,7 +94,10 @@ def _section_keyboard(page: str, language: str, compact_mode: bool = False):
 
 
 async def play_command(update, context) -> None:
-    settings = await _settings_for(update.effective_user.id)
+    from game.telegram.hub import show_home
+
+    if await show_home(update, context):
+        return
     language = await language_for_update(update)
     await update.effective_message.reply_text(
         translate("play.title", language),
@@ -113,8 +116,10 @@ async def play_menu_callback(update, context) -> None:
     page = query.data.split(":", 1)[1]
 
     if page == "main":
-        text = translate("play.title", language)
-        keyboard = _play_keyboard(language)
+        from game.telegram.hub import show_home
+
+        await show_home(update, context, edit=True)
+        return
     elif page in {"games", "rewards", "profile", "social", "settings"}:
         text = translate(f"hub.{page}_title", language)
         keyboard = _section_keyboard(page, language, settings.compact_mode if settings else False)

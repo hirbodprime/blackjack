@@ -688,7 +688,7 @@ async def handle_items_callback(update: Update, context: ContextTypes.DEFAULT_TY
     # ── (FALL‐THROUGH) ────────────────────────────────────────────────────────────
     await query.edit_message_text(
         text="⚠️ Something went wrong. Returning to Main Menu.",
-        reply_markup=build_main_menu()
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Home", callback_data="hub:home")]])
     )
     return
 
@@ -1752,16 +1752,13 @@ async def _menu_global_leaderboard(update, context, query, data):
 # ── (1) Main Menu (reset text + buttons) ────────────────────────────────────
 @MENU_ROUTES.on('menu:main')
 async def _menu_main(update, context, query, data):
-    user_id = query.from_user.id
-    try:
-        player = await sync_to_async(Player.objects.get)(id=user_id)
-        settings, _ = await sync_to_async(UserSettings.objects.get_or_create)(player=player)
-        language = settings.language
-    except Player.DoesNotExist:
-        language = "en"
+    from game.telegram.hub import show_home
+
+    if await show_home(update, context, edit=True):
+        return
     await query.edit_message_text(
-        text=t("play.title", language),
-        reply_markup=play_home_keyboard(language)
+        text=t("play.title", "en"),
+        reply_markup=play_home_keyboard("en")
     )
     return
 

@@ -25,12 +25,17 @@ async def handle_stale_polls_and_reschedule(context, timeout=60):
     from game.telegram.poker import resume_poker_tables
     from game.telegram.roulette_table import resume_roulette_tables
 
+    from game.telegram.competition_jobs import start_competition_jobs
+
+    await start_competition_jobs(context)
     await recover_interrupted_games_async()
     await resume_poker_tables(context)
     await resume_roulette_tables(context)
 
     english_commands = [
         BotCommand("play", "Open the main menu"),
+        BotCommand("daily", "Today's challenges and streak"),
+        BotCommand("compete", "Season, weekly leaderboard and tournaments"),
         BotCommand("profile", "View your profile and activity"),
         BotCommand("weekly", "View weekly missions"),
         BotCommand("market", "Browse the item marketplace"),
@@ -43,6 +48,8 @@ async def handle_stale_polls_and_reschedule(context, timeout=60):
     ]
     persian_commands = [
         BotCommand("play", "باز کردن منوی اصلی"),
+        BotCommand("daily", "چالش‌های امروز و زنجیره"),
+        BotCommand("compete", "فصل، جدول هفتگی و تورنمنت‌ها"),
         BotCommand("profile", "نمایش پروفایل و فعالیت‌ها"),
         BotCommand("weekly", "نمایش مأموریت‌های هفتگی"),
         BotCommand("market", "مشاهده بازار آیتم‌ها"),

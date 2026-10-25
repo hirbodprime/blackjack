@@ -1,5 +1,6 @@
 """Atomic horse ownership, customization, upgrades, gifting, and marketplace sales."""
 
+import random
 from dataclasses import dataclass
 
 from asgiref.sync import sync_to_async
@@ -7,6 +8,7 @@ from django.db import transaction
 
 from game.models import (
     ChipTransaction,
+    HorseAppliedUpgrade,
     HorseSale,
     HorseUpgrade,
     OwnedHorse,
@@ -30,6 +32,10 @@ class UpgradeAlreadyOwned(ValueError):
 
 class InvalidHorseSale(ValueError):
     pass
+
+
+class StarterHorseLocked(ValueError):
+    """Starter horses are free, so they stay with the player who claimed them."""
 
 
 @transaction.atomic
@@ -170,6 +176,8 @@ def gift_owned_horse(
     ).first()
     if horse is None:
         raise HorseNotOwned
+    if horse.is_starter:
+        raise StarterHorseLocked
     adjust_balance(
         owner,
         -fee,
@@ -204,7 +212,7 @@ def purchase_horse_sale(buyer_id: int, horse_number: int) -> HorseSaleResult:
         .filter(horse__horse_number=horse_number)
         .first()
     )
-    if sale is None or sale.horse.user_id == buyer_id:
+    if sale is None or sale.horse.user_id == buyer_id or sale.horse.is_starter:
         raise InvalidHorseSale
     players = {
         player.pk: player
@@ -242,3 +250,74 @@ def purchase_horse_sale(buyer_id: int, horse_number: int) -> HorseSaleResult:
 
 async def purchase_horse_sale_async(*args, **kwargs) -> HorseSaleResult:
     return await sync_to_async(purchase_horse_sale, thread_sensitive=True)(*args, **kwargs)
+
+
+# ── Starter horses ──────────────────────────────────────────────────────────
+
+STARTER_NUMBER_RANGE = range(100, 1000)
+STARTER_NAME_MAX = 20
+
+
+class StarterAlreadyClaimed(ValueError):
+    pass
+
+
+class InvalidStarterChoice(ValueError):
+    pass
+
+
+def _is_premium_number(number: int) -> bool:
+    digits = str(number)
+    return len(set(digits)) == 1
+
+
+def starter_powerup_offers(player_id: int, count: int = 3) -> list[HorseUpgrade]:
+    """Three upgrades offered to this player; stable so a callback can verify the pick."""
+    upgrades = list(HorseUpgrade.objects.order_by("pk"))
+    return random.Random(player_id).sample(upgrades, min(count, len(upgrades)))
+
+
+def clean_horse_name(raw: str) -> str:
+    name = " ".join((raw or "").split())
+    if not 1 <= len(name) <= STARTER_NAME_MAX or name.startswith("/"):
+        raise InvalidStarterChoice(f"Names must be 1–{STARTER_NAME_MAX} characters")
+    return name
+
+
+@transaction.atomic
+def claim_starter_horse(player_id: int, name: str, upgrade_id: int, uses: int) -> OwnedHorse:
+    from game.services.achievements import unlock
+
+    player = Player.objects.select_for_update().get(pk=player_id)
+    if OwnedHorse.objects.filter(user=player, is_starter=True).exists():
+        raise StarterAlreadyClaimed
+    name = clean_horse_name(name)
+    offers = {u.pk: u for u in starter_powerup_offers(player_id)}
+    if upgrade_id not in offers:
+        raise InvalidStarterChoice("That powerup was not offered")
+    taken = set(
+        OwnedHorse.objects.filter(
+            horse_number__gte=STARTER_NUMBER_RANGE.start,
+            horse_number__lt=STARTER_NUMBER_RANGE.stop,
+        ).values_list("horse_number", flat=True)
+    )
+    number = next(
+        n for n in STARTER_NUMBER_RANGE if n not in taken and not _is_premium_number(n)
+    )
+    horse = OwnedHorse.objects.create(
+        user=player, horse_number=number, name=name, emoji="🐎", is_starter=True
+    )
+    HorseAppliedUpgrade.objects.create(
+        owner=player, horse=horse, upgrade=offers[upgrade_id], uses_remaining=uses
+    )
+    unlock(player, "starter_horse")
+    return horse
+
+
+def starter_horse_for(player_id: int) -> OwnedHorse | None:
+    return OwnedHorse.objects.filter(user_id=player_id, is_starter=True).first()
+
+
+claim_starter_horse_async = sync_to_async(claim_starter_horse, thread_sensitive=True)
+starter_powerup_offers_async = sync_to_async(starter_powerup_offers, thread_sensitive=True)
+starter_horse_for_async = sync_to_async(starter_horse_for, thread_sensitive=True)

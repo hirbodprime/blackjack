@@ -57,6 +57,7 @@ from game.services.blackjack import (
 from game.services.economy import (
     adjust_balance_async,
 )
+from game.services.race_view import render_frame
 from game.telegram.hub import starter_name_text
 from game.services.horses import (
     HorseNotOwned,
@@ -347,6 +348,8 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     frozen_for_one   = set()
     bounce_used      = set()
     broken           = set()
+    events           = ["🔔 And they're off!"]
+    total_pot        = sum(bet.bet_amount for bet in bets)
 
     # 12) SEND INITIAL MESSAGE, THEN EDIT EACH TICK
     msg    = await update.message.reply_text("🏁 The race begins! 🐎")
@@ -364,6 +367,8 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if rivals:
                     victim = random.choice(rivals)
                     frozen_for_one.add(victim)
+                    if tick_count % 4 == 1:
+                        events.append(f"🧊 {name_map[h]} froze {name_map[victim]}!")
 
         # 12b) Compute each horse's movement this tick
         new_movements = {}
@@ -418,6 +423,8 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Cursed Sprint
             if "🛠 Cursed Sprint" in spells:
                 if random.random() < 0.4:
+                    if h not in broken:
+                        events.append(f"💥 {name_map[h]} pulled up lame!")
                     broken.add(h)
                     new_movements[h] = 0
                 else:
@@ -489,47 +496,29 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 if ahead_count >= 2:
                     positions[h] = max(0, positions[h] - 5)
-                    bounce_used.add(h)  # ✅ ensure it only happens once per horse
+                    bounce_used.add(h)
+                    events.append(f"🦘 {name_map[h]} bounces back into contention!")  # ✅ ensure it only happens once per horse
 
 
-        # 12f) Build the “race_display” string (25‐dash track)
-        race_display = ""
+        # 12f) First finisher in horse-number order wins, as before.
         for h in sorted(all_horses):
-            emoji = horse_emojis.get(h, "🐎")
-            label = name_map[h].replace(" ", "\u00A0")
-            if len(label) > MAX_NAME_LEN:
-                label = label[: MAX_NAME_LEN - 1] + "…"
-
-            dash_count  = max(1, (positions[h] * 25) // distance)
-            trail_count = max(1, 25 - dash_count)
-            leading  = "-" * dash_count
-            trailing = "-" * trail_count
-            raw_track = f"{leading}\u200E{emoji}\u200E{trailing}"
-            track = "\u202A" + raw_track + "\u202C"
-
-            if is_rtl(label):
-                rtl_label = "\u202B" + label + "\u202C"
-            else:
-                rtl_label = label
-
-            combined = "\u202A" + track + "\u200E" + " " + rtl_label + "\u202C"
-
-            if h in broken:
-                race_display += f"🚫 | 💥 {combined} (broken!)\n"
-            elif positions[h] == 0:
-                race_display += f"🏆 | 🏁 {combined}\n"
-                if winner is None:
-                    winner = h
-            else:
-                race_display += f"🏆 | {combined}\n"
-
-        # 12g) Truncate if too long
-        if len(race_display) > MAX_MESSAGE_LEN:
-            race_display = race_display[: MAX_MESSAGE_LEN - 1] + "\n…"
+            if h not in broken and positions[h] == 0 and winner is None:
+                winner = h
+        leader = min(all_horses, key=lambda x: (x in broken, positions[x], x))
+        if tick_count % 3 == 0 and winner is None:
+            events.append(f"📣 {name_map[leader]} leads with {positions[leader]} to go!")
+        if winner is not None:
+            events.append(f"🏁 {name_map[winner]} wins it!")
+        race_display = render_frame(
+            race_id=race.id, tick=tick_count, horses=all_horses, positions=positions,
+            distance=distance, names=name_map, emojis=horse_emojis, spells=upgrades_map,
+            broken=broken, events=events, pot=total_pot, winner=winner,
+            dealer_horse=dealer_horse,
+        )
 
         # 12h) Attempt to edit the message; handle flood control
         try:
-            await msg.edit_text(race_display)
+            await msg.edit_text(race_display, parse_mode="HTML")
         except RetryAfter as e:
             await asyncio.sleep(int(e.retry_after) + 1)
             continue
@@ -1129,64 +1118,79 @@ async def unapplyupgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-async def build_main_menu_keyboard():
-    # Fetch game parameters
+async def build_main_menu_keyboard(has_starter: bool = True):
     params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
-
-    # Dynamically change button labels
-    buy_horse_label = "🐎 Buy Horse"
+    buy_label = "🛒 Buy a horse"
     if params.buyhorse_event:
-        buy_horse_label += f" – Only Today {params.todays_horse_price:,}!"
-
-    rename_horse_label = "✏️ Name Horse"
-    if params.rename_horse_event:
-        rename_horse_label += " Only (1 chip!)"
-
-    # Build keyboard
-    keyboard = [
-        [
-            InlineKeyboardButton(buy_horse_label, callback_data="menu:buy_horse"),
-            InlineKeyboardButton("🎨 Set Emoji", callback_data="menu:set_emoji"),
-        ],
-        [
-            InlineKeyboardButton("🐴 My Horses", callback_data="menu:my_horses"),
-            InlineKeyboardButton("📜 My Spells", callback_data="menu:my_spells"),
-        ],
-        [
-            InlineKeyboardButton("💰 Buy Spell", callback_data="menu:buy_spell"),
-            InlineKeyboardButton("✨ Apply Spell", callback_data="menu:apply_spell"),
-        ],
-        [
-            InlineKeyboardButton("❌ Unapply Spell", callback_data="menu:unapply_spell"),
-        ],
-        [
-            InlineKeyboardButton(rename_horse_label, callback_data="menu:rename_horse"),
-            InlineKeyboardButton("🎁 Gift Horse", callback_data="menu:gift_horse"),
-        ],
-        [
-            InlineKeyboardButton("🐴 Leaderboard", callback_data="menu:global_horse_leaderboard"),
-            InlineKeyboardButton("📈 Race Stats", callback_data="menu:my_horse_statsrace"),
-        ],
-        [
-            InlineKeyboardButton("📈 List Horse For Sale", callback_data="menu:list_horse"),
-        ],
-        [
-            InlineKeyboardButton("🛒 Horses on Sale", callback_data="menu:sale_horses"),
-        ],
+        buy_label += f" · today {params.todays_horse_price:,}!"
+    rename_label = "✏️ Rename" + (" · 1 chip!" if params.rename_horse_event else "")
+    rows = []
+    if not has_starter:
+        rows.append([InlineKeyboardButton("🎁 Claim your FREE horse", callback_data="hub:claim")])
+    rows += [
+        [InlineKeyboardButton("🐴 My horses", callback_data="menu:my_horses"),
+         InlineKeyboardButton("📊 Race stats", callback_data="menu:my_horse_statsrace")],
+        [InlineKeyboardButton(buy_label, callback_data="menu:buy_horse"),
+         InlineKeyboardButton("🏷 For sale", callback_data="menu:sale_horses")],
+        [InlineKeyboardButton("✨ Buy spell", callback_data="menu:buy_spell"),
+         InlineKeyboardButton("🪄 Apply", callback_data="menu:apply_spell"),
+         InlineKeyboardButton("📜 Mine", callback_data="menu:my_spells")],
+        [InlineKeyboardButton(rename_label, callback_data="menu:rename_horse"),
+         InlineKeyboardButton("🎨 Emoji", callback_data="menu:set_emoji"),
+         InlineKeyboardButton("🎁 Gift", callback_data="menu:gift_horse")],
+        [InlineKeyboardButton("💰 Sell a horse", callback_data="menu:list_horse"),
+         InlineKeyboardButton("❌ Remove spell", callback_data="menu:unapply_spell")],
+        [InlineKeyboardButton("🏆 Horse leaderboard", callback_data="menu:global_horse_leaderboard")],
+        [InlineKeyboardButton("🏠 Home", callback_data="hub:home")],
     ]
+    return InlineKeyboardMarkup(rows)
 
-    return InlineKeyboardMarkup(keyboard)
+
+def build_stable_text(user_id: int) -> tuple[str, bool]:
+    """Stable overview for one player; returns (html, has_starter)."""
+    from html import escape
+
+    horses = list(
+        OwnedHorse.objects.filter(user_id=user_id).order_by("-is_starter", "horse_number")
+    )
+    spells = {}
+    for applied in HorseAppliedUpgrade.objects.filter(horse__in=horses).select_related("upgrade"):
+        spells.setdefault(applied.horse_id, []).append(f"{applied.upgrade.name} ({applied.uses_remaining})")
+    wins = dict(
+        HorseRaceWin.objects.filter(horse_number__in=[h.horse_number for h in horses])
+        .values_list("horse_number").annotate(n=Count("id"))
+    )
+    lines = ["<b>🐎 THE STABLE</b>", "━━━━━━━━━━━━━━━"]
+    if not horses:
+        lines.append("You don't own a horse yet — claim your free one below!")
+    for horse in horses:
+        name = escape(horse.name or f"Horse {horse.horse_number}")
+        star = " ⭐" if horse.is_starter else ""
+        lines.append(f"{horse.emoji or '🐎'} <b>#{horse.horse_number} {name}</b>{star} · 🏆 {wins.get(horse.horse_number, 0)}")
+        for spell in spells.get(horse.pk, []):
+            lines.append(f"     ✨ {escape(spell)}")
+    lines += [
+        "━━━━━━━━━━━━━━━",
+        "<i>Race in any group: /horserace → /joinrace &lt;#&gt; &lt;bet&gt; → /startrace</i>",
+    ]
+    return "\n".join(lines), any(h.is_starter for h in horses)
+
+
+async def show_stable(update, context, *, edit: bool):
+    context.user_data.pop("awaiting_buy_horse", None)
+    context.user_data.pop("awaiting_set_emoji", None)
+    text, has_starter = await sync_to_async(build_stable_text, thread_sensitive=True)(update.effective_user.id)
+    markup = await build_main_menu_keyboard(has_starter)
+    if edit:
+        await update.callback_query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+    else:
+        await update.effective_message.reply_text(text, parse_mode="HTML", reply_markup=markup)
 
 
 
 # ─── /horse: send the top‐level shop menu ───
 async def horse(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🏇 *Horse Racing Shop Menu* 🏇\n\n"
-        "Choose an option below:",
-        parse_mode="Markdown",
-        reply_markup=await build_main_menu_keyboard()
-    )
+    await show_stable(update, context, edit=False)
 
 
 
@@ -1224,14 +1228,7 @@ HORSE_MENU_ROUTES = CallbackRouter()
 # ─── Back to main menu ───
 @HORSE_MENU_ROUTES.on('menu:mainhorse')
 async def _horse_mainhorse(update, context, query, data):
-    context.user_data.pop("awaiting_buy_horse", None)
-    context.user_data.pop("awaiting_set_emoji", None)
-    await query.edit_message_text(
-        "🏇 *Horse Racing Shop Menu* 🏇\n\n"
-            "Choose an option below:",
-        parse_mode="Markdown",
-        reply_markup=await build_main_menu_keyboard()
-    )
+    await show_stable(update, context, edit=True)
     return
 
 
@@ -2597,14 +2594,7 @@ async def dispatch_horse_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         return await handler(update, context, query, data)
 
     # ─── Fallback → show main menu ───
-    context.user_data.pop("awaiting_buy_horse", None)
-    context.user_data.pop("awaiting_set_emoji", None)
-    await query.edit_message_text(
-        "🏇 *Horse Racing Shop Menu* 🏇\n\n"
-        "Choose an option below:",
-        parse_mode="Markdown",
-        reply_markup=await build_main_menu_keyboard()
-    )
+    await show_stable(update, context, edit=True)
 
 
 

@@ -314,3 +314,36 @@ class ShopTests(TestCase):
             screens.render_bag(self.player),
         ):
             self.assertTrue(text)
+
+
+class RaceFrameTests(TestCase):
+    def test_leader_first_and_winner_crowned(self):
+        from game.services.race_view import render_frame
+
+        frame = render_frame(
+            race_id=5, tick=3, horses=[1, 2, 140], positions={1: 9, 2: 0, 140: 4},
+            distance=20, names={1: "Horse 1", 2: "Horse 2", 140: "<Thunder>"},
+            emojis={140: "🦄"}, spells={140: ["⚡ Power Burst"]}, broken=set(),
+            events=["🔔 go"], pot=900, winner=2,
+        )
+        rows = [line for line in frame.splitlines() if "<b>#" in line]
+        self.assertIn("#2", rows[0])
+        self.assertIn("#140", rows[1])
+        self.assertIn("&lt;Thunder&gt;", frame)
+        self.assertIn("👑", frame)
+
+
+class StableScreenTests(TestCase):
+    def test_stable_lists_horses_spells_and_offers_claim(self):
+        from bot_sections.horse_racing_and_social import build_stable_text
+
+        player = Player.objects.create(id=60090, name="Owner")
+        text, has_starter = build_stable_text(player.pk)
+        self.assertFalse(has_starter)
+        upgrade = HorseUpgrade.objects.create(name="⚡ Power Burst", description="x", cost=1)
+        horse = OwnedHorse.objects.create(user=player, horse_number=150, name="Bolt", is_starter=True)
+        HorseAppliedUpgrade.objects.create(owner=player, horse=horse, upgrade=upgrade, uses_remaining=4)
+        text, has_starter = build_stable_text(player.pk)
+        self.assertTrue(has_starter)
+        self.assertIn("#150 Bolt", text)
+        self.assertIn("Power Burst (4)", text)

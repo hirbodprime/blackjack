@@ -23,6 +23,7 @@ from django.utils import timezone
 from game.economy_config import ARCADE_MAX_BET, ARCADE_MIN_BET, MINES_CHOICES
 from game.models import Player, RouletteTable, RouletteTableBet
 from game.services import arcade
+from game.services.achievements import grant_on_play
 from game.services.economy import InsufficientChips
 from game.services.operations import BettingPaused
 from game.services.multiplayer_roulette import RouletteTableError, place_table_bet
@@ -262,6 +263,7 @@ def arcade_action(request, action):
         return _json_error("Unknown action.", 404)
     try:
         round_ = handler(uid, json.loads(request.body or b"{}"))
+        grant_on_play(uid)
         return JsonResponse(_arcade_payload(uid, round_))
     except InsufficientChips:
         return _json_error("Not enough chips.")

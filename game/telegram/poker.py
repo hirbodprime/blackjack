@@ -18,6 +18,7 @@ from telegram.constants import ChatType, ParseMode
 from telegram.error import BadRequest, TelegramError
 
 from game.models import Player, PokerHand, PokerSeat, PokerTable
+from game.services.achievements import grant_on_play_async
 from game.services.language import group_language, language_for_update
 from game.services.operations import BettingPaused
 from game.services.poker import (
@@ -502,6 +503,9 @@ async def poker_callback(update, context):
         elif action == "sit":
             await join_table_async(table_id, query.from_user.id)
             await query.answer(_t("seated", lang))
+            from bot_sections.players_and_progression import announce_badges
+
+            await announce_badges(query.from_user.id, await grant_on_play_async(query.from_user.id), context)
             name = await sync_to_async(Player.objects.filter(pk=query.from_user.id).values_list("name", flat=True).first)()
             _push_log(table_id, f"🪑 {escape(name or '')}")
             await refresh(bot, table_id, lang)

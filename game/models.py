@@ -1020,3 +1020,16 @@ class BroadcastDelivery(models.Model):
         constraints = [
             models.UniqueConstraint(fields=("campaign", "chat_id"), name="unique_campaign_chat")
         ]
+
+
+class PendingAchievement(models.Model):
+    """Earned but not yet granted; handed over the next time the player actually plays."""
+
+    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="pending_achievements")
+    condition = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("player", "condition"), name="unique_pending_achievement")
+        ]

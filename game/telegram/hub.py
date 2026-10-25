@@ -14,10 +14,11 @@ from game.economy_config import (
     SEASON_PRIZES, STARTER_HORSE_POWERUP_USES, TOURNAMENT_PRIZE_POOL, WEEKLY_PRIZES,
     tournament_prizes,
 )
-from game.i18n import translate
+from game.i18n import pick, translate
+from game.services.achievements import localized, rarity_label, rarity_map, showcase, showcase_many
 from game.models import Achievement, Player, PlayerAchievement, Season, Tournament, UserSettings
 from game.services import competitions, seasons
-from game.services.challenges import DIFFICULTY_ICON, todays_board
+from game.services.challenges import DIFFICULTY_ICON, quest_text, todays_board
 from game.services.horses import (
     InvalidStarterChoice, StarterAlreadyClaimed, claim_starter_horse_async,
     clean_horse_name, starter_horse_for, starter_powerup_offers_async,
@@ -62,6 +63,7 @@ class Dashboard:
     live: Tournament | None
     upcoming: Tournament | None
     has_starter: bool
+    badges: str = ""
 
 
 def load_dashboard(user_id: int) -> Dashboard | None:
@@ -81,6 +83,7 @@ def load_dashboard(user_id: int) -> Dashboard | None:
         live=competitions.live_tournament() if season else None,
         upcoming=competitions.next_tournament() if season else None,
         has_starter=starter_horse_for(user_id) is not None,
+        badges=showcase(user_id),
     )
 
 
@@ -98,9 +101,10 @@ def render_home(d: Dashboard, lang: str):
         ))
     lines.append("━━━━━━━━━━━━━━━")
     title = f" · {escape(p.title)}" if p.title else ""
-    lines.append(f"👤 <b>{escape(p.name)}</b>{title} · {rank_label(p.level)}")
+    badges = f" {d.badges}" if d.badges else ""
+    lines.append(f"👤 <b>{escape(p.name)}</b>{badges}{title} · {rank_label(p.level, lang)}")
     lines.append(translate("s1.chips", lang, chips=_fmt(p.chips)))
-    lines.append(f"⭐ {level_line(p.level, p.xp)}")
+    lines.append(f"⭐ {level_line(p.level, p.xp, lang)}")
     lines.append(translate("s1.streak", lang, streak=p.daily_streak, done=d.daily_done, total=d.daily_total))
     if d.season_position:
         rank, points = d.season_position
@@ -149,11 +153,11 @@ def render_play(lang: str, bot_username: str, private: bool = True):
     rows = [
         [arcade_button(private, bot_username)],
         [Btn(translate("play.blackjack", lang), callback_data="play:blackjack"),
-         Btn("♠️ Poker", callback_data="play:poker")],
+         Btn(pick(lang, "♠️ Poker", "♠️ پوکر"), callback_data="play:poker")],
         [Btn(translate("play.horses", lang), callback_data="play:horses"),
          Btn(translate("play.minigames", lang), callback_data="play:minigames")],
         [Btn(translate("s1.btn_add_group", lang), url=f"https://t.me/{bot_username}?startgroup=play")],
-        [Btn("👥 Main group", url=MAIN_GROUP_URL)],
+        [Btn(pick(lang, "👥 Main group", "👥 گروه اصلی"), url=MAIN_GROUP_URL)],
         _home_row(lang),
     ]
     return translate("s1.play_title", lang), InlineKeyboardMarkup(rows)
@@ -166,9 +170,9 @@ def render_daily(user_id: int, lang: str):
         shown = min(progress, quest.target)
         state = "✅" if done else DIFFICULTY_ICON.get(quest.difficulty, "▫️")
         lines.append(
-            f"\n{state} <b>{escape(quest.description)}</b>\n"
+            f"\n{state} <b>{escape(quest_text(quest, lang))}</b>\n"
             f"   {progress_bar(shown, quest.target, 8)} {shown}/{quest.target}\n"
-            f"   🎁 {_fmt(quest.reward_chips)} chips · {quest.reward_xp} XP"
+            f"   🎁 {_fmt(quest.reward_chips)} {pick(lang, 'chips', 'چیپ')} · {quest.reward_xp} XP"
         )
     lines.append("\n" + translate(
         "s1.daily_footer", lang, streak=player.daily_streak, best=player.best_daily_streak
@@ -184,11 +188,13 @@ def render_daily(user_id: int, lang: str):
 def _board_lines(rows, user_id: int, lang: str, unit: str, prizes=()) -> list[str]:
     if not rows:
         return [translate("s1.empty_board", lang)]
+    icons = showcase_many([player_id for player_id, _, _ in rows])
     lines = []
     for position, (player_id, name, score) in enumerate(rows, start=1):
         prize = f" · 🎁 {_fmt(prizes[position - 1])}" if position <= len(prizes) else ""
         me = " ◀️" if player_id == user_id else ""
-        lines.append(f"{_rank_icon(position)} {escape(name)} — <b>{_fmt(score)}</b> {unit}{prize}{me}")
+        badge = f" {icons[player_id]}" if icons.get(player_id) else ""
+        lines.append(f"{_rank_icon(position)} {escape(name)}{badge} — <b>{_fmt(score)}</b> {unit}{prize}{me}")
     return lines
 
 
@@ -197,7 +203,7 @@ def _compete_keyboard(lang: str):
         [Btn(translate("s1.btn_season", lang), callback_data="hub:season"),
          Btn(translate("s1.btn_weekly", lang), callback_data="hub:weekly")],
         [Btn(translate("s1.btn_tournament", lang), callback_data="hub:tournament"),
-         Btn("🌍 All-time", callback_data="menu:leaderboards")],
+         Btn(pick(lang, "🌍 All-time", "🌍 همه‌دوران"), callback_data="menu:leaderboards")],
         _home_row(lang),
     ])
 
@@ -215,16 +221,18 @@ def render_season(user_id: int, lang: str):
         (r.player_id, f"{r.player.name} · {r.player.title}" if r.player.title else r.player.name, r.points)
         for r in seasons.standings(season, 10)
     ]
+    pts = pick(lang, "pts", "امتیاز")
     lines = [
-        f"<b>🌟 SEASON {season.number} · {escape(season.name).upper()}</b>",
-        f"⏳ {_duration(season.ends_at - timezone.now())} left",
+        pick(lang, f"<b>🌟 SEASON {season.number} · {escape(season.name).upper()}</b>",
+             f"<b>🌟 فصل {season.number} · {escape(season.name)}</b>"),
+        f"⏳ {_duration(season.ends_at - timezone.now())} {pick(lang, 'left', 'مانده')}",
         "━━━━━━━━━━━━━━━",
-        *_board_lines(rows, user_id, lang, "pts", SEASON_PRIZES),
+        *_board_lines(rows, user_id, lang, pts, SEASON_PRIZES),
     ]
     mine = seasons.player_position(season, user_id)
     if mine and mine[0] > 10:
-        lines.append(f"\n{translate('s1.you', lang)}: #{mine[0]} · {_fmt(mine[1])} pts")
-    lines.append("\n<i>Season points = XP earned this season.</i>")
+        lines.append(f"\n{translate('s1.you', lang)}: #{mine[0]} · {_fmt(mine[1])} {pts}")
+    lines.append(pick(lang, "\n<i>Season points = XP earned this season.</i>", "\n<i>امتیاز فصل = XP کسب‌شده در این فصل.</i>"))
     return "\n".join(lines), _compete_keyboard(lang)
 
 
@@ -235,14 +243,23 @@ def render_weekly(user_id: int, lang: str):
     rows = [(r.player_id, r.name, r.score) for r in competitions.leaderboard(window_start, end, limit=10)]
     mine = competitions.player_score(user_id, window_start, end)
     lines = [
-        "<b>📈 THIS WEEK</b>",
-        f"⏳ resets in {_duration(end - timezone.now())}",
+        pick(lang, "<b>📈 THIS WEEK</b>", "<b>📈 این هفته</b>"),
+        f"⏳ {pick(lang, 'resets in', 'ریست تا')} {_duration(end - timezone.now())}",
         "━━━━━━━━━━━━━━━",
         *_board_lines(rows, user_id, lang, "", WEEKLY_PRIZES),
         f"\n{translate('s1.you', lang)}: <b>{mine:+,}</b>",
-        "\n<i>Score = net winnings across all games.</i>",
+        pick(lang, "\n<i>Score = net winnings across all games.</i>", "\n<i>امتیاز = سود خالص در همه بازی‌ها.</i>"),
     ]
     return "\n".join(lines), _compete_keyboard(lang)
+
+
+KIND_FA = {"blackjack": "بلک‌جک", "horses": "مسابقه اسب", "minigames": "مینی‌گیم‌ها", "poker": "پوکر", "all": "همه بازی‌ها"}
+
+
+def _tournament_title(tournament: Tournament, lang: str) -> str:
+    if lang != "fa":
+        return tournament.title
+    return f"{competitions.KIND_EMOJI[tournament.kind]} تورنمنت {KIND_FA[tournament.kind]}"
 
 
 def render_tournament(user_id: int, lang: str):
@@ -253,20 +270,23 @@ def render_tournament(user_id: int, lang: str):
         if upcoming is None:
             return translate("s1.empty_board", lang), _compete_keyboard(lang)
         prizes = " / ".join(_fmt(p) for p in tournament_prizes(upcoming.prize_pool))
+        kind = KIND_FA[upcoming.kind] if lang == "fa" else Tournament.Kind(upcoming.kind).label.lower()
         text = (
-            f"<b>⚔️ {escape(upcoming.title).upper()}</b>\n"
-            f"⏳ starts in {_duration(upcoming.starts_at - now)} · lasts "
-            f"{_duration(upcoming.ends_at - upcoming.starts_at)}\n━━━━━━━━━━━━━━━\n"
-            f"🎁 Prizes: {prizes}\n\n<i>Just play — your net winnings in "
-            f"{Tournament.Kind(upcoming.kind).label.lower()} during the window are your score.</i>"
+            f"<b>⚔️ {escape(_tournament_title(upcoming, lang))}</b>\n"
+            f"⏳ {pick(lang, 'starts in', 'شروع تا')} {_duration(upcoming.starts_at - now)} · "
+            f"{pick(lang, 'lasts', 'مدت')} {_duration(upcoming.ends_at - upcoming.starts_at)}\n━━━━━━━━━━━━━━━\n"
+            f"🎁 {pick(lang, 'Prizes', 'جوایز')}: {prizes}\n\n<i>"
+            + pick(lang, f"Just play — your net winnings in {kind} during the window are your score.",
+                   f"فقط بازی کن — سود خالص تو در {kind} در این بازه امتیازت است.")
+            + "</i>"
         )
         return text, _compete_keyboard(lang)
     prizes = tournament_prizes(tournament.prize_pool)
     rows = [(r.player_id, r.name, r.score) for r in competitions.tournament_standings(tournament, 10)]
     mine = competitions.player_score(user_id, tournament.starts_at, tournament.ends_at, tournament.kind)
     lines = [
-        f"<b>🔴 LIVE · {escape(tournament.title).upper()}</b>",
-        f"⏳ ends in {_duration(tournament.ends_at - now)}",
+        f"<b>🔴 {pick(lang, 'LIVE', 'زنده')} · {escape(_tournament_title(tournament, lang))}</b>",
+        f"⏳ {pick(lang, 'ends in', 'پایان تا')} {_duration(tournament.ends_at - now)}",
         "━━━━━━━━━━━━━━━",
         *_board_lines(rows, user_id, lang, "", prizes),
         f"\n{translate('s1.you', lang)}: <b>{mine:+,}</b>",
@@ -279,58 +299,74 @@ def render_profile(user_id: int, lang: str):
 
     p = Player.objects.get(pk=user_id)
     stats = Stats.objects.filter(player=p).first()
-    unlocked = set(PlayerAchievement.objects.filter(player=p).values_list("achievement__condition", flat=True))
+    shares = rarity_map()
+    owned = list(PlayerAchievement.objects.filter(player=p).select_related("achievement"))
+    owned.sort(key=lambda pa: shares.get(pa.achievement_id, 1))
     total = Achievement.objects.count()
-    badges = Achievement.objects.filter(
-        condition__in=unlocked, category=Achievement.Category.LEGACY
-    ).values_list("icon", "name")
     horse = starter_horse_for(user_id)
     season = seasons.active_season()
     position = seasons.player_position(season, user_id) if season else None
     lines = [
         f"<b>👤 {escape(p.name)}</b>" + (f" · {escape(p.title)}" if p.title else ""),
         "━━━━━━━━━━━━━━━",
-        f"{rank_label(p.level)}",
-        f"⭐ {level_line(p.level, p.xp)}",
-        f"💰 {_fmt(p.chips)} chips",
+        rank_label(p.level, lang),
+        f"⭐ {level_line(p.level, p.xp, lang)}",
+        f"💰 {_fmt(p.chips)} {pick(lang, 'chips', 'چیپ')}",
     ]
-    if badges:
-        lines.append(" ".join(f"{icon} {name}" for icon, name in badges))
     if position:
-        lines.append(f"🏁 Season #{position[0]} · {_fmt(position[1])} pts")
-    lines.append(f"🔥 Streak {p.daily_streak}d (best {p.best_daily_streak}d)")
+        lines.append(f"🏁 {pick(lang, 'Season', 'فصل')} #{position[0]} · {_fmt(position[1])} {pick(lang, 'pts', 'امتیاز')}")
+    lines.append(f"🔥 {pick(lang, 'Streak', 'زنجیره')} {p.daily_streak} ({pick(lang, 'best', 'بهترین')} {p.best_daily_streak})")
     if stats:
         played = stats.wins + stats.loses
         rate = f"{100 * stats.wins // played}%" if played else "—"
         lines.append(f"🃏 {stats.wins}W / {stats.loses}L · {rate} · {stats.how_many_21}× 21")
     if horse:
         lines.append(f"🐎 {escape(horse.name or '')} (#{horse.horse_number})")
-    lines.append(f"🏅 {len(unlocked)}/{total} achievements")
+    lines.append(f"\n<b>🏅 {pick(lang, 'BADGES', 'نشان‌ها')} {len(owned)}/{total}</b>")
+    if owned:
+        for pa in owned[:6]:
+            name, _ = localized(pa.achievement, lang)
+            lines.append(f"{pa.achievement.icon or '🏅'} {escape(name)} · {rarity_label(shares.get(pa.achievement_id, 1), lang)}")
+        if len(owned) > 6:
+            lines.append(pick(lang, f"…and {len(owned) - 6} more", f"…و {len(owned) - 6} نشان دیگر"))
+    else:
+        lines.append(pick(lang, "Play any game to start earning badges!", "برای گرفتن نشان، هر بازی‌ای را شروع کن!"))
     rows = [
         [Btn(translate("s1.btn_achievements", lang), callback_data="hub:ach"),
          Btn(translate("s1.btn_history", lang), callback_data="play:history")],
-        [Btn("📊 Stats", callback_data="profile:stats"),
-         Btn("🐎 My races", callback_data="profile:myraces")],
+        [Btn(pick(lang, "📊 Stats", "📊 آمار"), callback_data="profile:stats"),
+         Btn(pick(lang, "🐎 My races", "🐎 مسابقه‌های من"), callback_data="profile:myraces")],
         _home_row(lang),
     ]
     return "\n".join(lines), InlineKeyboardMarkup(rows)
 
 
+CATEGORY_FA = {
+    "blackjack": "بلک‌جک", "horses": "اسب‌ها", "minigames": "مینی‌گیم", "progress": "پیشرفت",
+    "competition": "رقابت", "social": "اجتماعی", "legacy": "افتخارات",
+}
+
+
 def render_achievements(user_id: int, lang: str, category: str | None):
     categories = Achievement.Category
     category = category if category in categories.values else categories.PROGRESS
+    shares = rarity_map()
     unlocked = set(PlayerAchievement.objects.filter(player_id=user_id).values_list("achievement_id", flat=True))
-    lines = [f"<b>🏅 ACHIEVEMENTS · {categories(category).label.upper()}</b>", "━━━━━━━━━━━━━━━"]
+    label = CATEGORY_FA[category] if lang == "fa" else categories(category).label.upper()
+    lines = [f"<b>🏅 {pick(lang, 'BADGES', 'نشان‌ها')} · {label}</b>", "━━━━━━━━━━━━━━━"]
     for a in Achievement.objects.filter(category=category).order_by("reward_chips", "pk"):
         have = a.pk in unlocked
         if a.hidden and not have:
-            lines.append("❔ <i>Hidden achievement</i>")
+            lines.append(pick(lang, "❔ <i>Hidden badge</i>", "❔ <i>نشان مخفی</i>"))
             continue
+        name, description = localized(a, lang)
         reward = f" · 🎁 {_fmt(a.reward_chips)}" if a.reward_chips else ""
         mark = "✅" if have else "▫️"
-        lines.append(f"{mark} {a.icon or '🏅'} <b>{escape(a.name)}</b> — {escape(a.description)}{reward}")
+        rarity = rarity_label(shares.get(a.pk, 0), lang)
+        lines.append(f"{mark} {a.icon or '🏅'} <b>{escape(name)}</b> · {rarity}\n     {escape(description)}{reward}")
     tabs = [
-        Btn(("• " if c == category else "") + categories(c).label, callback_data=f"hub:ach:{c}")
+        Btn(("• " if c == category else "") + (CATEGORY_FA[c] if lang == "fa" else categories(c).label),
+            callback_data=f"hub:ach:{c}")
         for c in categories.values
     ]
     rows = [tabs[i:i + 3] for i in range(0, len(tabs), 3)] + [_home_row(lang, back="hub:profile")]

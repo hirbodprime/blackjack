@@ -21,8 +21,10 @@ from game.models import (
 from game.services.economy import (
     adjust_balance_async,
 )
-from game.services.achievements import unlock_async
-from game.services.challenges import record_daily_completion_async
+from game.services.achievements import grant_on_play_async, unlock_async
+from game.i18n import pick
+from game.services.challenges import quest_text, record_daily_completion_async
+from game.services.language import player_language
 from game.services.quests import advance_daily_quest_async
 from game.services.referrals import award_referral_bonus_async
 from game.telegram.player_experience import (
@@ -81,28 +83,34 @@ async def update_daily_quest_progress(player, quest_type, subtype=None, amount=1
         available=True
     ))
 
+    lang = await sync_to_async(player_language, thread_sensitive=True)(player.id)
     for quest in matching_quests:
         result = await advance_daily_quest_async(player.id, quest.id, amount)
         if result.completed_now and context and quest_notifications:
             for level, chips_reward in result.progression.level_rewards:
                 await context.bot.send_message(
                     chat_id=player.id,
-                    text=f"🎉 Congratulations! You've reached level {level}! You've been rewarded with {chips_reward} 💰 chips!",
+                    text=pick(lang, f"🎉 Level {level}! +{chips_reward:,} chips", f"🎉 سطح {level}! +{chips_reward:,} چیپ"),
                 )
             await context.bot.send_message(
                 chat_id=player.id,
-                text=f"✅ Daily Quest Completed: {quest.description}\n🎁 Rewards: {quest.reward_xp} XP, {quest.reward_chips} Chips!"
+                text=pick(lang, "✅ Challenge complete: ", "✅ چالش کامل شد: ") + quest_text(quest, lang)
+                + f"\n🎁 {result.chip_reward:,} " + pick(lang, "chips", "چیپ") + f" · {quest.reward_xp} XP",
             )
         if result.completed_now and quest.auto_generated:
             streak = await record_daily_completion_async(player.id, quest.date_assigned)
             if streak and context and quest_notifications:
                 await context.bot.send_message(
                     chat_id=player.id,
-                    text=(
-                        f"🔥 All daily challenges cleared! Streak: {streak.streak} day"
-                        f"{'s' if streak.streak != 1 else ''}\n🎁 Streak bonus: +{streak.bonus:,} chips"
+                    text=pick(
+                        lang,
+                        f"🔥 All daily challenges cleared! Streak: {streak.streak}d\n🎁 Streak bonus: +{streak.bonus:,} chips",
+                        f"🔥 همه چالش‌های امروز کامل شد! زنجیره: {streak.streak} روز\n🎁 جایزه زنجیره: +{streak.bonus:,} چیپ",
                     ),
                 )
+    from bot_sections.players_and_progression import announce_badges
+
+    await announce_badges(player.id, await grant_on_play_async(player.id), context)
     weekly_completed = await advance_weekly_missions_async(
         player.id, quest_type, subtype, amount
     )
@@ -110,8 +118,8 @@ async def update_daily_quest_progress(player, quest_type, subtype=None, amount=1
         for mission in weekly_completed:
             await context.bot.send_message(
                 chat_id=player.id,
-                text=f"✅ Weekly Mission Completed: {mission.description}\n"
-                     f"🎁 Rewards: {mission.reward_xp} XP, {mission.reward_chips} Chips!",
+                text=pick(lang, "✅ Weekly mission complete: ", "✅ مأموریت هفتگی کامل شد: ") + mission.description
+                     + f"\n🎁 {mission.reward_chips:,} " + pick(lang, "chips", "چیپ") + f" · {mission.reward_xp} XP",
             )
 
 

@@ -72,7 +72,7 @@ from game.services.blackjack import (
     join_game_with_chips_async,
     refund_joined_player_async,
 )
-from game.telegram.group_buttons import blackjack_join_keyboard, blackjack_turn_keyboard
+from game.telegram.group_buttons import blackjack_join_keyboard, blackjack_turn_keyboard, chat_language
 from game.services.cards import (
     all_players_busted,
     calculate_hand_value,
@@ -555,10 +555,10 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         text=(
             f"[{escaped_user_name}](tg://user?id={user_id}) has set "
             f"the bet amount to {chosen_option_escaped}\n"
-            "Tap 🙋 Join to play"
+            + ("برای بازی 🙋 ورود را بزن" if (lang := await chat_language(chat_id)) == "fa" else "Tap 🙋 Join to play")
         ),
         parse_mode="MarkdownV2",
-        reply_markup=blackjack_join_keyboard(),
+        reply_markup=blackjack_join_keyboard(lang),
     )
 async def handle_poll_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     poll = update.poll
@@ -1648,18 +1648,20 @@ async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await asyncio.sleep(BEAT)  # Non-blocking sleep
         await context.bot.send_message(
             chat_id=chat_id, 
-            text=f"{mention}, it's your turn\\! You have 30 seconds\\.",
+            text=(f"🎯 {mention}، نوبت توست\\! ۳۰ ثانیه" if (lang := await chat_language(chat_id)) == "fa"
+                  else f"🎯 {mention}, it's your turn\\! You have 30 seconds\\."),
             parse_mode="MarkdownV2",
-            reply_markup=blackjack_turn_keyboard(),
+            reply_markup=blackjack_turn_keyboard(lang),
         )
     else:
         # Notify others that the current player is making a decision
         await asyncio.sleep(BEAT)  # Non-blocking sleep
         await context.bot.send_message(
             chat_id=chat_id, 
-            text=f"🎯 {mention}, your turn\\! 30 seconds\\.",
+            text=(f"🎯 {mention}، نوبت توست\\! ۳۰ ثانیه" if (lang := await chat_language(chat_id)) == "fa"
+                  else f"🎯 {mention}, your turn\\! 30 seconds\\."),
             parse_mode="MarkdownV2",
-            reply_markup=blackjack_turn_keyboard(),
+            reply_markup=blackjack_turn_keyboard(lang),
         )
     await schedule_player_turn_timeout(update, context, game, current_player_id)
 
@@ -1838,8 +1840,10 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await asyncio.sleep(DRAMATIC_BEAT)
         await context.bot.send_message(
-            chat_id, f"🎯 {mention}: hit again or stand?", parse_mode="MarkdownV2",
-            reply_markup=blackjack_turn_keyboard(),
+            chat_id,
+            (f"🎯 {mention}: کارت یا بس؟" if (lang := await chat_language(chat_id)) == "fa" else f"🎯 {mention}: hit again or stand?"),
+            parse_mode="MarkdownV2",
+            reply_markup=blackjack_turn_keyboard(lang),
         )
         await schedule_player_turn_timeout(update, context, game, user_id)
 

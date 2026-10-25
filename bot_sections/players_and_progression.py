@@ -43,7 +43,8 @@ from game.services.economy import (
 from game.services.operations import (
     get_bot_control_async,
 )
-from game.services.achievements import unlock_async, unlock_message
+from game.services.achievements import unlock_async, unlock_message_for
+from game.services.language import player_language
 from game.services.ranks import xp_for_level
 from game.services.progression import (
     award_xp_async,
@@ -57,11 +58,13 @@ def xp_for_next_level(level: int) -> int:
 # Function to add XP, check for level-up, and give rewards
 async def add_xp(player, amount, context):
     result = await award_xp_async(player, amount)
+    if result.level_rewards:
+        lang = await sync_to_async(player_language, thread_sensitive=True)(player.id)
     for level, chips_reward in result.level_rewards:
         await asyncio.sleep(2)  # Non-blocking wait
         await context.bot.send_message(
-            chat_id=player.id, 
-            text=f"🎉 Congratulations! You've reached level {level}! You've been rewarded with {chips_reward} 💰 chips!"
+            chat_id=player.id,
+            text=(f"🎉 سطح {level}! +{chips_reward:,} چیپ" if lang == "fa" else f"🎉 Level {level}! +{chips_reward:,} chips"),
         )
 
 async def normalize_player_level_xp(player: Player):
@@ -127,12 +130,20 @@ async def deduct_xp(player, amount, context):
 
 async def unlock_achievement(player, condition_name, context):
     achievement = await unlock_async(player, condition_name)
-    if achievement is None:
+    if achievement is not None:
+        await announce_badges(player.id, [achievement], context)
+
+
+async def announce_badges(player_id, achievements, context):
+    """DM new badges in the player's own language (DMs are private, so never the group's)."""
+    if not achievements or context is None:
         return
-    try:
-        await context.bot.send_message(chat_id=player.id, text=unlock_message(achievement))
-    except Exception:
-        pass
+    language = await sync_to_async(player_language, thread_sensitive=True)(player_id)
+    for achievement in achievements:
+        try:
+            await context.bot.send_message(chat_id=player_id, text=unlock_message_for(achievement, language))
+        except Exception:
+            pass
 
 
 async def my_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

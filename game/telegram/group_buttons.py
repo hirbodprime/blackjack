@@ -13,7 +13,8 @@ from telegram.constants import ChatType, ParseMode
 from telegram.error import TelegramError
 
 from game.models import HorseRace, OwnedHorse
-from game.services.language import language_for_update
+from game.i18n import pick
+from game.services.language import group_language, language_for_update
 
 
 RACE_BETS = (100, 500, 1_000, 5_000)
@@ -72,21 +73,28 @@ async def run_as_command(update, context, name: str, args: list[str] | None = No
 
 # ── Keyboards attached to game messages ─────────────────────────────────────
 
-def blackjack_join_keyboard():
+async def chat_language(chat_id: int) -> str:
+    return await sync_to_async(group_language, thread_sensitive=True)(chat_id)
+
+
+def blackjack_join_keyboard(lang: str = "en"):
     return InlineKeyboardMarkup([[
-        Btn("🙋 Join", callback_data="cmd:join"), Btn("▶️ Start now", callback_data="cmd:forcestart"),
+        Btn(pick(lang, "🙋 Join", "🙋 ورود"), callback_data="cmd:join"),
+        Btn(pick(lang, "▶️ Start now", "▶️ شروع"), callback_data="cmd:forcestart"),
     ]])
 
 
-def blackjack_turn_keyboard():
+def blackjack_turn_keyboard(lang: str = "en"):
     return InlineKeyboardMarkup([[
-        Btn("🎰 Hit", callback_data="cmd:hit"), Btn("✋ Stand", callback_data="cmd:stand"),
+        Btn(pick(lang, "🎰 Hit", "🎰 کارت"), callback_data="cmd:hit"),
+        Btn(pick(lang, "✋ Stand", "✋ بس"), callback_data="cmd:stand"),
     ]])
 
 
-def race_keyboard():
+def race_keyboard(lang: str = "en"):
     return InlineKeyboardMarkup([[
-        Btn("🐎 Place a bet", callback_data="race:pick"), Btn("🏁 Start race", callback_data="cmd:startrace"),
+        Btn(pick(lang, "🐎 Place a bet", "🐎 شرط ببند"), callback_data="race:pick"),
+        Btn(pick(lang, "🏁 Start race", "🏁 شروع مسابقه"), callback_data="cmd:startrace"),
     ]])
 
 
@@ -146,8 +154,9 @@ async def race_callback(update, context) -> None:
         from game.telegram.poker import STAKES
 
         await query.answer()
+        lang = await chat_language(query.message.chat.id)
         await query.message.reply_text(
-            "♠️ Choose the stakes:",
+            pick(lang, "♠️ Choose the stakes:", "♠️ مبلغ را انتخاب کن:"),
             reply_markup=InlineKeyboardMarkup([
                 [Btn(f"🪙 {buy:,} · {sb:,}/{sb * 2:,}", callback_data=f"poker:create:{buy}:{sb}")]
                 for buy, sb in STAKES
@@ -159,21 +168,23 @@ async def race_callback(update, context) -> None:
             chat_id=query.message.chat.id, race_started=False, completed=False
         ).aexists()
         if not open_race:
-            await query.answer("No race is open — start one first.", show_alert=True)
+            lang = await chat_language(query.message.chat.id)
+            await query.answer(pick(lang, "No race is open — start one first.", "مسابقه‌ای باز نیست — اول یکی بساز."), show_alert=True)
             return
+        lang = await chat_language(query.message.chat.id)
         horses = await sync_to_async(_race_horses, thread_sensitive=True)(query.message.chat.id, user.id)
         await query.answer()
         rows = [[Btn(label, callback_data=f"race:h:{user.id}:{number}")] for number, label in horses]
-        rows.append([Btn("✖️ Cancel", callback_data=f"race:x:{user.id}")])
+        rows.append([Btn(pick(lang, "✖️ Cancel", "✖️ لغو"), callback_data=f"race:x:{user.id}")])
         await query.message.reply_text(
-            f"🐎 {escape(user.first_name)}, pick your horse:",
+            f"🐎 {escape(user.first_name)}, " + pick(lang, "pick your horse:", "اسبت را انتخاب کن:"),
             reply_markup=InlineKeyboardMarkup(rows), parse_mode=ParseMode.HTML,
         )
         return
 
     owner = int(parts[2])
     if owner != user.id:
-        await query.answer("This picker belongs to another player.", show_alert=True)
+        await query.answer("🙅", show_alert=False)
         return
     if parts[1] == "x":
         await query.answer()
@@ -182,11 +193,12 @@ async def race_callback(update, context) -> None:
     if parts[1] == "h":
         horse = parts[3]
         await query.answer()
+        lang = await chat_language(query.message.chat.id)
         await query.edit_message_text(
-            f"🐎 Horse #{horse} — how much?",
+            f"🐎 #{horse} — " + pick(lang, "how much?", "چقدر؟"),
             reply_markup=InlineKeyboardMarkup([
                 [Btn(f"🪙 {amount:,}", callback_data=f"race:b:{owner}:{horse}:{amount}") for amount in RACE_BETS],
-                [Btn("✖️ Cancel", callback_data=f"race:x:{owner}")],
+                [Btn(pick(lang, "✖️ Cancel", "✖️ لغو"), callback_data=f"race:x:{owner}")],
             ]),
         )
         return

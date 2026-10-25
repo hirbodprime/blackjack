@@ -135,3 +135,27 @@ def todays_board(player_id: int, day: date | None = None) -> list[tuple[DailyQue
 ensure_daily_challenges_async = sync_to_async(ensure_daily_challenges, thread_sensitive=True)
 record_daily_completion_async = sync_to_async(record_daily_completion, thread_sensitive=True)
 todays_board_async = sync_to_async(todays_board, thread_sensitive=True)
+
+
+FA_TEMPLATES = {
+    ("blackjack", "join"): "{n} بازی بلک‌جک انجام بده",
+    ("blackjack", "15"): "{n} بار روی دقیقاً ۱۵ بایست",
+    ("blackjack", "hitblackjack"): "{n} بار بلک‌جک بگیر",
+    ("blackjack", "natural"): "یک بلک‌جک طبیعی بگیر",
+    ("minigames", "dice"): "{n} بار تاس بریز",
+    ("minigames", "coin"): "{n} بار سکه بینداز",
+    ("minigames", "slot"): "{n} بار اسلات بچرخان",
+    ("minigames", "dart"): "{n} بار دارت پرتاب کن",
+    ("minigames", "1.4"): "{n} بار در کرش با ۱.۴x+ برداشت کن",
+    ("minigames", "1.8"): "{n} بار در کرش با ۱.۸x+ برداشت کن",
+    ("race", "joinhorse"): "در {n} مسابقه اسب شرکت کن",
+    ("race", "win"): "{n} مسابقه اسب ببر",
+}
+
+
+def quest_text(quest: DailyQuest, language: str) -> str:
+    if language == "fa" and quest.auto_generated:
+        template = FA_TEMPLATES.get((quest.quest_type, quest.subtype))
+        if template:
+            return template.format(n=quest.target)
+    return quest.description

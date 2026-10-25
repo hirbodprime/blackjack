@@ -33,6 +33,7 @@ from game.economy_config import (
     SLOT_PAIR_MULTIPLIER,
     standard_win_payout,
 )
+from game.services.language import language_for_update
 from game.models import (
     ChipTransaction,
     CrashGame,
@@ -178,14 +179,14 @@ async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         settlement = await settle_minigame(player, winnings, "slot", update.update_id)
         if settlement.applied:
             await apply_referral_bonus(player, winnings, context)
-    footer = await finish_minigame(player, "slot", context, achievement="slot_jackpot" if jackpot else None)
+    footer = await finish_minigame(player, "slot", context, achievement="slot_jackpot" if jackpot else None, update=update)
     frame = f"🎰 ┃ {result_text} ┃ 🎰"
     if jackpot:
-        await message.edit_text(f"{frame}\n\n💎 JACKPOT! +{winnings:,} chips 🎉{footer}")
+        await message.edit_text(f"{frame}\n\n{await _w(update, '💎 JACKPOT!', '💎 جک‌پات!')} +{winnings:,} 🎉{footer}")
     elif winnings:
-        await message.edit_text(f"{frame}\n\n✅ Pair! +{winnings:,} chips{footer}")
+        await message.edit_text(f"{frame}\n\n{await _w(update, '✅ Pair!', '✅ جفت!')} +{winnings:,}{footer}")
     else:
-        await message.edit_text(f"{frame}\n\n❌ No match · −{bet_amount:,}{footer}")
+        await message.edit_text(f"{frame}\n\n{await _w(update, '❌ No match', '❌ بدون جفت')} · −{bet_amount:,}{footer}")
 
 
 
@@ -239,13 +240,18 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         settlement = await settle_minigame(player, winnings, "coin", update.update_id)
         if settlement.applied:
             await apply_referral_bonus(player, winnings, context)
-        footer = await finish_minigame(player, "coin", context)
-        await message.edit_text(f"🪙 {flip_result.upper()}!\n\n✅ You called it · +{winnings:,} chips{footer}")
+        footer = await finish_minigame(player, "coin", context, update=update)
+        await message.edit_text(f"🪙 {flip_result.upper()}!\n\n{await _w(update, '✅ You called it', '✅ درست گفتی')} · +{winnings:,}{footer}")
     else:
-        footer = await finish_minigame(player, "coin", context)
-        await message.edit_text(f"🪙 {flip_result.upper()}!\n\n❌ Not this time · −{bet_amount:,}{footer}")
+        footer = await finish_minigame(player, "coin", context, update=update)
+        await message.edit_text(f"🪙 {flip_result.upper()}!\n\n{await _w(update, '❌ Not this time', '❌ این بار نه')} · −{bet_amount:,}{footer}")
 
-async def finish_minigame(player, subtype, context, *, achievement=None):
+async def _w(update, en, fa):
+    """Pick the chat's language for a short result phrase."""
+    return fa if update is not None and await language_for_update(update) == "fa" else en
+
+
+async def finish_minigame(player, subtype, context, *, achievement=None, update=None):
     """Count the play toward challenges/achievements and return a balance footer."""
     from bot_sections.players_and_progression import unlock_achievement
 
@@ -258,7 +264,8 @@ async def finish_minigame(player, subtype, context, *, achievement=None):
     if plays >= 100:
         await unlock_achievement(player, "minigame_100", context)
     await player.arefresh_from_db(fields=("chips",))
-    return f"\n━━━━━━━━━━━━\n💰 Balance: {player.chips:,}"
+    lang = await language_for_update(update) if update is not None else "en"
+    return f"\n━━━━━━━━━━━━\n💰 {'موجودی' if lang == 'fa' else 'Balance'}: {player.chips:,}"
 
 
 cards = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
@@ -320,17 +327,17 @@ async def lucky_draw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if settlement.applied:
             await apply_referral_bonus(player, winnings, context)
 
-        footer = await finish_minigame(player, "draw", context)
-        await message.edit_text(f"🃏 You 『{player_card}』 vs 『{bot_card}』 Dealer\n\n✅ High card wins · +{winnings:,}{footer}")
+        footer = await finish_minigame(player, "draw", context, update=update)
+        await message.edit_text(f"🃏 👤『{player_card}』 vs 『{bot_card}』🎩\n\n{await _w(update, '✅ High card wins', '✅ کارت بالاتر بُرد')} · +{winnings:,}{footer}")
     elif player_card_value == bot_card_value:
         await settle_minigame(
             player, bet_amount, "draw", update.update_id, refund=True
         )
-        footer = await finish_minigame(player, "draw", context)
-        await message.edit_text(f"🃏 You 『{player_card}』 vs 『{bot_card}』 Dealer\n\n🤝 Tie · bet returned{footer}")
+        footer = await finish_minigame(player, "draw", context, update=update)
+        await message.edit_text(f"🃏 👤『{player_card}』 vs 『{bot_card}』🎩\n\n{await _w(update, '🤝 Tie · bet returned', '🤝 مساوی · شرط برگشت')}{footer}")
     else:
-        footer = await finish_minigame(player, "draw", context)
-        await message.edit_text(f"🃏 You 『{player_card}』 vs 『{bot_card}』 Dealer\n\n❌ Dealer wins · −{bet_amount:,}{footer}")
+        footer = await finish_minigame(player, "draw", context, update=update)
+        await message.edit_text(f"🃏 👤『{player_card}』 vs 『{bot_card}』🎩\n\n{await _w(update, '❌ Dealer wins', '❌ دیلر بُرد')} · −{bet_amount:,}{footer}")
 
 
 
@@ -386,13 +393,13 @@ async def rps_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Compare choices and determine the outcome
     await determine_rps_winner(
-        player_choice, bot_choice, player, message, bet_amount, context, update.update_id
+        player_choice, bot_choice, player, message, bet_amount, context, update.update_id, update=update
     )
 
 
 # Determine the winner of the Rock-Paper-Scissors game
 async def determine_rps_winner(
-    player_choice, bot_choice, player, message, bet_amount, context, operation_id
+    player_choice, bot_choice, player, message, bet_amount, context, operation_id, update=None
 ):
     # Rules of Rock-Paper-Scissors
     win_conditions = {
@@ -405,8 +412,8 @@ async def determine_rps_winner(
     if player_choice == bot_choice:
         await settle_minigame(player, bet_amount, "rps", operation_id, refund=True)
         await asyncio.sleep(2)
-        footer = await finish_minigame(player, "rps", context)
-        await message.edit_text(f"{choice_emojis[player_choice]} vs {choice_emojis[bot_choice]}\n\n🤝 Tie · bet returned{footer}")
+        footer = await finish_minigame(player, "rps", context, update=update)
+        await message.edit_text(f"{choice_emojis[player_choice]} vs {choice_emojis[bot_choice]}\n\n{await _w(update, '🤝 Tie · bet returned', '🤝 مساوی · شرط برگشت')}{footer}")
     elif win_conditions[player_choice] == bot_choice:
         winnings = standard_win_payout(bet_amount)
         settlement = await settle_minigame(player, winnings, "rps", operation_id)
@@ -414,12 +421,12 @@ async def determine_rps_winner(
         if settlement.applied:
             await apply_referral_bonus(player, winnings, context)
 
-        footer = await finish_minigame(player, "rps", context)
-        await message.edit_text(f"{choice_emojis[player_choice]} beats {choice_emojis[bot_choice]}\n\n✅ You win · +{winnings:,}{footer}")
+        footer = await finish_minigame(player, "rps", context, update=update)
+        await message.edit_text(f"{choice_emojis[player_choice]} › {choice_emojis[bot_choice]}\n\n{await _w(update, '✅ You win', '✅ بردی')} · +{winnings:,}{footer}")
     else:
         await asyncio.sleep(2)
-        footer = await finish_minigame(player, "rps", context)
-        await message.edit_text(f"{choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}\n\n❌ Dealer wins · −{bet_amount:,}{footer}")
+        footer = await finish_minigame(player, "rps", context, update=update)
+        await message.edit_text(f"{choice_emojis[bot_choice]} › {choice_emojis[player_choice]}\n\n{await _w(update, '❌ Dealer wins', '❌ دیلر بُرد')} · −{bet_amount:,}{footer}")
 
 CRASH_SPEED = 0.6  # seconds per tick
 
@@ -628,11 +635,11 @@ async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         settlement = await settle_minigame(player, winnings, "dice", update.update_id)
         if settlement.applied:
             await apply_referral_bonus(player, winnings, context)
-        footer = await finish_minigame(player, "dice", context)
-        await update.message.reply_text(f"🎲 Rolled {dice_value}\n\n✅ High roll! +{winnings:,}{footer}")
+        footer = await finish_minigame(player, "dice", context, update=update)
+        await update.message.reply_text(f"🎲 {dice_value}\n\n{await _w(update, '✅ High roll!', '✅ تاس بالا!')} +{winnings:,}{footer}")
     else:
-        footer = await finish_minigame(player, "dice", context)
-        await update.message.reply_text(f"🎲 Rolled {dice_value} — need 5 or 6\n\n❌ −{bet_amount:,}{footer}")
+        footer = await finish_minigame(player, "dice", context, update=update)
+        await update.message.reply_text(f"🎲 {dice_value}\n\n❌ −{bet_amount:,}{footer}")
 
 
 from asgiref.sync import sync_to_async

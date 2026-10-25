@@ -13,10 +13,10 @@ from django.utils import timezone
 
 from game.economy_config import SEASON_STARTING_CHIPS
 from game.models import (
-    ChipTransaction, CrashGame, Game, HorseRace, Player, PokerTable,
+    ChipTransaction, CrashGame, Game, HorseRace, PendingAchievement, Player, PokerTable,
     RouletteTable, Season,
 )
-from game.services.achievements import sync_catalog, unlock
+from game.services.achievements import sync_catalog
 from game.services.challenges import ensure_daily_challenges
 from game.services.competitions import schedule_tournaments
 from game.services.seasons import start_season
@@ -64,10 +64,12 @@ class Command(BaseCommand):
         sync_catalog()
         with transaction.atomic():
             if number == 1:
-                for player_id in veterans:
-                    unlock(player_id, "season0_veteran")
-                for player_id in founders:
-                    unlock(player_id, "season0_founder")
+                # Badges are handed over the first time each returning player plays.
+                PendingAchievement.objects.bulk_create(
+                    [PendingAchievement(player_id=pid, condition="season0_veteran") for pid in veterans]
+                    + [PendingAchievement(player_id=pid, condition="season0_founder") for pid in founders],
+                    ignore_conflicts=True,
+                )
             season = start_season(number, options["name"], chips, reset_balances=reset)
         ensure_daily_challenges()
         schedule_tournaments()

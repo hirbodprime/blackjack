@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from game.models import (
-    ChipTransaction, CompetitionPayout, DailyQuest, HorseAppliedUpgrade, HorseUpgrade,
+    Achievement, ChipTransaction, CompetitionPayout, DailyQuest, HorseAppliedUpgrade, HorseUpgrade,
     OwnedHorse, Player, PlayerAchievement, PlayerDailyQuestProgress, Season,
     SeasonProgress, Tournament,
 )
@@ -220,10 +220,13 @@ class SeasonLaunchCommandTests(TestCase):
         veteran.refresh_from_db()
         self.assertEqual(veteran.chips, 5_000)
         self.assertTrue(Season.objects.get(number=1).is_active)
-        conditions = set(PlayerAchievement.objects.filter(player=veteran).values_list(
-            "achievement__condition", flat=True
-        ))
-        self.assertEqual(conditions, {"season0_veteran", "season0_founder"})
+        # Badges wait until the veteran actually plays again.
+        self.assertFalse(PlayerAchievement.objects.filter(player=veteran).exists())
+        from game.services import achievements
+
+        achievements._last_check.clear()
+        granted = {a.condition for a in achievements.grant_on_play(veteran.pk)}
+        self.assertTrue({"season0_veteran", "season0_founder"} <= granted)
         self.assertEqual(DailyQuest.objects.filter(auto_generated=True).count(), 3)
 
 
@@ -411,3 +414,33 @@ class GroupButtonTests(TestCase):
             await group_buttons.cmd_callback(update, mock.Mock())
         self.assertEqual(seen, {"user": 42, "chat": -5, "args": []})
         bot.send_message.assert_awaited_once_with(-5, "ok")
+
+
+class BadgeTests(TestCase):
+    def setUp(self):
+        from game.services import achievements
+
+        self.achievements = achievements
+        achievements._last_check.clear()
+        sync_catalog()
+        self.player = Player.objects.create(id=60120, name="Badger", chips=200_000)
+
+    def test_ledger_milestones_and_throttle(self):
+        for _ in range(10):
+            bet(self.player, 10)
+        win(self.player, 12_000)
+        granted = {a.condition for a in self.achievements.grant_on_play(self.player.pk)}
+        self.assertTrue({"plays_10", "big_win_10k", "rich_100k"} <= granted)
+        self.assertEqual(self.achievements.grant_on_play(self.player.pk), [])  # throttled
+
+    def test_rarity_showcase_and_persian(self):
+        other = Player.objects.create(id=60121, name="Other")
+        unlock(self.player, "first_race_win")
+        unlock(self.player, "rank_legend")
+        unlock(other, "first_race_win")
+        shares = self.achievements.rarity_map()
+        self.assertEqual(self.achievements.showcase(self.player.pk, shares, limit=1), "🌟")
+        legend = Achievement.objects.get(condition="rank_legend")
+        self.assertIn("Epic", self.achievements.rarity_label(0.03))
+        self.assertEqual(self.achievements.localized(legend, "fa")[0], "افسانه")
+        self.assertIn("نشان جدید", self.achievements.unlock_message_for(legend, "fa"))

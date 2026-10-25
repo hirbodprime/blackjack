@@ -181,3 +181,32 @@ def price_for(key: str, day=None) -> int:
     if deal_of_the_day(day).key == key:
         return item.price * (100 - DEAL_DISCOUNT_PERCENT) // 100
     return item.price
+
+
+FA = {
+    "xp_charm": ("طلسم شانس", "۲۵٪ XP بیشتر (و امتیاز فصل) برای ۲۴ ساعت"),
+    "daily_doubler": ("دوبل روزانه", "جایزه چیپ چالش‌های روزانه دو برابر برای ۲۴ ساعت"),
+    "xp_booster_500": ("بوستر XP", "فوراً ۵۰۰ XP بگیر"),
+    "xp_booster_2000": ("بوستر بزرگ XP", "فوراً ۲۰۰۰ XP بگیر"),
+    "double_chip_potion": ("معجون دوبل", "برد بعدی بلک‌جک دو برابر"),
+    "triple_chip_potion": ("معجون سه‌برابر", "برد بعدی بلک‌جک سه برابر"),
+    "10x_chip_potion": ("معجون ۱۰ برابر", "برد بعدی بلک‌جک ۱۰ برابر (با سقف)"),
+    "insurance_pass": ("پاس بیمه", "یک کارت بد را پس بده و دوباره بکش"),
+    "first_hand_11_potion": ("شروع با ۱۱", "بازی بعدی را با ۱۱ شروع کن"),
+    "first_hand_20_pass": ("شروع با ۲۰", "بازی بعدی را با ۲۰ شروع کن"),
+    "streak_freeze": ("محافظ زنجیره", "یک روز غیبت بدون از دست دادن زنجیره"),
+    "title_lucky": ("لقب: خوش‌شانس", "🍀 Lucky کنار اسمت"),
+    "title_shark": ("لقب: کوسه", "🦈 Card Shark کنار اسمت"),
+    "title_jockey": ("لقب: سوارکار", "🏇 Jockey کنار اسمت"),
+    "title_ghost": ("لقب: روح", "👻 Ghost کنار اسمت"),
+    "title_highroller": ("لقب: شرط‌باز بزرگ", "💎 High Roller کنار اسمت"),
+    "title_tycoon": ("لقب: سرمایه‌دار", "🏦 Tycoon کنار اسمت"),
+    "title_kingpin": ("لقب: سلطان", "👑 Kingpin — کمیاب‌ترین"),
+}
+CATEGORIES_FA = {"boosts": "⚡ بوست‌ها", "blackjack": "🃏 بلک‌جک", "protection": "🛡 محافظت", "titles": "🎩 لقب‌ها"}
+
+
+def item_text(item: ShopItem, language: str) -> tuple[str, str]:
+    if language == "fa" and item.key in FA:
+        return FA[item.key]
+    return item.name, item.description

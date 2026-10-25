@@ -26,11 +26,17 @@ def render_frame(
     pot: int,
     winner: int | None = None,
     dealer_horse: int = 1,
+    language: str = "en",
 ) -> str:
     """Leader first; each row shows place, progress track, and the horse."""
     order = sorted(horses, key=lambda h: (h in broken, positions[h], h))
-    header = "🏆 PHOTO FINISH" if winner is not None else f"🏇 RACE #{race_id} · LAP {tick}"
-    lines = [f"<b>{header}</b>", f"💰 Pot {pot:,} · {distance} furlongs", "━━━━━━━━━━━━━━━"]
+    fa = language == "fa"
+    if winner is not None:
+        header = "🏆 خط پایان" if fa else "🏆 PHOTO FINISH"
+    else:
+        header = f"🏇 مسابقه #{race_id} · دور {tick}" if fa else f"🏇 RACE #{race_id} · LAP {tick}"
+    pot_line = f"💰 پات {pot:,} · {distance} فرلانگ" if fa else f"💰 Pot {pot:,} · {distance} furlongs"
+    lines = [f"<b>{header}</b>", pot_line, "━━━━━━━━━━━━━━━"]
     for place, horse in enumerate(order, start=1):
         done = distance - positions[horse]
         filled = min(TRACK_CELLS, max(0, done * TRACK_CELLS // distance))

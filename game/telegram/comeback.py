@@ -29,7 +29,7 @@ PLAYER_TEXT = {
         "<b>Season 1 · The Comeback</b>\n"
         "━━━━━━━━━━━━━━━\n"
         "Everyone starts fresh with <b>{chips:,} chips</b>. Same bankroll, fair race to the top.\n"
-        "Played before? You keep a permanent 🎖 <b>Veteran</b> badge.\n\n"
+        "Played before? Play one game and your permanent 🎖 <b>Veteran</b> badge is yours.\n\n"
         "<b>What's new</b>\n"
         "🐎 A <b>free horse</b> for you: name it and pick a powerup\n"
         "⚔️ <b>Tournaments every evening</b>, {pool:,} chips in prizes\n"
@@ -37,7 +37,7 @@ PLAYER_TEXT = {
         "📆 Daily challenges with 🔥 streak bonuses\n"
         "🕹 <b>Arcade</b>: Crash, Mines and Hi-Lo\n"
         "♠️ Rebuilt <b>poker</b>, played right in the group\n"
-        "🛍 New shop: boosts, streak freezes and titles\n\n"
+        "🛍 New shop: boosts, streak freezes and titles\n🏅 50+ badges to collect, with rarity\n\n"
         "Your seat is waiting 👇"
     ),
     "fa": (
@@ -45,7 +45,7 @@ PLAYER_TEXT = {
         "<b>فصل ۱ · بازگشت</b>\n"
         "━━━━━━━━━━━━━━━\n"
         "همه با <b>{chips:,} چیپ</b> از نو شروع می‌کنند. شروع برابر، رقابت عادلانه.\n"
-        "قبلاً بازی کرده‌ای؟ نشان دائمی 🎖 <b>کهنه‌کار</b> مال توست.\n\n"
+        "قبلاً بازی کرده‌ای؟ یک بازی کن تا نشان دائمی 🎖 <b>کهنه‌کار</b> مال تو شود.\n\n"
         "<b>چه چیزهایی جدید است</b>\n"
         "🐎 یک <b>اسب رایگان</b>: اسمش را بگذار و پاورآپ انتخاب کن\n"
         "⚔️ <b>تورنمنت هر شب</b> با {pool:,} چیپ جایزه\n"
@@ -53,7 +53,7 @@ PLAYER_TEXT = {
         "📆 چالش‌های روزانه با جایزه 🔥 زنجیره\n"
         "🕹 <b>آرکید</b>: کرش، ماین و های-لو\n"
         "♠️ <b>پوکر</b> کاملاً جدید، داخل خود گروه\n"
-        "🛍 فروشگاه جدید: بوست، محافظ زنجیره و لقب\n\n"
+        "🛍 فروشگاه جدید: بوست، محافظ زنجیره و لقب\n🏅 بیش از ۵۰ نشان کمیاب برای جمع کردن\n\n"
         "جایت خالی است 👇"
     ),
 }

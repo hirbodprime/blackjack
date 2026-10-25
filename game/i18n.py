@@ -207,3 +207,8 @@ def translate(key: str, language: str = DEFAULT_LANGUAGE, **values) -> str:
     selected = language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
     template = catalog.get(selected) or catalog[DEFAULT_LANGUAGE]
     return template.format(**values)
+
+
+def pick(language: str, en: str, fa: str) -> str:
+    """Inline two-language text for one-off strings that don't merit a catalog key."""
+    return fa if language == "fa" else en

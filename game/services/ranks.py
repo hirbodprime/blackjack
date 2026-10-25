@@ -9,16 +9,17 @@ class RankTier:
     emoji: str
     name: str
     min_level: int
+    name_fa: str = ""
 
 
 RANK_TIERS = (
-    RankTier("bronze", "🥉", "Bronze", 1),
-    RankTier("silver", "🥈", "Silver", 5),
-    RankTier("gold", "🥇", "Gold", 10),
-    RankTier("platinum", "💠", "Platinum", 20),
-    RankTier("diamond", "💎", "Diamond", 30),
-    RankTier("master", "👑", "Master", 45),
-    RankTier("legend", "🌟", "Legend", 60),
+    RankTier("bronze", "🥉", "Bronze", 1, "برنز"),
+    RankTier("silver", "🥈", "Silver", 5, "نقره"),
+    RankTier("gold", "🥇", "Gold", 10, "طلا"),
+    RankTier("platinum", "💠", "Platinum", 20, "پلاتین"),
+    RankTier("diamond", "💎", "Diamond", 30, "الماس"),
+    RankTier("master", "👑", "Master", 45, "استاد"),
+    RankTier("legend", "🌟", "Legend", 60, "افسانه"),
 )
 
 ROMAN = ("I", "II", "III")
@@ -57,15 +58,16 @@ def next_rank(level: int) -> RankTier | None:
     return None
 
 
-def rank_label(level: int) -> str:
+def rank_label(level: int, language: str = "en") -> str:
     """Return e.g. ``🥇 Gold II``; Legend has no division."""
     tier = rank_for_level(level)
+    name = tier.name_fa if language == "fa" and tier.name_fa else tier.name
     following = next_rank(level)
     if following is None:
-        return f"{tier.emoji} {tier.name}"
+        return f"{tier.emoji} {name}"
     span = following.min_level - tier.min_level
     division = min(2, (level - tier.min_level) * 3 // span)
-    return f"{tier.emoji} {tier.name} {ROMAN[division]}"
+    return f"{tier.emoji} {name} {ROMAN[division]}"
 
 
 def progress_bar(current: int, total: int, width: int = 10) -> str:
@@ -75,6 +77,7 @@ def progress_bar(current: int, total: int, width: int = 10) -> str:
     return "▰" * filled + "▱" * (width - filled)
 
 
-def level_line(level: int, xp: int) -> str:
+def level_line(level: int, xp: int, language: str = "en") -> str:
     need = xp_for_level(level)
-    return f"Lv {level} {progress_bar(xp, need)} {xp:,}/{need:,} XP"
+    label = "سطح" if language == "fa" else "Lv"
+    return f"{label} {level} {progress_bar(xp, need)} {xp:,}/{need:,} XP"

@@ -31,6 +31,7 @@ from bot_sections.core_and_menus import (
 )
 from bot_sections.players_and_progression import (
     check_player,
+    unlock_achievement,
 )
 from game.economy_config import (
     horse_race_payout_pool,
@@ -239,6 +240,8 @@ async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bet_amount >= 1000000:
         await update_daily_quest_progress(player, "race", "horse1m", 1, context)
     await update_daily_quest_progress(player, "race", "joinhorse", 1, context)
+    if await HorseBet.objects.filter(user_id=player.id).acount() >= 50:
+        await unlock_achievement(player, "race_regular", context)
     
     if owned_entry and owned_entry.name:
         label = f"{owned_entry.name} ({horse_number})"
@@ -672,6 +675,9 @@ async def startrace(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if payout_change.applied:
                 await apply_referral_bonus(player_obj, payout, context)
             await update_daily_quest_progress(player_obj, "race", "win", 1, context)
+            await unlock_achievement(player_obj, "first_race_win", context)
+            if await OwnedHorse.objects.filter(horse_number=winner, user_id=player_obj.id).aexists():
+                await unlock_achievement(player_obj, "own_horse_win", context)
 
         first_share = max(
             1, payout_pool * winning_bets[0].bet_amount // total_winning_stakes

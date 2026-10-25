@@ -76,6 +76,7 @@ from game.services.cards import (
     all_players_busted,
     calculate_hand_value,
     deal_card,
+    format_hand,
     dealer_should_hit,
     resolve_round,
 )
@@ -1100,7 +1101,7 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
     await asyncio.sleep(BEAT)
 
-    await context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...")
+    await context.bot.send_message(chat_id=chat_id, text=f"🃏 ━━ ROUND {game.current_round} of {game.total_rounds} ━━ 🃏")
     await asyncio.sleep(DRAMATIC_BEAT)
     reaction = random.choice(game_start_reactions)
     await safe_send_reaction(context.bot, chat_id, reaction)
@@ -1143,7 +1144,7 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
         else:
             await context.bot.send_message(
                 chat_id=join_entry.player.id,
-                text=f"🃏Your hand: {player_hand}.\n♠️Total value: {player_hand_value}"
+                text=f"🃏 Your hand\n{format_hand(player_hand)}"
             )
         # if player_hand_value != 21:
         #     await context.bot.send_message(
@@ -1752,12 +1753,12 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mention = f"[{escaped_user_name}](tg://user?id={user_id})"
 
-    await safe_send_message_async(context.bot, chat_id, f"{mention} drew: {new_card}")
+    await safe_send_message_async(context.bot, chat_id, f"🃏 {mention} draws 『{new_card}』")
 
     player_hand = join_game.hand
     hand_value = calculate_hand_value(player_hand)
     
-    await safe_send_message_async(context.bot, user_id, f"Your full hand: {player_hand}\\. Total value: {hand_value}")
+    await safe_send_message_async(context.bot, user_id, f"🃏 Your hand\n{format_hand(player_hand)}")
     # Check for bust or 21
     if hand_value == 21:
         join_game.has_stood = True
@@ -1806,7 +1807,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_send_message_async(
                 context.bot,
                 user_id,
-                f"🛡️ Insurance Pass activated\\!\nYour new hand: {updated_hand}\n♠️ Total value: {updated_value}"
+                f"🛡️ Insurance Pass activated\\!\n{format_hand(updated_hand)}"
             )
             await schedule_player_turn_timeout(update, context, game, user_id)
             return
@@ -1817,7 +1818,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await unlock_achievement(join_game.player, "30_or_more_deck", context)
             await asyncio.sleep(DRAMATIC_BEAT)
             await deduct_xp(join_game.player, 20, context)
-            await safe_send_message_async(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\. ")
+            await safe_send_message_async(context.bot, chat_id, f"💥 {mention} busts with {format_hand(player_hand)}")
             await next_player_turn(update, context)
 
     else:
@@ -1913,7 +1914,7 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update_daily_quest_progress(player, "blackjack", "10", 1, context)
     await asyncio.sleep(BEAT)
 
-    await safe_send_message_async(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
+    await safe_send_message_async(context.bot, user_id, f"✋ You stand\n{format_hand(player_hand)}")
 
     # Move to the next player's turn
     await next_player_turn(update, context)
@@ -2097,7 +2098,7 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         dealer_hand.append(new_card)
         dealer_value = calculate_hand_value(dealer_hand)
         await asyncio.sleep(BEAT)
-        await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
+        await safe_send_message_dealer(context.bot, chat_id, f"🎩 Dealer draws 『{new_card}』\n{format_hand(dealer_hand)}")
         
         if dealer_value == 21:
             reaction = random.choice(blackjack_reactions)

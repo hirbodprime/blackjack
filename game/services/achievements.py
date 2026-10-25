@@ -38,8 +38,6 @@ CATALOG = (
     ("slot_jackpot", "🎰", "Jackpot!", "Hit a slot jackpot", C.MINIGAMES, 5_000, 150, False),
     ("crash_5x", "🚀", "To the Moon", "Cash out crash at 5x or more", C.MINIGAMES, 5_000, 150, False),
     ("minigame_100", "🕹", "Arcade Rat", "Play 100 minigames", C.MINIGAMES, 5_000, 200, False),
-    ("poker_first_pot", "♠️", "Pot Taker", "Win your first poker pot", C.MINIGAMES, 2_000, 80, False),
-    ("poker_showdown_flush", "♣️", "Flush Royale", "Win a showdown with a flush or better", C.MINIGAMES, 5_000, 150, False),
     # Progress
     ("rank_silver", "🥈", "Silver Rank", "Reach Silver rank", C.PROGRESS, 2_000, 0, False),
     ("rank_gold", "🥇", "Gold Rank", "Reach Gold rank", C.PROGRESS, 5_000, 0, False),

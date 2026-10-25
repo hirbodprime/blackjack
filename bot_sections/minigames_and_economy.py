@@ -173,15 +173,19 @@ async def slot_machine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         winnings = bet_amount * SLOT_PAIR_MULTIPLIER
 
     # Update player chips if won
+    jackpot = len(set(slot_result)) == 1
     if winnings > 0:
         settlement = await settle_minigame(player, winnings, "slot", update.update_id)
         if settlement.applied:
             await apply_referral_bonus(player, winnings, context)
-        await update_daily_quest_progress(player, "minigames", "slot", 1, context)
-
-        await message.edit_text(f"🎰 {result_text} 🎰\nYou win {winnings} chips! 🎉")
+    footer = await finish_minigame(player, "slot", context, achievement="slot_jackpot" if jackpot else None)
+    frame = f"🎰 ┃ {result_text} ┃ 🎰"
+    if jackpot:
+        await message.edit_text(f"{frame}\n\n💎 JACKPOT! +{winnings:,} chips 🎉{footer}")
+    elif winnings:
+        await message.edit_text(f"{frame}\n\n✅ Pair! +{winnings:,} chips{footer}")
     else:
-        await message.edit_text(f"🎰 {result_text} 🎰\nNo match! You lose your bet. 😢")
+        await message.edit_text(f"{frame}\n\n❌ No match · −{bet_amount:,}{footer}")
 
 
 
@@ -235,11 +239,27 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         settlement = await settle_minigame(player, winnings, "coin", update.update_id)
         if settlement.applied:
             await apply_referral_bonus(player, winnings, context)
-        await update_daily_quest_progress(player, "minigames", "coin", 1, context)
-
-        await message.edit_text(f"🪙 Coin landed on {flip_result.capitalize()}! You win {winnings} chips!")
+        footer = await finish_minigame(player, "coin", context)
+        await message.edit_text(f"🪙 {flip_result.upper()}!\n\n✅ You called it · +{winnings:,} chips{footer}")
     else:
-        await message.edit_text(f"🪙 Coin landed on {flip_result.capitalize()}! You lose your bet.")
+        footer = await finish_minigame(player, "coin", context)
+        await message.edit_text(f"🪙 {flip_result.upper()}!\n\n❌ Not this time · −{bet_amount:,}{footer}")
+
+async def finish_minigame(player, subtype, context, *, achievement=None):
+    """Count the play toward challenges/achievements and return a balance footer."""
+    from bot_sections.players_and_progression import unlock_achievement
+
+    await update_daily_quest_progress(player, "minigames", subtype, 1, context)
+    if achievement:
+        await unlock_achievement(player, achievement, context)
+    plays = await ChipTransaction.objects.filter(
+        player=player, category=ChipTransaction.Category.BET, reference_type="minigame"
+    ).acount()
+    if plays >= 100:
+        await unlock_achievement(player, "minigame_100", context)
+    await player.arefresh_from_db(fields=("chips",))
+    return f"\n━━━━━━━━━━━━\n💰 Balance: {player.chips:,}"
+
 
 cards = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 card_values = {card: index for index, card in enumerate(cards, start=2)}
@@ -300,14 +320,17 @@ async def lucky_draw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if settlement.applied:
             await apply_referral_bonus(player, winnings, context)
 
-        await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}\n\nYou win {winnings} chips!")
+        footer = await finish_minigame(player, "draw", context)
+        await message.edit_text(f"🃏 You 『{player_card}』 vs 『{bot_card}』 Dealer\n\n✅ High card wins · +{winnings:,}{footer}")
     elif player_card_value == bot_card_value:
         await settle_minigame(
             player, bet_amount, "draw", update.update_id, refund=True
         )
-        await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}\n\nIt's a tie! You get your bet back.")
+        footer = await finish_minigame(player, "draw", context)
+        await message.edit_text(f"🃏 You 『{player_card}』 vs 『{bot_card}』 Dealer\n\n🤝 Tie · bet returned{footer}")
     else:
-        await message.edit_text(f"🃏 You drew: {player_card}\n\nDealer drew: {bot_card}\n\nYou lose your bet.")
+        footer = await finish_minigame(player, "draw", context)
+        await message.edit_text(f"🃏 You 『{player_card}』 vs 『{bot_card}』 Dealer\n\n❌ Dealer wins · −{bet_amount:,}{footer}")
 
 
 
@@ -382,7 +405,8 @@ async def determine_rps_winner(
     if player_choice == bot_choice:
         await settle_minigame(player, bet_amount, "rps", operation_id, refund=True)
         await asyncio.sleep(2)
-        await message.edit_text(f"🤝 It's a tie! You get your bet of {bet_amount} chips back!")
+        footer = await finish_minigame(player, "rps", context)
+        await message.edit_text(f"{choice_emojis[player_choice]} vs {choice_emojis[bot_choice]}\n\n🤝 Tie · bet returned{footer}")
     elif win_conditions[player_choice] == bot_choice:
         winnings = standard_win_payout(bet_amount)
         settlement = await settle_minigame(player, winnings, "rps", operation_id)
@@ -390,10 +414,12 @@ async def determine_rps_winner(
         if settlement.applied:
             await apply_referral_bonus(player, winnings, context)
 
-        await message.edit_text(f"🎉 You win! {choice_emojis[player_choice]} beats {choice_emojis[bot_choice]}!\nYou win {winnings} chips!")
+        footer = await finish_minigame(player, "rps", context)
+        await message.edit_text(f"{choice_emojis[player_choice]} beats {choice_emojis[bot_choice]}\n\n✅ You win · +{winnings:,}{footer}")
     else:
         await asyncio.sleep(2)
-        await message.edit_text(f"😔 You lose! {choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}!\nYou lose your bet of {bet_amount} chips.")
+        footer = await finish_minigame(player, "rps", context)
+        await message.edit_text(f"{choice_emojis[bot_choice]} beats {choice_emojis[player_choice]}\n\n❌ Dealer wins · −{bet_amount:,}{footer}")
 
 CRASH_SPEED = 0.6  # seconds per tick
 
@@ -499,16 +525,16 @@ async def cashout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player = await sync_to_async(Player.objects.get)(id=user_id)
     if settlement.balance_change.applied:
         await apply_referral_bonus(player, winnings, context)
-    if cashout_point == 1.6:
-        await update_daily_quest_progress(player, "minigames", "1.6", 1, context)
-    if cashout_point == 1.8:
-        await update_daily_quest_progress(player, "minigames", "1.8", 1, context)
-    if cashout_point == 1.4:
-        await update_daily_quest_progress(player, "minigames", "1.4", 1, context)
-    if cashout_point == 2.4:
-        await update_daily_quest_progress(player, "minigames", "2.4", 1, context)
+    # Multipliers are floats, so count every threshold the cash-out reached.
+    for threshold in ("1.4", "1.6", "1.8", "2.4"):
+        if round(cashout_point, 2) >= float(threshold):
+            await update_daily_quest_progress(player, "minigames", threshold, 1, context)
+    if cashout_point >= 5:
+        from bot_sections.players_and_progression import unlock_achievement
+
+        await unlock_achievement(player, "crash_5x", context)
     await update.message.reply_text(
-        f"✅ Cashed out at {settlement.multiplier}x!\n💰 You won {winnings} chips!"
+        f"🚀 Cashed out at {settlement.multiplier}x!\n✅ +{winnings:,} chips"
     )
 
 
@@ -602,11 +628,11 @@ async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         settlement = await settle_minigame(player, winnings, "dice", update.update_id)
         if settlement.applied:
             await apply_referral_bonus(player, winnings, context)
-        await update_daily_quest_progress(player, "minigames", "dice", 1, context)
-
-        await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou win {winnings} chips!")
+        footer = await finish_minigame(player, "dice", context)
+        await update.message.reply_text(f"🎲 Rolled {dice_value}\n\n✅ High roll! +{winnings:,}{footer}")
     else:
-        await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou lose your bet of {bet_amount} chips.")
+        footer = await finish_minigame(player, "dice", context)
+        await update.message.reply_text(f"🎲 Rolled {dice_value} — need 5 or 6\n\n❌ −{bet_amount:,}{footer}")
 
 
 from asgiref.sync import sync_to_async

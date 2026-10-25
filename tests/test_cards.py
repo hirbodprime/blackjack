@@ -74,3 +74,12 @@ class RoundResolutionTests(TestCase):
         self.assertTrue(all_players_busted([[10, 10, 5], ["K", "Q", 2]]))
         self.assertFalse(all_players_busted([[10, 10, 5], [10, "A"]]))
         self.assertTrue(all_players_busted([]))
+
+
+class CardFormattingTests(TestCase):
+    def test_hand_renders_cards_value_and_flags(self):
+        from game.services.cards import format_hand
+
+        self.assertEqual(format_hand(["K", 7]), "『K』『7』 → 17")
+        self.assertEqual(format_hand(["A", "K"]), "『A』『K』 → 21 ⭐")
+        self.assertTrue(format_hand([10, 9, 5]).endswith("💥"))

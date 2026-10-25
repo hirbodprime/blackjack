@@ -21,6 +21,7 @@ from game.models import (
 from game.services.economy import (
     adjust_balance_async,
 )
+from game.services.achievements import unlock_async
 from game.services.challenges import record_daily_completion_async
 from game.services.quests import advance_daily_quest_async
 from game.services.referrals import award_referral_bonus_async
@@ -274,6 +275,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         description="New-player referral reward",
                         idempotency_key=f"signup-referrer:{player.id}",
                     )
+                    await unlock_async(referrer.id, "first_referral")
                     print(f"🎯 Referral applied! Referrer: {referrer.id}")
                 else:
                     print("⚠️ Self-referral attempt blocked.")

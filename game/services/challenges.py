@@ -28,7 +28,7 @@ TEMPLATES = {
     "medium": (
         ("blackjack", "join", "Play {n} blackjack games", 8, 120, 1_500),
         ("blackjack", "15", "Stand on exactly 15, {n} times", 2, 120, 1_500),
-        ("minigames", "1.4", "Cash out crash at 1.4x, {n} times", 3, 120, 1_500),
+        ("minigames", "1.4", "Cash out crash at 1.4x+ {n} times", 3, 120, 1_500),
         ("race", "joinhorse", "Join {n} horse races", 5, 120, 1_500),
         ("minigames", "slot", "Spin the slots {n} times", 15, 120, 1_500),
     ),
@@ -36,7 +36,7 @@ TEMPLATES = {
         ("blackjack", "hitblackjack", "Hit {n} blackjacks", 2, 250, 3_500),
         ("blackjack", "natural", "Get a natural blackjack", 1, 250, 3_500),
         ("race", "win", "Win {n} horse races", 2, 250, 3_500),
-        ("minigames", "1.8", "Cash out crash at 1.8x, {n} times", 2, 250, 3_500),
+        ("minigames", "1.8", "Cash out crash at 1.8x+ {n} times", 2, 250, 3_500),
         ("blackjack", "join", "Play {n} blackjack games", 20, 250, 3_500),
     ),
 }

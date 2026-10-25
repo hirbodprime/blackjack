@@ -89,3 +89,14 @@ def resolve_round(
             winners.append(seat)
 
     return RoundResult(dealer_value, dealer_busted, tuple(winners), winning_value)
+
+
+def format_cards(hand: Iterable[Card]) -> str:
+    """Render cards as 『K』『7』 — safe inside Telegram MarkdownV2 and plain text."""
+    return "".join(f"『{card}』" for card in hand)
+
+
+def format_hand(hand: Sequence[Card]) -> str:
+    value = calculate_hand_value(hand)
+    flag = " 💥" if value > 21 else " ⭐" if value == 21 else ""
+    return f"{format_cards(hand)} → {value}{flag}"

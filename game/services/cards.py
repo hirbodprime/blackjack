@@ -5,11 +5,13 @@ can be tested without starting the bot.
 """
 
 import random
-from collections.abc import Sequence
-from typing import TypeAlias
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from typing import Generic, TypeAlias, TypeVar
 
 
 Card: TypeAlias = int | str
+Seat = TypeVar("Seat")
 
 DECK: list[Card] = [2, 3, 4, 5, 6, 7, 8, 9, 10, "J", "Q", "K", "A"] * 4
 
@@ -47,3 +49,43 @@ def calculate_hand_value(hand: Sequence[Card]) -> int:
 def dealer_should_hit(hand: Sequence[Card]) -> bool:
     """Standard, auditable house rule: hit through 16 and stand on all 17s."""
     return calculate_hand_value(hand) < 17
+
+
+@dataclass(frozen=True)
+class RoundResult(Generic[Seat]):
+    dealer_value: int
+    dealer_busted: bool
+    winners: tuple[Seat, ...]
+    winning_value: int
+
+
+def all_players_busted(hands: Iterable[Sequence[Card]]) -> bool:
+    """True when no hand is 21 or under (including when there are no hands)."""
+    return all(calculate_hand_value(hand) > 21 for hand in hands)
+
+
+def resolve_round(
+    dealer_hand: Sequence[Card],
+    seats: Iterable[tuple[Seat, Sequence[Card]]],
+) -> RoundResult[Seat]:
+    """Find the round winners: the highest non-busted hands that beat the dealer.
+
+    Ties at the top all win, in seat order. With no winner the dealer takes
+    the round.
+    """
+    dealer_value = calculate_hand_value(dealer_hand)
+    dealer_busted = dealer_value > 21
+    winning_value = 0
+    winners = []
+
+    for seat, hand in seats:
+        value = calculate_hand_value(hand)
+        if value > 21 or not (dealer_busted or value > dealer_value):
+            continue
+        if value > winning_value:
+            winning_value = value
+            winners = [seat]
+        elif value == winning_value:
+            winners.append(seat)
+
+    return RoundResult(dealer_value, dealer_busted, tuple(winners), winning_value)

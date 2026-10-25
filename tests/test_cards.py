@@ -2,7 +2,14 @@ from collections import Counter
 from unittest import TestCase
 from unittest.mock import patch
 
-from game.services.cards import DECK, calculate_hand_value, dealer_should_hit, deal_card
+from game.services.cards import (
+    DECK,
+    all_players_busted,
+    calculate_hand_value,
+    deal_card,
+    dealer_should_hit,
+    resolve_round,
+)
 
 
 class CardServiceTests(TestCase):
@@ -39,3 +46,31 @@ class CardServiceTests(TestCase):
     def test_deal_card_uses_the_shared_deck(self, choice):
         self.assertEqual(deal_card(), "A")
         choice.assert_called_once_with(DECK)
+
+
+class RoundResolutionTests(TestCase):
+    def test_highest_hand_beating_the_dealer_wins(self):
+        result = resolve_round([10, 8], [("a", [10, 9]), ("b", [10, "A"]), ("c", [10, 7])])
+        self.assertEqual(result.winners, ("b",))
+        self.assertEqual(result.winning_value, 21)
+        self.assertEqual(result.dealer_value, 18)
+        self.assertFalse(result.dealer_busted)
+
+    def test_ties_at_the_top_all_win_in_seat_order(self):
+        result = resolve_round([10, 7], [("a", [10, 9]), ("b", [9, 10]), ("c", [10, 8])])
+        self.assertEqual(result.winners, ("a", "b"))
+
+    def test_push_and_lower_hands_lose_to_the_dealer(self):
+        result = resolve_round([10, 9], [("a", [10, 9]), ("b", [10, 8])])
+        self.assertEqual(result.winners, ())
+
+    def test_busted_players_never_win(self):
+        result = resolve_round([10, 6, 10], [("a", [10, 6, 9]), ("b", [2, 3])])
+        self.assertTrue(result.dealer_busted)
+        self.assertEqual(result.winners, ("b",))
+        self.assertEqual(result.winning_value, 5)
+
+    def test_all_players_busted(self):
+        self.assertTrue(all_players_busted([[10, 10, 5], ["K", "Q", 2]]))
+        self.assertFalse(all_players_busted([[10, 10, 5], [10, "A"]]))
+        self.assertTrue(all_players_busted([]))

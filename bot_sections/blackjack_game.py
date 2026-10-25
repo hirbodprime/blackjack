@@ -72,7 +72,13 @@ from game.services.blackjack import (
     join_game_with_chips_async,
     refund_joined_player_async,
 )
-from game.services.cards import calculate_hand_value, deal_card, dealer_should_hit
+from game.services.cards import (
+    all_players_busted,
+    calculate_hand_value,
+    deal_card,
+    dealer_should_hit,
+    resolve_round,
+)
 from game.services.economy import (
     adjust_balance_async,
 )
@@ -2063,16 +2069,8 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Fetch all active players who have joined the game
     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True).select_related("player"))
 
-    # Check if all players have busted
-    all_players_busted = True
-
-    for join_entry in joined_players:
-        player_hand_value = calculate_hand_value(join_entry.hand)
-        if player_hand_value <= 21:  # If a player has a valid hand
-            all_players_busted = False  # At least one player hasn't busted
-
     # If all players are busted, dealer automatically wins and stands
-    if all_players_busted:
+    if all_players_busted(entry.hand for entry in joined_players):
         await asyncio.sleep(BEAT)
         await safe_send_message_dealer(context.bot, chat_id, "🤖 All players have busted\\.")
         await asyncio.sleep(BEAT)
@@ -2113,14 +2111,11 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reaction = random.choice(bust_reactions)
         await asyncio.sleep(BEAT)
         await safe_send_reaction(context.bot, chat_id, reaction)
-        dealer_busted = True
     elif dealer_value == 21:
         await asyncio.sleep(BEAT)
-        dealer_busted = False
     else:
         await asyncio.sleep(BEAT)
         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
-        dealer_busted = False
 
     # Save the updated dealer hand
     game.dealer_hand = dealer_hand
@@ -2129,27 +2124,11 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Fetch all active players who have joined the game
     joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True).select_related("player"))
 
-    # Track the player(s) who win this round
-    highest_valid_score = 0
-    round_winners = []
-
-    for join_entry in joined_players:
-        # Fetch the player asynchronously
-        player = await sync_to_async(lambda: join_entry.player)()
-        
-        player_hand_value = calculate_hand_value(join_entry.hand)
-        
-        # If player busted, skip them
-        if player_hand_value > 21:
-            continue
-        
-        # Track the highest valid hand that beats the dealer (if dealer didn't bust)
-        if dealer_busted or player_hand_value > dealer_value:
-            if player_hand_value > highest_valid_score:
-                highest_valid_score = player_hand_value
-                round_winners = [player]
-            elif player_hand_value == highest_valid_score:
-                round_winners.append(player)
+    result = resolve_round(
+        dealer_hand, [(entry.player, entry.hand) for entry in joined_players]
+    )
+    round_winners = list(result.winners)
+    highest_valid_score = result.winning_value
     # Announce the winner(s)
     if not round_winners:
         await asyncio.sleep(BEAT)

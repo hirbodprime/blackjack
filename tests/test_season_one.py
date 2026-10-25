@@ -252,3 +252,65 @@ class HubRenderTests(TestCase):
             ):
                 text, keyboard = render()
                 self.assertTrue(text)
+
+
+class ShopTests(TestCase):
+    def setUp(self):
+        from game.services import shop
+
+        self.shop = shop
+        self.player = Player.objects.create(id=60080, name="Buyer", chips=200_000)
+
+    def test_buy_charges_catalog_or_deal_price(self):
+        key = "streak_freeze"
+        self.shop.buy(self.player.pk, key)
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.chips, 200_000 - self.shop.price_for(key))
+        self.assertEqual(dict(self.shop.inventory(self.player.pk))[key], 1)
+
+    def test_deal_of_the_day_is_discounted(self):
+        deal = self.shop.deal_of_the_day()
+        self.assertLess(self.shop.price_for(deal.key), deal.price)
+
+    def test_titles_are_bought_once_and_equipped(self):
+        self.shop.buy(self.player.pk, "title_shark")
+        with self.assertRaises(self.shop.ShopError):
+            self.shop.buy(self.player.pk, "title_shark")
+        with self.assertRaises(self.shop.ShopError):
+            self.shop.equip_title(self.player.pk, "title_ghost")
+        self.assertEqual(self.shop.equip_title(self.player.pk, "title_shark"), "🦈 Card Shark")
+
+    def test_lucky_charm_boosts_xp_and_stacks_duration(self):
+        self.shop.buy(self.player.pk, "xp_charm")
+        self.shop.buy(self.player.pk, "xp_charm")
+        first = self.shop.activate_timed(self.player.pk, "xp_charm")
+        expiry = self.shop.boost_expires_at(first)
+        second = self.shop.activate_timed(self.player.pk, "xp_charm")
+        self.assertEqual(self.shop.boost_expires_at(second) - expiry, timedelta(hours=24))
+        result = award_xp(self.player, 40)
+        self.assertEqual(result.xp, 50)
+
+    def test_streak_freeze_bridges_one_missed_day(self):
+        self.shop.buy(self.player.pk, "streak_freeze")
+        today = timezone.localdate()
+        for day in (today - timedelta(days=2), today):
+            for quest in ensure_daily_challenges(day):
+                PlayerDailyQuestProgress.objects.create(
+                    player=self.player, quest=quest, progress=quest.target, completed=True
+                )
+            result = record_daily_completion(self.player.pk, day)
+        self.assertEqual(result.streak, 2)
+        self.assertNotIn("streak_freeze", dict(self.shop.inventory(self.player.pk)))
+
+    def test_shop_screens_render(self):
+        from game.telegram import shop as screens
+
+        self.shop.buy(self.player.pk, "xp_charm")
+        self.shop.buy(self.player.pk, "title_lucky")
+        self.shop.buy(self.player.pk, "double_chip_potion")
+        for text, _ in (
+            screens.render_home(self.player),
+            screens.render_category(self.player, "titles"),
+            screens.render_bag(self.player),
+        ):
+            self.assertTrue(text)

@@ -9,6 +9,7 @@ from game.models import ChipTransaction, Player
 from game.services.economy import adjust_balance
 from game.services.ranks import RANK_TIERS, level_reward, xp_for_level
 from game.services.seasons import add_season_points
+from game.services.shop import xp_with_boosts
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ def award_xp(player: Player | int, amount: int) -> ProgressionResult:
 
     player_id = player.pk if isinstance(player, Player) else player
     locked = Player.objects.select_for_update().get(pk=player_id)
+    amount = xp_with_boosts(player_id, amount)
     locked.xp += amount
     rewards = []
 

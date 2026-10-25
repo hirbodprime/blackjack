@@ -510,7 +510,7 @@ def build_mystery_box_menu():
             InlineKeyboardButton("🌌 Cosmic", callback_data="shop:mystery_cosmic"),
         ],
         [
-            InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main"),
+            InlineKeyboardButton("🔙 Back to Shop", callback_data="store:home"),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)

@@ -13,6 +13,7 @@ from game.models import (
 )
 from game.services.economy import adjust_balance
 from game.services.progression import ProgressionResult, award_xp
+from game.services.shop import daily_chips_with_boosts
 
 
 @dataclass(frozen=True)
@@ -45,10 +46,11 @@ def advance_daily_quest(
     if completed_now:
         progress.completed = True
         progression = award_xp(player, quest.reward_xp)
-        if quest.reward_chips:
+        chip_reward = daily_chips_with_boosts(player.pk, quest.reward_chips)
+        if chip_reward:
             adjust_balance(
                 player,
-                quest.reward_chips,
+                chip_reward,
                 category=ChipTransaction.Category.QUEST_REWARD,
                 description=f"Completed daily quest: {quest.description}",
                 reference_type="daily_quest",
@@ -60,7 +62,7 @@ def advance_daily_quest(
         progress.progress,
         completed_now,
         progression,
-        quest.reward_chips if completed_now else 0,
+        chip_reward if completed_now else 0,
     )
 
 

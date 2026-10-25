@@ -4,6 +4,8 @@ from datetime import (
     timedelta,
 )
 
+from game.services.shop import ITEMS as SHOP_ITEMS
+from game.telegram.shop import render_bag, render_home as render_shop_home
 from asgiref.sync import (
     sync_to_async,
 )
@@ -196,11 +198,8 @@ async def _items_boosters(update, context, query, data, player):
 # ── (A) Top‐level “Items” menu ─────────────────────────────────────────────────
 @ITEMS_ROUTES.on('menu:items')
 async def _items_items(update, context, query, data, player):
-    await query.edit_message_text(
-        text="📦 *Your Items* 📦\n\nDo you want to activate or deactivate an item?",
-        parse_mode="Markdown",
-        reply_markup=build_items_menu()
-    )
+    text, markup = await sync_to_async(render_bag, thread_sensitive=True)(player)
+    await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=markup)
     return
 
 
@@ -694,20 +693,11 @@ async def handle_items_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 
+# Prices follow the Season shop catalog; the 15k/50k boosters are legacy-only.
 ITEM_COSTS = {
-    # Potions
-    "double_chip_potion": 30000,
-    "triple_chip_potion": 80000,
-    "10x_chip_potion":    400000,
-    # Boosters
-    "xp_booster_500":     100000,
-    "xp_booster_2000":    400000,
-    "xp_booster_15000":   2800000,
-    "xp_booster_50000":   9000000,
-    # Special Passes
-    "insurance_pass":     5000,
-    "first_hand_20_pass": 8000,
-    "first_hand_11_potion":12000,
+    **{key: item.price for key, item in SHOP_ITEMS.items() if not item.hours and not item.title},
+    "xp_booster_15000": 60_000,
+    "xp_booster_50000": 180_000,
 }
 
 MYSTERY_BOXES = {
@@ -1061,11 +1051,8 @@ SHOP_ROUTES = CallbackRouter()
 # ── (A) Main Shop menu ────────────────────────────────────────────────────
 @SHOP_ROUTES.on('menu:shop')
 async def _shop_shop(update, context, query, data, player):
-    await query.edit_message_text(
-        text="🛒 *Shop* 🛒\n\nChoose a category:",
-        parse_mode="Markdown",
-        reply_markup=build_shop_menu()
-    )
+    text, markup = await sync_to_async(render_shop_home, thread_sensitive=True)(player)
+    await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=markup)
     return True
 
 
@@ -1341,11 +1328,8 @@ async def _shop_special_passes(update, context, query, data, player):
 # ── (E) Back to Shop Menu ─────────────────────────────────────────────────
 @SHOP_ROUTES.on('shop:main', 'menu:shop')
 async def _shop_main(update, context, query, data, player):
-    await query.edit_message_text(
-        text="🛒 *Shop* 🛒\n\nChoose a category:",
-        parse_mode="Markdown",
-        reply_markup=build_shop_menu()
-    )
+    text, markup = await sync_to_async(render_shop_home, thread_sensitive=True)(player)
+    await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=markup)
     return True
 
 

@@ -325,6 +325,7 @@ class Player(models.Model):
         "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="referred_friends"
     )
     total_referral_bonus = models.IntegerField(default=0)
+    title = models.CharField(max_length=40, blank=True)
     daily_streak = models.PositiveIntegerField(default=0)
     best_daily_streak = models.PositiveIntegerField(default=0)
     last_streak_date = models.DateField(null=True, blank=True)
@@ -620,7 +621,17 @@ ITEM_TYPE_CHOICES = [
     ("insurance_pass",       "Insurance Pass"),
     ("first_hand_20_pass",   "First‐Hand‐20 Pass"),
     ("first_hand_11_potion",   "First‐Hand‐11 Pass"),
-    
+    # Season shop
+    ("xp_charm",             "Lucky Charm (24h +25% XP)"),
+    ("daily_doubler",        "Daily Doubler (24h)"),
+    ("streak_freeze",        "Streak Freeze"),
+    ("title_lucky",          "Title: Lucky"),
+    ("title_shark",          "Title: Card Shark"),
+    ("title_jockey",         "Title: Jockey"),
+    ("title_ghost",          "Title: Ghost"),
+    ("title_highroller",     "Title: High Roller"),
+    ("title_tycoon",         "Title: Tycoon"),
+    ("title_kingpin",        "Title: Kingpin"),
 ]
 
 class PlayerItem(models.Model):

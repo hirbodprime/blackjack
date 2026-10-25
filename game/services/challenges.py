@@ -11,6 +11,7 @@ from django.utils import timezone
 from game.economy_config import DAILY_STREAK_BONUS, DAILY_STREAK_BONUS_CAP
 from game.models import ChipTransaction, DailyQuest, Player, PlayerDailyQuestProgress
 from game.services.economy import adjust_balance
+from game.services.shop import consume_streak_freeze
 
 
 # (quest_type, subtype, description, target, xp, chips) — subtypes are the
@@ -90,6 +91,12 @@ def record_daily_completion(player_id: int, day: date | None = None) -> StreakRe
     if player.last_streak_date == day:
         return None
     if player.last_streak_date == day - timedelta(days=1):
+        player.daily_streak += 1
+    elif (
+        player.last_streak_date == day - timedelta(days=2)
+        and player.daily_streak
+        and consume_streak_freeze(player.pk)
+    ):
         player.daily_streak += 1
     else:
         player.daily_streak = 1

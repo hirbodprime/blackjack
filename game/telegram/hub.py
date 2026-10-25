@@ -96,7 +96,8 @@ def render_home(d: Dashboard, lang: str):
             days=max(0, (d.season.ends_at - now).days),
         ))
     lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"👤 <b>{escape(p.name)}</b> · {rank_label(p.level)}")
+    title = f" · {escape(p.title)}" if p.title else ""
+    lines.append(f"👤 <b>{escape(p.name)}</b>{title} · {rank_label(p.level)}")
     lines.append(translate("s1.chips", lang, chips=_fmt(p.chips)))
     lines.append(f"⭐ {level_line(p.level, p.xp)}")
     lines.append(translate("s1.streak", lang, streak=p.daily_streak, done=d.daily_done, total=d.daily_total))
@@ -116,8 +117,8 @@ def render_home(d: Dashboard, lang: str):
          Btn(translate("s1.btn_daily", lang), callback_data="hub:daily")],
         [Btn(translate("s1.btn_compete", lang), callback_data="hub:compete"),
          Btn(translate("s1.btn_stable", lang), callback_data="menu:mainhorse")],
-        [Btn(translate("s1.btn_shop", lang), callback_data="menu:shop"),
-         Btn(translate("s1.btn_bag", lang), callback_data="menu:items")],
+        [Btn(translate("s1.btn_shop", lang), callback_data="store:home"),
+         Btn(translate("s1.btn_bag", lang), callback_data="store:bag")],
         [Btn(translate("s1.btn_profile", lang), callback_data="hub:profile"),
          Btn(translate("s1.btn_friends", lang), callback_data="play:social")],
         [Btn(translate("s1.btn_settings", lang), callback_data="play:settings"),
@@ -201,7 +202,10 @@ def render_season(user_id: int, lang: str):
     season = seasons.active_season()
     if season is None:
         return translate("s1.no_season", lang), _compete_keyboard(lang)
-    rows = [(r.player_id, r.player.name, r.points) for r in seasons.standings(season, 10)]
+    rows = [
+        (r.player_id, f"{r.player.name} · {r.player.title}" if r.player.title else r.player.name, r.points)
+        for r in seasons.standings(season, 10)
+    ]
     lines = [
         f"<b>🌟 SEASON {season.number} · {escape(season.name).upper()}</b>",
         f"⏳ {_duration(season.ends_at - timezone.now())} left",
@@ -275,7 +279,7 @@ def render_profile(user_id: int, lang: str):
     season = seasons.active_season()
     position = seasons.player_position(season, user_id) if season else None
     lines = [
-        f"<b>👤 {escape(p.name)}</b>",
+        f"<b>👤 {escape(p.name)}</b>" + (f" · {escape(p.title)}" if p.title else ""),
         "━━━━━━━━━━━━━━━",
         f"{rank_label(p.level)}",
         f"⭐ {level_line(p.level, p.xp)}",

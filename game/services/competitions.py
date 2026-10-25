@@ -49,6 +49,10 @@ KIND_EMOJI = {
 }
 
 
+def _display_name(name: str, title: str) -> str:
+    return f"{name} · {title}" if title else name
+
+
 @dataclass(frozen=True)
 class ScoreRow:
     player_id: int
@@ -67,12 +71,12 @@ def leaderboard(start: datetime, end: datetime, kind: str = Tournament.Kind.ALL,
     totals = (
         _game_rows(kind)
         .filter(created_at__gte=start, created_at__lt=end)
-        .values("player_id", "player__name")
+        .values("player_id", "player__name", "player__title")
         .annotate(score=Sum("amount"))
         .filter(score__gte=MIN_COMPETITION_SCORE)
         .order_by("-score", "player_id")[:limit]
     )
-    return [ScoreRow(r["player_id"], r["player__name"], r["score"]) for r in totals]
+    return [ScoreRow(r["player_id"], _display_name(r["player__name"], r["player__title"]), r["score"]) for r in totals]
 
 
 def player_score(player_id: int, start: datetime, end: datetime, kind: str = Tournament.Kind.ALL) -> int:

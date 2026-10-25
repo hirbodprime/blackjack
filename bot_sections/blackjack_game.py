@@ -29,6 +29,7 @@ from telegram.helpers import (
     escape_markdown,
 )
 
+from bot_sections.pacing import ACTION_COOLDOWN_SECONDS, BEAT, DRAMATIC_BEAT, SHORT_BEAT
 from bot_sections.core_and_menus import (
     apply_referral_bonus,
     escape_md,
@@ -224,15 +225,15 @@ async def highroller(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         # Clear notifications
         await sync_to_async(lambda: NextGameNotification.objects.filter(chat_id=chat_id).delete())()
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await context.bot.send_message(chat_id=chat_id, text=t("group.highroller_set_bet", language))
 
         # Use create_highroller_poll() instead of create_poll()
         await create_highroller_poll(update, context)
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await context.bot.send_message(chat_id=chat_id, text=t("group.highroller_betting_started", language))
-        await asyncio.sleep(1)
+        await asyncio.sleep(SHORT_BEAT)
         reaction = random.choice(betting_phase_reactions)
         await safe_send_reaction(context.bot, chat_id, reaction)
         return
@@ -317,15 +318,15 @@ async def start_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Optionally, clear the list after notifying
         await sync_to_async(lambda: NextGameNotification.objects.filter(chat_id=chat_id).delete())()
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await context.bot.send_message(chat_id=chat_id, text=t("group.blackjack_set_bet", language))
 
         await create_poll(update, context)
         
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await context.bot.send_message(chat_id=chat_id, text=t("group.blackjack_betting_started", language))
-        await asyncio.sleep(1)
+        await asyncio.sleep(SHORT_BEAT)
         reaction = random.choice(betting_phase_reactions)
         await safe_send_reaction(context.bot, chat_id, reaction)
         return
@@ -624,7 +625,7 @@ async def join_blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         # Deduct real tokens **when joining**
         player.real_tokens -= game.bet_amount
-        await sync_to_async(player.save)()
+        await sync_to_async(player.save)(update_fields=("real_tokens",))
         await sync_to_async(JoinGame.objects.create)(player=player, game=game, is_active=True)
     else:
         try:
@@ -825,7 +826,7 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Refund the bet amount:
                 if is_real_token_game:
                     player.real_tokens += game.bet_amount
-                    await sync_to_async(player.save)()
+                    await sync_to_async(player.save)(update_fields=("real_tokens",))
                     await sync_to_async(join_entry.delete)()
                 else:
                     await refund_joined_player_async(
@@ -866,7 +867,7 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reaction = random.choice(scare_players_reactions)
             await safe_send_reaction(context.bot, chat_id, reaction)
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(BEAT)
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=(
@@ -914,7 +915,7 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await unlock_achievement(player, "all_in", context)
 
         player.games += 1
-        await sync_to_async(player.save)()
+        await sync_to_async(player.save)(update_fields=("games",))
 
         # Build the Markdown‐escaped mention & send a group message
         # user_name_escaped = re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', player.name)
@@ -956,7 +957,7 @@ async def force_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("🧪 Final items_text:", items_text)
 
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         print("⚠️ DEBUG: mention =", mention)
         print("⚠️ DEBUG: bet amount =", game.bet_amount)
         print("⚠️ DEBUG: remaining =", remaining_tokens)
@@ -1068,7 +1069,7 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
 
         winners = sorted(winners, key=lambda x: x[1], reverse=True)
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(SHORT_BEAT)
         standings_message = "📊 Current standings:\n"
 
         if dealer_wins > 0:
@@ -1091,14 +1092,14 @@ async def start_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, 
         # if bot_member.status in ['administrator', 'creator']:
         #     await safe_pin_chat_message(context.bot, chat_id, message.message_id)
 
-    await asyncio.sleep(2)
+    await asyncio.sleep(BEAT)
 
     await context.bot.send_message(chat_id=chat_id, text=f"Starting round {game.current_round}...")
-    await asyncio.sleep(3)
+    await asyncio.sleep(DRAMATIC_BEAT)
     reaction = random.choice(game_start_reactions)
     await safe_send_reaction(context.bot, chat_id, reaction)
 
-    await asyncio.sleep(2)
+    await asyncio.sleep(BEAT)
 
     player_blackjacks = []
 
@@ -1425,7 +1426,7 @@ def _increment_dealer_losses():
 
 async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYPE, game, joined_players):
     chat_id = update.message.chat_id
-    await asyncio.sleep(3)
+    await asyncio.sleep(DRAMATIC_BEAT)
 
     if game.current_round > game.total_rounds:
         # ─── 1) Fetch all RoundWinner rows for this game ──────────────────────────────
@@ -1501,7 +1502,7 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
         await end_game(update, context)
 
         # Prepare standings message (players vs. dealer by round-wins):
-        await asyncio.sleep(1)
+        await asyncio.sleep(SHORT_BEAT)
         standings = "📊 Current standings:\n"
         if dealer_rounds_won > 0:
             standings += f"🤖 Dealer: {dealer_rounds_won} round\\(s\\) won\n"
@@ -1556,7 +1557,7 @@ async def check_for_next_round(update: Update, context: ContextTypes.DEFAULT_TYP
 
         game.hands_reset = False
         await sync_to_async(game.save)()
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await start_round(update, context, game, joined_players)
 
 TURN_TIMEOUT_SECONDS = 30
@@ -1635,7 +1636,7 @@ async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id == current_player_id:
         # Notify the current player it is their turn
 
-        await asyncio.sleep(2)  # Non-blocking sleep
+        await asyncio.sleep(BEAT)  # Non-blocking sleep
         await context.bot.send_message(
             chat_id=chat_id, 
             text=f"{mention}, it's your turn\\! You have 30 seconds\\. Type:\n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.",
@@ -1643,7 +1644,7 @@ async def player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         # Notify others that the current player is making a decision
-        await asyncio.sleep(2)  # Non-blocking sleep
+        await asyncio.sleep(BEAT)  # Non-blocking sleep
         await context.bot.send_message(
             chat_id=chat_id, 
             text=f"Waiting for {mention}'s decision\\.\\.\\. They have 30 seconds\\. Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.",
@@ -1672,7 +1673,7 @@ async def safe_send_message_async(bot, chat_id, text, parse_mode="MarkdownV2", m
             retries += 1
     
 
-async def is_on_cooldown(join_game, cooldown_seconds=4):
+async def is_on_cooldown(join_game, cooldown_seconds=ACTION_COOLDOWN_SECONDS):
     from django.utils import timezone
     if not join_game.last_action_time:
         return False
@@ -1755,7 +1756,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if hand_value == 21:
         join_game.has_stood = True
         await sync_to_async(join_game.save)()
-        await asyncio.sleep(3)
+        await asyncio.sleep(DRAMATIC_BEAT)
         stats = await sync_to_async(Stats.objects.get)(player=join_game.player)
         stats.how_many_21 += 1
         await sync_to_async(stats.save)()
@@ -1808,7 +1809,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update_daily_quest_progress(player, "blackjack", "30", 1, context)
 
                 await unlock_achievement(join_game.player, "30_or_more_deck", context)
-            await asyncio.sleep(3)
+            await asyncio.sleep(DRAMATIC_BEAT)
             await deduct_xp(join_game.player, 20, context)
             await safe_send_message_async(context.bot, chat_id, f"{mention} busted with a total of {hand_value}\\. ")
             await next_player_turn(update, context)
@@ -1824,7 +1825,7 @@ async def hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if six_count == 3:
             await unlock_achievement(join_game.player, "thriple_6_in_one_deck", context)
 
-        await asyncio.sleep(3)
+        await asyncio.sleep(DRAMATIC_BEAT)
         await safe_send_message_async(context.bot, chat_id, f"{mention} Type: \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your current hand\\.")
         await schedule_player_turn_timeout(update, context, game, user_id)
 
@@ -1904,7 +1905,7 @@ async def stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update_daily_quest_progress(player, "blackjack", "5", 1, context)
     if hand_value == 10:
         await update_daily_quest_progress(player, "blackjack", "10", 1, context)
-    await asyncio.sleep(2)
+    await asyncio.sleep(BEAT)
 
     await safe_send_message_async(context.bot, user_id, f"You have chosen to stand\\. Your final hand: {player_hand}\\. Total value: {hand_value}")
 
@@ -1954,7 +1955,7 @@ async def next_player_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         escaped_user_name = escape_markdown(next_player.name, version=2)
             
         mention = f"[{escaped_user_name}](tg://user?id={next_player_id})"
-        await asyncio.sleep(3)  # Non-blocking sleep
+        await asyncio.sleep(DRAMATIC_BEAT)  # Non-blocking sleep
 
         await safe_send_message_next_player_turn(context.bot, chat_id, f"{mention}, it's your turn\\! You have 30 seconds\\. Type \n/hit 🎰 to draw a card or \n\n/stand❗ to keep your hand\\.")
         await schedule_player_turn_timeout(update, context, game, next_player_id)
@@ -2053,14 +2054,14 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if game.current_round == 1:
         await send_vote_results(update, context,chat_id,game.poll_id)
 
-    await asyncio.sleep(2)
+    await asyncio.sleep(BEAT)
     await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer's turn\\.\\.\\.")
 
     dealer_hand = game.dealer_hand
     dealer_value = calculate_hand_value(dealer_hand)
 
     # Fetch all active players who have joined the game
-    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
+    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True).select_related("player"))
 
     # Check if all players have busted
     all_players_busted = True
@@ -2072,13 +2073,13 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # If all players are busted, dealer automatically wins and stands
     if all_players_busted:
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await safe_send_message_dealer(context.bot, chat_id, "🤖 All players have busted\\.")
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
 
         reaction = random.choice(all_players_bust_reactions)
         await safe_send_reaction(context.bot, chat_id, reaction)
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
 
         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
         
@@ -2097,7 +2098,7 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_card = deal_card()
         dealer_hand.append(new_card)
         dealer_value = calculate_hand_value(dealer_hand)
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer draws a 🂾{new_card}\\. 🤖 Dealer's hand: {dealer_hand}")
         
         if dealer_value == 21:
@@ -2107,17 +2108,17 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # If dealer busts (> 21)
     if dealer_value > 21:
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer busts with a total of {dealer_value}\\!❌")
         reaction = random.choice(bust_reactions)
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await safe_send_reaction(context.bot, chat_id, reaction)
         dealer_busted = True
     elif dealer_value == 21:
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         dealer_busted = False
     else:
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await safe_send_message_dealer(context.bot, chat_id, f"🤖 Dealer stands with a total of {dealer_value}\\.")
         dealer_busted = False
 
@@ -2126,7 +2127,7 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await sync_to_async(game.save)()
 
     # Fetch all active players who have joined the game
-    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True))
+    joined_players = await sync_to_async(list)(JoinGame.objects.filter(game=game, is_active=True).select_related("player"))
 
     # Track the player(s) who win this round
     highest_valid_score = 0
@@ -2151,14 +2152,14 @@ async def dealer_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 round_winners.append(player)
     # Announce the winner(s)
     if not round_winners:
-        await asyncio.sleep(2)
+        await asyncio.sleep(BEAT)
         await safe_send_message_dealer(context.bot, chat_id, "🤖 Dealer wins🥇 this round\\!")
         reaction = random.choice(win_reactions)
         await safe_send_reaction(context.bot, chat_id, reaction)
         await sync_to_async(RoundWinner.objects.create)(game=game, round_number=game.current_round, is_dealer=True)
     else:
         for winner in round_winners:
-            await asyncio.sleep(2)
+            await asyncio.sleep(BEAT)
             try:
                 # Try to tag the winner using their name
 
@@ -2274,7 +2275,7 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if int(chat_id) == MAIN_GROUP_ID:
             # Get all active players in this game
             all_players = await sync_to_async(list)(
-                JoinGame.objects.filter(game=game, is_active=True)
+                JoinGame.objects.filter(game=game, is_active=True).select_related("player")
             )
 
             winner_ids = [w.id for w in winners if w != "dealer"]
@@ -2288,7 +2289,7 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     if is_real_token_game:
                         player.real_tokens += cashback
-                        await sync_to_async(player.save)()
+                        await sync_to_async(player.save)(update_fields=("real_tokens",))
                     else:
                         await adjust_balance_async(
                             player,
@@ -2342,7 +2343,7 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if is_real_token_game:
                 winner.real_tokens += final_reward
-                await sync_to_async(winner.save)()
+                await sync_to_async(winner.save)(update_fields=("real_tokens",))
                 payout_applied = True
             else:
                 payout_change = await adjust_balance_async(
@@ -2479,7 +2480,7 @@ async def flee_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Refund the player's bet (based on whether it was real tokens or chips)
         if group.vip and group.real_money:
             player.real_tokens += game.bet_amount
-            await sync_to_async(player.save)()
+            await sync_to_async(player.save)(update_fields=("real_tokens",))
             await sync_to_async(join_instance.delete)()
         else:
             await refund_joined_player_async(
@@ -2834,7 +2835,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # await update.message.reply_text("Please send the photo in private chat.")
 
 
-photo_handler = MessageHandler(filters.PHOTO, handle_photo)
+# Only new private messages: edited messages carry no ``update.message`` and
+# group photos are ignored by handle_photo anyway.
+photo_handler = MessageHandler(
+    filters.PHOTO & filters.ChatType.PRIVATE & filters.UpdateType.MESSAGE,
+    handle_photo,
+)
 
 
 async def buy_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2908,7 +2914,7 @@ async def give_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
         # Save the changes
         if token_type == "real_token":
-            await sync_to_async(target_player.save)()
+            await sync_to_async(target_player.save)(update_fields=("real_tokens",))
 
         # Send a private message to the target player
         await context.bot.send_message(

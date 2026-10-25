@@ -78,9 +78,6 @@ from game.telegram.runtime import (
 )
 
 
-async def save_player(player):
-    """Ensures player data is saved asynchronously."""
-    await sync_to_async(player.save)()
 
 async def validate_bet_amount(update, bet_amount):
     if bet_amount <= 0:

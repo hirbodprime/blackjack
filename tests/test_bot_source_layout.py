@@ -73,3 +73,19 @@ class BotApplicationTests(SimpleTestCase):
             )
             application.main()
         build.return_value.run_polling.assert_called_once()
+
+    def test_photo_handler_ignores_edits_and_groups(self):
+        from telegram import Chat, Message, PhotoSize, Update, User
+        from datetime import datetime, timezone
+
+        from bot_sections.blackjack_game import photo_handler
+
+        user = User(1, "A", False)
+        photo = (PhotoSize("f", "u", 1, 1),)
+        when = datetime.now(timezone.utc)
+        private = Message(1, when, Chat(1, Chat.PRIVATE), from_user=user, photo=photo)
+        group = Message(2, when, Chat(-5, Chat.SUPERGROUP), from_user=user, photo=photo)
+
+        self.assertTrue(photo_handler.check_update(Update(1, message=private)))
+        self.assertFalse(photo_handler.check_update(Update(2, message=group)))
+        self.assertFalse(photo_handler.check_update(Update(3, edited_message=private)))

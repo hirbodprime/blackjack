@@ -89,7 +89,7 @@ async def normalize_player_level_xp(player: Player):
 
     # If anything changed, save
     if changed:
-        await sync_to_async(player.save)()
+        await sync_to_async(player.save)(update_fields=("xp", "level"))
 
 async def safe_send_reaction(bot, chat_id, reaction, max_retries=10):
     retries = 0
@@ -320,7 +320,7 @@ async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if player.last_claimed_tokens is None or (now - player.last_claimed_tokens) >= timedelta(hours=24):
         player.tokens_claimed_today = 0
         player.last_claimed_tokens = now
-        await sync_to_async(player.save)()
+        await sync_to_async(player.save)(update_fields=("tokens_claimed_today", "last_claimed_tokens"))
 
     # 3) If already claimed 3 times, calculate time remaining
     if player.tokens_claimed_today >= 3:
@@ -331,7 +331,7 @@ async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             # Force reset in case of weird clock issue
             player.tokens_claimed_today = 0
             player.last_claimed_tokens = now
-            await sync_to_async(player.save)()
+            await sync_to_async(player.save)(update_fields=("tokens_claimed_today", "last_claimed_tokens"))
         else:
             hours = remaining.seconds // 3600
             minutes = (remaining.seconds % 3600) // 60
@@ -348,7 +348,7 @@ async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # 4) Allow claim
     player.tokens_claimed_today += 1
-    await sync_to_async(player.save)()
+    await sync_to_async(player.save)(update_fields=("tokens_claimed_today",))
 
     # 5) Send 🎯 and wait for result
     message = await context.bot.send_dice(chat_id=update.message.chat_id, emoji="🎯")
@@ -371,8 +371,6 @@ async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
     else:
         await update.message.reply_text("🎯 You missed the bullseye! Better luck next time!")
-
-    await sync_to_async(player.save)()
 
 
 async def dart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -1535,7 +1535,7 @@ async def _menu_social(update, context, query, data):
         while await sync_to_async(Player.objects.filter(referral_code=code).exclude(id=user_id).exists)():
             code = generate_referral_code()
         player.referral_code = code
-        await sync_to_async(player.save)()
+        await sync_to_async(player.save)(update_fields=("referral_code",))
     else:
         code = player.referral_code
 

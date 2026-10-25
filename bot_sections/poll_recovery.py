@@ -5,6 +5,8 @@ from django.utils import (
 )
 from telegram import (
     BotCommand,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
 )
 
 from bot_sections.blackjack_game import (
@@ -32,36 +34,25 @@ async def handle_stale_polls_and_reschedule(context, timeout=60):
     await resume_poker_tables(context)
     await resume_roulette_tables(context)
 
-    english_commands = [
-        BotCommand("play", "Open the main menu"),
-        BotCommand("daily", "Today's challenges and streak"),
-        BotCommand("compete", "Season, weekly leaderboard and tournaments"),
-        BotCommand("profile", "View your profile and activity"),
-        BotCommand("weekly", "View weekly missions"),
-        BotCommand("market", "Browse the item marketplace"),
-        BotCommand("notifications", "Choose notification preferences"),
-        BotCommand("onboarding", "Replay the getting-started guide"),
-        BotCommand("language", "Change language: en or fa"),
-        BotCommand("help", "Show game help"),
-        BotCommand("poker", "Create a Texas Hold'em table"),
-        BotCommand("roulette", "Open a multiplayer roulette table"),
-    ]
-    persian_commands = [
-        BotCommand("play", "باز کردن منوی اصلی"),
-        BotCommand("daily", "چالش‌های امروز و زنجیره"),
-        BotCommand("compete", "فصل، جدول هفتگی و تورنمنت‌ها"),
-        BotCommand("profile", "نمایش پروفایل و فعالیت‌ها"),
-        BotCommand("weekly", "نمایش مأموریت‌های هفتگی"),
-        BotCommand("market", "مشاهده بازار آیتم‌ها"),
-        BotCommand("notifications", "تنظیم اعلان‌ها"),
-        BotCommand("onboarding", "نمایش دوباره راهنمای شروع"),
-        BotCommand("language", "تغییر زبان: en یا fa"),
-        BotCommand("help", "راهنمای بازی"),
-        BotCommand("poker", "ساخت میز پوکر تگزاس هولدم"),
-        BotCommand("roulette", "باز کردن میز رولِت چندنفره"),
-    ]
-    await context.bot.set_my_commands(english_commands)
-    await context.bot.set_my_commands(persian_commands, language_code="fa")
+    # Menus do the work; only a few entry points are listed.
+    private = {
+        "en": [("start", "🏠 Home menu"), ("daily", "📆 Daily challenges"), ("shop", "🛍 Shop"), ("help", "❓ Help")],
+        "fa": [("start", "🏠 منوی اصلی"), ("daily", "📆 چالش‌های روزانه"), ("shop", "🛍 فروشگاه"), ("help", "❓ راهنما")],
+    }
+    groups = {
+        "en": [("play", "🎮 Game menu"), ("help", "❓ Help")],
+        "fa": [("play", "🎮 منوی بازی"), ("help", "❓ راهنما")],
+    }
+    for lang, code in (("en", None), ("fa", "fa")):
+        await context.bot.set_my_commands(
+            [BotCommand(c, d) for c, d in private[lang]], scope=BotCommandScopeAllPrivateChats(), language_code=code
+        )
+        await context.bot.set_my_commands(
+            [BotCommand(c, d) for c, d in groups[lang]], scope=BotCommandScopeAllGroupChats(), language_code=code
+        )
+        await context.bot.set_my_commands(
+            [BotCommand(c, d) for c, d in private[lang]], language_code=code
+        )
 
     polls = await sync_to_async(list)(
         ActivePoll.objects.filter(has_response=False)

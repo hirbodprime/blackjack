@@ -59,6 +59,7 @@ from game.services.economy import (
     adjust_balance_async,
 )
 from game.services.race_view import render_frame
+from game.telegram.group_buttons import race_keyboard
 from game.telegram.hub import starter_name_text
 from game.services.horses import (
     HorseNotOwned,
@@ -155,7 +156,7 @@ async def horserace(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     message_type="race_start_notification"
                 )
 
-    await update.message.reply_text(t("group.race_started", language))
+    await update.message.reply_text(t("group.race_started", language), reply_markup=race_keyboard())
 
 # ─── /joinrace: Players place their bets ───
 async def joinrace(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -94,7 +94,12 @@ def _section_keyboard(page: str, language: str, compact_mode: bool = False):
 
 
 async def play_command(update, context) -> None:
+    from game.telegram.group_buttons import show_group_launcher
     from game.telegram.hub import show_home
+
+    if update.effective_chat.type in GROUP_CHAT_TYPES:
+        await show_group_launcher(update, context)
+        return
 
     if await show_home(update, context):
         return

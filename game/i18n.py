@@ -117,8 +117,8 @@ MESSAGES: Mapping[str, Mapping[str, str]] = {
         "fa": "یک مسابقه اسب‌دوانی جدید در {group_name} شروع شده است!",
     },
     "group.race_started": {
-        "en": "🐎 A new horse race has started!\nJoin with /joinrace <horse_number> <bet_amount> (no bets on Horse 1!)",
-        "fa": "🐎 یک مسابقه اسب‌دوانی جدید شروع شد!\nبا /joinrace <شماره اسب> <مبلغ شرط> وارد شوید (شرط روی اسب ۱ مجاز نیست).",
+        "en": "🐎 A new horse race is open!\nTap 🐎 Place a bet, then 🏁 Start race when everyone is in.",
+        "fa": "🐎 یک مسابقه اسب‌دوانی جدید باز شد!\n🐎 شرط ببند را بزن و وقتی همه آمدند 🏁 شروع مسابقه.",
     },
     "compact.usage": {
         "en": "Usage: /compact on or /compact off",
@@ -193,8 +193,8 @@ MESSAGES: Mapping[str, Mapping[str, str]] = {
         "fa": "🐴 {name}\n━━━━━━━━━━━━━━━\nمرحله ۲: یک پاورآپ شروع انتخاب کن ({uses} مسابقه):",
     },
     "s1.claim_done": {
-        "en": "🎉 Welcome to the stable, {name}!\n\nHorse #{number} is yours with {powerup}.\nRace it in any group: /joinrace {number} <bet>",
-        "fa": "🎉 {name} به اصطبل خوش آمد!\n\nاسب شماره {number} با {powerup} مال توست.\nدر هر گروه مسابقه بده: /joinrace {number} <شرط>",
+        "en": "🎉 Welcome to the stable, {name}!\n\nHorse #{number} is yours with {powerup}.\nRace it in any group: start a race and tap 🐎 Place a bet.",
+        "fa": "🎉 {name} به اصطبل خوش آمد!\n\nاسب شماره {number} با {powerup} مال توست.\nدر هر گروه مسابقه بساز و 🐎 شرط ببند را بزن.",
     },
     "s1.claim_have": {"en": "You already claimed your starter horse.", "fa": "اسب شروع خود را قبلاً گرفته‌ای."},
 }

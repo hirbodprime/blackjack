@@ -386,3 +386,28 @@ class ComebackBroadcastTests(TestCase):
         update.effective_message.reply_text = mock.AsyncMock()
         await comeback.comeback_command(update, mock.Mock(args=["players"]))
         update.effective_message.reply_text.assert_awaited_once_with("🚫 Admins only.")
+
+
+class GroupButtonTests(TestCase):
+    async def test_tap_runs_command_as_the_tapper(self):
+        from game.telegram import group_buttons
+
+        seen = {}
+
+        async def fake_hit(update, context):
+            seen["user"] = update.message.from_user.id
+            seen["chat"] = update.message.chat_id
+            seen["args"] = context.args
+            await update.message.reply_text("ok")
+
+        query = mock.Mock(data="cmd:hit", answer=mock.AsyncMock())
+        query.from_user.id = 42
+        query.message.chat.id = -5
+        query.message.chat.type = "supergroup"
+        bot = mock.Mock(send_message=mock.AsyncMock())
+        query.message.get_bot.return_value = bot
+        update = mock.Mock(callback_query=query, update_id=1)
+        with mock.patch.object(group_buttons, "_handlers", return_value={"hit": fake_hit}):
+            await group_buttons.cmd_callback(update, mock.Mock())
+        self.assertEqual(seen, {"user": 42, "chat": -5, "args": []})
+        bot.send_message.assert_awaited_once_with(-5, "ok")

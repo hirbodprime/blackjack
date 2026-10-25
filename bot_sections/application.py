@@ -105,6 +105,7 @@ from game.telegram.retention import (
     weekly_command,
 )
 from game.telegram.comeback import comeback_command
+from game.telegram.group_buttons import cmd_callback, race_callback
 from game.telegram.hub import hub_callback, section_command
 from game.telegram.shop import shop_command, store_callback
 from game.telegram.roulette_table import roulette_table_command
@@ -156,6 +157,8 @@ def register_handlers(app):
     app.add_handler(CallbackQueryHandler(play_menu_callback, pattern=r"^play:"))
     app.add_handler(CallbackQueryHandler(hub_callback, pattern=r"^hub:"))
     app.add_handler(CallbackQueryHandler(store_callback, pattern=r"^store:"))
+    app.add_handler(CallbackQueryHandler(cmd_callback, pattern=r"^cmd:"))
+    app.add_handler(CallbackQueryHandler(race_callback, pattern=r"^race:"))
     app.add_handler(CommandHandler("shop", shop_command))
     app.add_handler(CommandHandler("comeback", comeback_command))
     for page in ("daily", "compete", "season", "tournament"):

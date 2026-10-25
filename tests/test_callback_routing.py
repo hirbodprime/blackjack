@@ -137,7 +137,7 @@ class MenuCallbackDispatchTests(SimpleTestCase):
 class StaticButtonCoverageTests(SimpleTestCase):
     """Every literal callback_data in the bot must reach a handler."""
 
-    HANDLER_PREFIXES = ("play:", "onboarding:", "poker:", "retention:", "hub:", "store:")
+    HANDLER_PREFIXES = ("play:", "onboarding:", "poker:", "retention:", "hub:", "store:", "cmd:", "race:")
 
     def callback_literals(self):
         source_dir = Path(callbacks.__file__).resolve().parent

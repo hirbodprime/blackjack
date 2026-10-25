@@ -91,7 +91,6 @@ from game.telegram.player_experience import (
 from game.telegram.poker import (
     poker_callback,
     poker_command,
-    poker_custom_raise_text,
     poker_raise_command,
 )
 from game.telegram.retention import (
@@ -160,7 +159,6 @@ def register_handlers(app):
     app.add_handler(CommandHandler("poker", poker_command))
     app.add_handler(CommandHandler("pokerraise", poker_raise_command))
     app.add_handler(CallbackQueryHandler(poker_callback, pattern=r"^poker:"))
-    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Regex(r"^\s*[0-9][0-9,]*\s*$"), poker_custom_raise_text))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("notifications", notifications_command))
     app.add_handler(CommandHandler("weekly", weekly_command))

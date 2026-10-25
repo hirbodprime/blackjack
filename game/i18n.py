@@ -65,8 +65,8 @@ MESSAGES: Mapping[str, Mapping[str, str]] = {
         "fa": "🃏 بلک‌جک\n\n/startblackjack — شروع شرط‌بندی عادی\n/highroller — میز شرط بالا\n/join — ورود به بازی\n/hit — دریافت کارت\n/stand — توقف\n/flee — خروج پیش از شروع بازی",
     },
     "play.poker_help": {
-        "en": "🃏 Texas Hold'em cash poker\n\nChoose a buy-in / small blind below, or create a custom table with /poker <buy-in> [small blind]. Account chips become your table stack and return when you cash out. Cards and actions are sent privately.",
-        "fa": "🃏 پوکر نقدی تگزاس هولدم\n\nورودی / اسمال بلایند را انتخاب کنید یا با /poker <ورودی> [اسمال بلایند] میز دلخواه بسازید. چیپ حساب به موجودی میز تبدیل می‌شود و هنگام برداشت برمی‌گردد. کارت‌ها و اکشن‌ها خصوصی ارسال می‌شوند.",
+        "en": "♠️ Texas Hold'em\n\nPlayed right in the group on one live table:\n• Send /poker in a group and pick the stakes\n• Tap 🪑 Sit to join — even mid-hand (you play from the next deal)\n• Hands deal automatically; act with the buttons when it's your turn\n• 👀 My cards shows your hand privately — only you can see it\n• 🚪 Leave any time — you're cashed out at once or when the hand ends\n• /pokerraise <amount> for an exact raise",
+        "fa": "♠️ پوکر تگزاس هولدم\n\nمستقیم داخل گروه روی یک میز زنده:\n• در گروه /poker بفرست و مبلغ را انتخاب کن\n• برای ورود 🪑 نشستن را بزن — حتی وسط دست (از دست بعد بازی می‌کنی)\n• کارت‌ها خودکار پخش می‌شوند؛ در نوبتت با دکمه‌ها بازی کن\n• 👀 کارت‌های من دستت را خصوصی نشان می‌دهد — فقط خودت می‌بینی\n• 🚪 هر وقت خواستی خارج شو — فوراً یا آخر دست تسویه می‌شوی\n• /pokerraise <مبلغ> برای ریز دقیق",
     },
     "play.minigames_help": {
         "en": "🎲 Minigames\n\n/slot <bet>\n/coin <heads|tails> <bet>\n/draw <bet>\n/rps <rock|paper|scissors> <bet>\n/dice <bet>\n/double <bet>\n/crash <bet> then /cashout\n/roulette <red|black|0-36> <bet>",

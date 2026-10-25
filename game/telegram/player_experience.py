@@ -188,9 +188,7 @@ async def play_menu_callback(update, context) -> None:
     elif page == "poker":
         text = translate("play.poker_help", language)
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Buy-in 500 • Blinds 10/20" if language == "en" else "ورودی ۵۰۰ • بلایند ۱۰/۲۰", callback_data="poker:create:500:10")],
-            [InlineKeyboardButton("Buy-in 1,000 • Blinds 20/40" if language == "en" else "ورودی ۱٬۰۰۰ • بلایند ۲۰/۴۰", callback_data="poker:create:1000:20")],
-            [InlineKeyboardButton("Buy-in 5,000 • Blinds 100/200" if language == "en" else "ورودی ۵٬۰۰۰ • بلایند ۱۰۰/۲۰۰", callback_data="poker:create:5000:100")],
+            [InlineKeyboardButton("➕ Add me to a group" if language == "en" else "➕ افزودن من به گروه", url=f"https://t.me/{context.bot.username}?startgroup=poker")],
             _home_button(language),
         ])
     else:

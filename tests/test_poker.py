@@ -4,7 +4,7 @@ from game.models import ChipTransaction, Dealer, Game, Player, PokerHand, PokerS
 from game.services.poker import (
     PokerError, act, act_bot, add_bot, cash_out, close_table, create_table,
     describe_visible_hand, evaluate_hand,
-    join_table, remove_bot, start_hand,
+    join_table, leave_table, remove_bot, start_hand,
 )
 from game.services.recovery import cancel_poker_table
 from game.services.table_games import GroupTableBusy, ensure_blackjack_can_open, ensure_poker_can_open
@@ -41,9 +41,12 @@ class PokerCashTableTests(TestCase):
             result = act(hand.pk, current.player_id, "call")
         self.assertTrue(result.hand_complete)
         self.assertEqual(sum(table.seats.values_list("stack", flat=True)), 2_000)
-        first = cash_out(table.pk, self.host.pk)
-        second = cash_out(table.pk, self.guest.pk)
-        self.assertEqual(first + second, 2_000)
+        # A busted player is removed automatically; everyone left cashes out.
+        cashed = sum(
+            cash_out(table.pk, player_id)
+            for player_id in list(table.seats.values_list("player_id", flat=True))
+        )
+        self.assertEqual(cashed, 2_000)
         self.host.refresh_from_db()
         self.guest.refresh_from_db()
         self.assertEqual(self.host.chips + self.guest.chips, 20_000)
@@ -63,11 +66,44 @@ class PokerCashTableTests(TestCase):
         self.assertFalse(PokerSeat.objects.filter(table=table).exists())
         self.assertEqual(PokerHand.objects.get(table=table).phase, PokerHand.Phase.COMPLETE)
 
-    def test_only_host_can_start(self):
+    def test_only_seated_players_or_auto_dealer_can_start(self):
+        outsider = Player.objects.create(id=404, name="Rail", chips=10_000)
         table, _ = create_table(-502, self.host.pk, 1_000, 10)
         join_table(table.pk, self.guest.pk)
         with self.assertRaises(PokerError):
-            start_hand(table.pk, self.guest.pk)
+            start_hand(table.pk, outsider.pk)
+        self.assertEqual(start_hand(table.pk).number, 1)
+
+    def test_mid_hand_join_sits_out_until_next_deal(self):
+        third = Player.objects.create(id=305, name="Late", chips=10_000)
+        table, _ = create_table(-509, self.host.pk, 1_000, 10)
+        join_table(table.pk, self.guest.pk)
+        hand = start_hand(table.pk)
+        late, _ = join_table(table.pk, third.pk)
+        self.assertTrue(late.folded)
+        for _ in range(12):
+            hand.refresh_from_db()
+            if hand.phase == PokerHand.Phase.COMPLETE:
+                break
+            self.assertNotEqual(hand.current_seat, late.seat_number)
+            seat = PokerSeat.objects.get(table=table, seat_number=hand.current_seat)
+            act(hand.pk, seat.player_id, "call" if hand.current_bet > seat.committed_round else "check")
+        self.assertEqual(sum(table.seats.values_list("stack", flat=True)), 3_000)
+        next_hand = start_hand(table.pk)
+        self.assertEqual(len(PokerSeat.objects.get(pk=late.pk).hole_cards), 2)
+        self.assertEqual(next_hand.number, 2)
+
+    def test_leaving_mid_hand_cashes_out_when_hand_ends(self):
+        table, _ = create_table(-510, self.host.pk, 1_000, 10)
+        join_table(table.pk, self.guest.pk)
+        hand = start_hand(table.pk)
+        self.assertIsNone(leave_table(table.pk, self.guest.pk))
+        current = PokerSeat.objects.get(table=table, seat_number=hand.current_seat)
+        act(hand.pk, current.player_id, "fold")
+        self.assertFalse(PokerSeat.objects.filter(table=table, player=self.guest).exists())
+        self.guest.refresh_from_db()
+        self.host.refresh_from_db()
+        self.assertEqual(self.host.chips + self.guest.chips + sum(table.seats.values_list("stack", flat=True)), 20_000)
 
     def test_new_player_can_join_between_hands(self):
         third = Player.objects.create(id=303, name="Third", chips=10_000)

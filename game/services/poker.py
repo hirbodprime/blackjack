@@ -154,8 +154,8 @@ def create_table(chat_id: int, host_id: int, buy_in: int, small_blind: int, max_
 def join_table(table_id: int, player_id: int):
     ensure_betting_open()
     table = PokerTable.objects.select_for_update().get(pk=table_id)
-    if table.status not in {PokerTable.Status.LOBBY, PokerTable.Status.BETWEEN_HANDS}:
-        raise PokerError("Players can only join before or between hands.")
+    if table.status == PokerTable.Status.CLOSED:
+        raise PokerError("This table is closed.")
     if table.seats.filter(player_id=player_id).exists():
         raise PokerError("You are already seated.")
     if table.seats.count() >= table.max_players:
@@ -163,7 +163,12 @@ def join_table(table_id: int, player_id: int):
     player = Player.objects.select_for_update().get(pk=player_id)
     used = set(table.seats.values_list("seat_number", flat=True))
     seat_number = next(number for number in range(1, table.max_players + 1) if number not in used)
-    seat = PokerSeat.objects.create(table=table, player=player, seat_number=seat_number, stack=0)
+    # Mid-hand arrivals sit out (folded, already acted) until the next deal.
+    waiting = table.status == PokerTable.Status.PLAYING
+    seat = PokerSeat.objects.create(
+        table=table, player=player, seat_number=seat_number, stack=0,
+        folded=waiting, acted=waiting,
+    )
     change = adjust_balance(
         player, -table.buy_in, category=ChipTransaction.Category.POKER_BUY_IN,
         description=f"Poker table #{table.pk} buy-in", reference_type="poker_table",
@@ -172,6 +177,18 @@ def join_table(table_id: int, player_id: int):
     seat.stack = table.buy_in
     seat.save(update_fields=("stack",))
     return seat, change.balance
+
+
+@transaction.atomic
+def leave_table(table_id: int, player_id: int) -> int | None:
+    """Cash out now, or after the running hand. Returns the amount, or None when deferred."""
+    table = PokerTable.objects.select_for_update().get(pk=table_id)
+    if table.status != PokerTable.Status.PLAYING:
+        return cash_out(table_id, player_id)
+    seat = PokerSeat.objects.select_for_update().get(table=table, player_id=player_id)
+    seat.leave_after_hand = True
+    seat.save(update_fields=("leave_after_hand",))
+    return None
 
 
 BOT_NAMES = (
@@ -292,10 +309,13 @@ def cash_out(table_id: int, player_id: int) -> int:
 
 
 @transaction.atomic
-def start_hand(table_id: int, actor_id: int) -> PokerHand:
+def start_hand(table_id: int, actor_id: int | None = None) -> PokerHand:
+    """Deal the next hand. ``actor_id=None`` is the automatic dealer; any seated player may deal."""
     table = PokerTable.objects.select_for_update().get(pk=table_id)
-    if table.host_id != actor_id:
-        raise PokerError("Only the table host can deal the next hand.")
+    if actor_id is not None and not table.seats.filter(player_id=actor_id).exists():
+        raise PokerError("Only seated players can deal.")
+    if table.status == PokerTable.Status.CLOSED:
+        raise PokerError("This table is closed.")
     if table.status == PokerTable.Status.PLAYING:
         raise PokerError("A hand is already running.")
     seats = list(PokerSeat.objects.select_for_update().filter(table=table, stack__gt=0).select_related("player"))
@@ -382,28 +402,36 @@ def _finish_hand(hand: PokerHand, seats: list[PokerSeat]) -> str:
     table.status = PokerTable.Status.BETWEEN_HANDS
     table.save(update_fields=("status", "updated_at"))
     removed_ids = []
+    returned_to_casino = 0
     for seat in seats:
-        if seat.leave_after_hand:
+        if seat.is_bot and seat.stack == 0:
+            removed_ids.append(seat.pk)
+        elif not seat.is_bot and (seat.leave_after_hand or seat.stack == 0):
             if seat.stack:
                 adjust_balance(
                     seat.player_id, seat.stack,
                     category=ChipTransaction.Category.POKER_CASH_OUT,
-                    description=f"Poker table #{table.pk} automatic cash-out after repeated timeouts",
+                    description=f"Poker table #{table.pk} cash-out after leaving",
                     reference_type="poker_table", reference_id=table.pk,
                     idempotency_key=f"poker:{table.pk}:seat:{seat.pk}:timeout-cashout",
                 )
             removed_ids.append(seat.pk)
     if removed_ids:
         PokerSeat.objects.filter(pk__in=removed_ids).delete()
-        remaining = table.seats.order_by("seat_number").first()
-        if remaining is None:
+        humans = table.seats.filter(is_bot=False).order_by("seat_number")
+        if not humans.exists():
+            bots = list(table.seats.filter(is_bot=True))
+            returned_to_casino = sum(bot.stack for bot in bots)
+            table.seats.filter(is_bot=True).delete()
             table.status = PokerTable.Status.CLOSED
-        elif table.host_id not in table.seats.values_list("player_id", flat=True):
-            table.host_id = remaining.player_id
+        elif table.host_id not in humans.values_list("player_id", flat=True):
+            table.host_id = humans.first().player_id
         table.save(update_fields=("status", "host", "updated_at"))
-        summary += "\nTimed-out players were automatically cashed out."
-        hand.summary = summary
-        hand.save(update_fields=("summary",))
+        if returned_to_casino:
+            dealer = Dealer.objects.select_for_update().first()
+            if dealer:
+                dealer.chips += returned_to_casino
+                dealer.save(update_fields=("chips",))
     return summary
 
 
@@ -617,6 +645,7 @@ add_bot_async = lambda *a, **kw: sync_to_async(add_bot, thread_sensitive=True)(*
 remove_bot_async = lambda *a, **kw: sync_to_async(remove_bot, thread_sensitive=True)(*a, **kw)
 close_table_async = lambda *a, **kw: sync_to_async(close_table, thread_sensitive=True)(*a, **kw)
 cash_out_async = lambda *a, **kw: sync_to_async(cash_out, thread_sensitive=True)(*a, **kw)
+leave_table_async = lambda *a, **kw: sync_to_async(leave_table, thread_sensitive=True)(*a, **kw)
 start_hand_async = lambda *a, **kw: sync_to_async(start_hand, thread_sensitive=True)(*a, **kw)
 act_async = lambda *a, **kw: sync_to_async(act, thread_sensitive=True)(*a, **kw)
 act_bot_async = lambda *a, **kw: sync_to_async(act_bot, thread_sensitive=True)(*a, **kw)

@@ -970,3 +970,38 @@ class CompetitionPayout(models.Model):
 
     def __str__(self):
         return f"{self.competition} #{self.rank}: {self.player_id} +{self.prize_chips:,}"
+
+
+class ArcadeRound(models.Model):
+    """One solo mini-app round; ``state`` holds the server-side secret (crash point, mines, deck)."""
+
+    class Game(models.TextChoices):
+        CRASH = "crash", "Crash"
+        MINES = "mines", "Mines"
+        HILO = "hilo", "Hi-Lo"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        WON = "won", "Cashed out"
+        LOST = "lost", "Lost"
+
+    player = models.ForeignKey(Player, on_delete=models.PROTECT, related_name="arcade_rounds")
+    game = models.CharField(max_length=8, choices=Game.choices)
+    bet = models.PositiveIntegerField()
+    state = models.JSONField(default=dict)
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE, db_index=True)
+    multiplier = models.DecimalField(max_digits=10, decimal_places=2, default=1)
+    payout = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("player",), condition=models.Q(status="active"),
+                name="one_active_arcade_round",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.get_game_display()} #{self.pk} ({self.status})"

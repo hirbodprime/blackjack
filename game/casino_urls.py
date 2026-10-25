@@ -9,4 +9,8 @@ urlpatterns = [
     path("api/auth/", casino_views.telegram_auth, name="casino-auth"),
     path("api/table/", casino_views.table_state, name="casino-table-state"),
     path("api/bet/", casino_views.place_bet, name="casino-place-bet"),
+    path("arcade/", casino_views.arcade_app, name="casino-arcade"),
+    path("api/arcade/auth/", casino_views.arcade_auth, name="casino-arcade-auth"),
+    path("api/arcade/state/", casino_views.arcade_state, name="casino-arcade-state"),
+    path("api/arcade/<slug:action>/", casino_views.arcade_action, name="casino-arcade-action"),
 ]

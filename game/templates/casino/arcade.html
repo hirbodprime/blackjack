@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#10090b">
+<title>Big Papa Arcade</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{color-scheme:dark;--gold:#f8d879;--cream:#fff4d4;--muted:#c9b48a;--red:#e0475a;--green:#2fd18b;--panel:#1b0f12;--line:#f8d87933;font-family:Inter,system-ui,-apple-system,sans-serif}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;min-height:100vh;color:var(--cream);background:radial-gradient(ellipse at 50% -8%,#592033 0,#1d0c13 37%,#080607 78%);padding:calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 16px)}
+button{font:inherit;cursor:pointer;border:0}
+.wrap{max-width:520px;margin:auto}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.brand{font-weight:800;letter-spacing:.08em;color:var(--gold);font-size:15px}
+.chips{background:#0008;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-weight:700;font-variant-numeric:tabular-nums}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
+.tab{background:#0006;color:var(--muted);border:1px solid var(--line);border-radius:12px;padding:10px 0;font-weight:700}
+.tab.on{background:linear-gradient(#3a1d14,#24110c);color:var(--gold);border-color:var(--gold)}
+.panel{background:linear-gradient(#24131a,#140b0e);border:1px solid var(--line);border-radius:18px;padding:14px;box-shadow:0 18px 50px #000a}
+.stage{position:relative;height:230px;border-radius:14px;background:#0a0607;border:1px solid #ffffff10;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.big{font-size:54px;font-weight:900;font-variant-numeric:tabular-nums;text-shadow:0 0 30px #f8d87955}
+.big.lost{color:var(--red);text-shadow:0 0 30px #e0475a66}.big.won{color:var(--green);text-shadow:0 0 30px #2fd18b66}
+canvas{position:absolute;inset:0;width:100%;height:100%}
+.overlay{position:relative;text-align:center}
+.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.controls{display:grid;gap:10px;margin-top:12px}
+.row{display:flex;gap:8px}
+.bet{flex:1;display:flex;align-items:center;background:#0008;border:1px solid var(--line);border-radius:12px;padding:0 10px}
+.bet input{flex:1;background:none;border:0;color:var(--cream);font:inherit;font-weight:700;padding:12px 4px;width:60px;outline:none}
+.chip{background:#ffffff10;color:var(--cream);border-radius:9px;padding:8px 10px;font-weight:700;font-size:13px}
+.go{width:100%;padding:15px;border-radius:14px;font-weight:900;font-size:17px;letter-spacing:.04em;color:#1a0d05;background:linear-gradient(#ffe7a1,#e9b74b);box-shadow:0 6px 0 #8a5a1c}
+.go:active{transform:translateY(3px);box-shadow:0 3px 0 #8a5a1c}
+.go.cash{background:linear-gradient(#7af0b8,#20b574);box-shadow:0 6px 0 #0f6b43}
+.go:disabled{opacity:.45}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;width:100%;padding:10px}
+.tile{aspect-ratio:1;border-radius:10px;background:linear-gradient(#3b2430,#26151c);border:1px solid #ffffff14;font-size:24px;display:flex;align-items:center;justify-content:center;transition:transform .12s}
+.tile:active{transform:scale(.94)}.tile.safe{background:linear-gradient(#174d36,#0d2f21)}.tile.mine{background:linear-gradient(#6a1520,#3b0a11)}.tile.dim{opacity:.55}
+.mines{display:flex;gap:6px}.mines .chip.on{background:var(--gold);color:#1a0d05}
+.cards{display:flex;gap:8px;align-items:center;overflow-x:auto;padding:0 12px;max-width:100%}
+.card{flex:none;width:72px;height:100px;border-radius:10px;background:#fbf6ea;color:#16110f;display:flex;flex-direction:column;justify-content:space-between;padding:6px 8px;font-weight:900;font-size:22px;box-shadow:0 8px 20px #0009}
+.card.red{color:#c51e31}.card.small{width:44px;height:62px;font-size:14px;opacity:.6}
+.card .s{align-self:flex-end;font-size:26px}.card.small .s{font-size:16px}
+.guess{flex:1;padding:13px;border-radius:12px;font-weight:800;background:#ffffff10;color:var(--cream);border:1px solid var(--line)}
+.guess small{display:block;color:var(--muted);font-weight:600;font-size:11px}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 18px);transform:translateX(-50%);background:#000d;border:1px solid var(--line);padding:10px 16px;border-radius:12px;font-weight:700;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1}
+.hidden{display:none!important}
+.note{color:var(--muted);font-size:12px;text-align:center;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><div class="brand">🎰 BIG PAPA ARCADE</div><div class="chips" id="chips">…</div></header>
+  <div class="tabs">
+    <button class="tab on" data-game="crash">🚀 Crash</button>
+    <button class="tab" data-game="mines">💣 Mines</button>
+    <button class="tab" data-game="hilo">🃏 Hi-Lo</button>
+  </div>
+  <div class="panel">
+    <div class="stage" id="stage"></div>
+    <div class="controls">
+      <div id="extra"></div>
+      <div class="row" id="betrow">
+        <div class="bet"><span>🪙</span><input id="bet" inputmode="numeric" value="100"></div>
+        <button class="chip" data-mul="0.5">½</button><button class="chip" data-mul="2">2×</button><button class="chip" data-max>MAX</button>
+      </div>
+      <button class="go" id="go">PLAY</button>
+    </div>
+  </div>
+  <div class="note">Server-decided outcomes · net winnings count toward tournaments &amp; the weekly board</div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const tg = window.Telegram && Telegram.WebApp; if (tg) { tg.ready(); tg.expand(); }
+const base = location.pathname.replace(/arcade\/?$/, "");
+let token = null, state = null, game = "crash", skew = 0, raf = null, busy = false, limits = {min: 10, max: 50000, mines: [1,3,5,10]}, minesPick = 3;
+const $ = id => document.getElementById(id);
+const fmt = n => Number(n).toLocaleString("en-US");
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2200); }
+function haptic(kind) { try { tg && tg.HapticFeedback.notificationOccurred(kind); } catch (e) {} }
+
+async function call(path, body) {
+  const res = await fetch(base + "api/arcade/" + path + "/", {
+    method: body === undefined ? "GET" : "POST",
+    headers: {"Content-Type": "application/json", ...(token ? {Authorization: "Bearer " + token} : {})},
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "Something went wrong");
+  return data;
+}
+function apply(data) {
+  state = data; skew = Date.parse(data.now) - Date.now();
+  if (data.limits) limits = data.limits;
+  $("chips").textContent = "💰 " + fmt(data.player.chips);
+  if (data.round && data.round.status === "active" && data.round.game !== game) selectGame(data.round.game, true);
+  render();
+}
+async function act(action, body = {}) {
+  if (busy) return; busy = true;
+  try { apply(await call(action, body)); } catch (e) { toast(e.message); haptic("error"); } finally { busy = false; }
+}
+function betValue() { return Math.max(limits.min, Math.min(limits.max, parseInt($("bet").value.replace(/\D/g, "")) || 0)); }
+document.querySelectorAll("[data-mul]").forEach(b => b.onclick = () => { $("bet").value = Math.max(limits.min, Math.min(limits.max, Math.floor(betValue() * b.dataset.mul))); });
+document.querySelector("[data-max]").onclick = () => { $("bet").value = Math.min(limits.max, state ? state.player.chips : limits.max); };
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => selectGame(t.dataset.game));
+function selectGame(g, force) {
+  const r = state && state.round;
+  if (!force && r && r.status === "active" && r.game !== g) { toast("Finish your current round first"); return; }
+  game = g; document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.game === g)); render();
+}
+const live = () => state && state.round && state.round.game === game && state.round.status === "active";
+const last = () => state && state.round && state.round.game === game ? state.round : null;
+
+function render() {
+  cancelAnimationFrame(raf);
+  $("betrow").classList.toggle("hidden", live());
+  ({crash: renderCrash, mines: renderMines, hilo: renderHilo})[game]();
+}
+
+// ── Crash ──
+function renderCrash() {
+  const r = last();
+  $("extra").innerHTML = "";
+  $("stage").innerHTML = '<canvas id="cv"></canvas><div class="overlay"><div class="big" id="m">1.00×</div><div class="sub" id="ms"></div></div>';
+  const go = $("go");
+  if (live()) {
+    go.textContent = "CASH OUT"; go.className = "go cash"; go.onclick = () => act("crash_cashout");
+    const start = Date.parse(r.started_at), cv = $("cv"), ctx = cv.getContext("2d");
+    const loop = () => {
+      const t = (Date.now() + skew - start) / 1000, m = Math.exp(r.growth * t);
+      $("m").textContent = (Math.floor(m * 100) / 100).toFixed(2) + "×";
+      $("ms").textContent = "Win " + fmt(Math.floor(r.bet * m));
+      drawCurve(ctx, cv, r.growth, t);
+      if (t > 2 && Math.floor(t * 4) % 4 === 0 && !busy && !loop._polled) { loop._polled = true; call("state").then(d => { loop._polled = false; if (!(d.round && d.round.status === "active")) { haptic("error"); apply(d); } }).catch(() => loop._polled = false); }
+      raf = requestAnimationFrame(loop);
+    };
+    loop();
+  } else {
+    go.textContent = "LAUNCH 🚀"; go.className = "go"; go.onclick = () => act("crash_start", {bet: betValue()});
+    if (r && r.status === "lost") { $("m").textContent = "💥 " + r.point + "×"; $("m").className = "big lost"; $("ms").textContent = "Crashed — lost " + fmt(r.bet); }
+    else if (r && r.status === "won") { $("m").textContent = r.multiplier + "×"; $("m").className = "big won"; $("ms").textContent = "Cashed out +" + fmt(r.payout) + (r.point ? " · crashed at " + r.point + "×" : ""); haptic("success"); }
+    else { $("ms").textContent = "Cash out before the rocket crashes"; }
+  }
+}
+function drawCurve(ctx, cv, k, t) {
+  const w = cv.width = cv.clientWidth * devicePixelRatio, h = cv.height = cv.clientHeight * devicePixelRatio;
+  const span = Math.max(8, t * 1.15), top = Math.max(2, Math.exp(k * span));
+  ctx.strokeStyle = "#f8d879"; ctx.lineWidth = 3 * devicePixelRatio; ctx.beginPath();
+  for (let i = 0; i <= 60; i++) { const x = t * i / 60, y = Math.exp(k * x); const px = x / span * w, py = h - (y - 1) / (top - 1) * h * 0.85 - 8; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+  ctx.stroke(); const grad = ctx.createLinearGradient(0, 0, 0, h); grad.addColorStop(0, "#f8d87933"); grad.addColorStop(1, "#f8d87900");
+  ctx.lineTo(t / span * w, h); ctx.lineTo(0, h); ctx.fillStyle = grad; ctx.fill();
+}
+
+// ── Mines ──
+function renderMines() {
+  const r = last(), go = $("go");
+  const activeOrDone = r && (live() || r.status !== "active");
+  $("extra").innerHTML = live() ? "" : '<div class="mines">' + limits.mines.map(n => `<button class="chip ${n === minesPick ? "on" : ""}" data-m="${n}">💣 ${n}</button>`).join("") + "</div>";
+  document.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { minesPick = +b.dataset.m; render(); });
+  const revealed = new Set(r ? r.revealed : []), mines = new Set(r && r.mines ? r.mines : []);
+  let html = '<div class="grid">';
+  for (let i = 0; i < 25; i++) {
+    let cls = "tile", txt = "";
+    if (activeOrDone && revealed.has(i)) { cls += mines.has(i) ? " mine" : " safe"; txt = mines.has(i) ? "💥" : "💎"; }
+    else if (r && r.mines && mines.has(i)) { cls += " mine dim"; txt = "💣"; }
+    else if (r && r.mines) { cls += " dim"; }
+    html += `<button class="${cls}" data-t="${i}">${txt}</button>`;
+  }
+  $("stage").innerHTML = html + "</div>";
+  if (live()) document.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { if (!revealed.has(+b.dataset.t)) act("mines_reveal", {tile: +b.dataset.t}); });
+  if (live()) {
+    const n = r.revealed.length;
+    go.className = "go cash"; go.disabled = n === 0;
+    go.textContent = n ? `CASH OUT ${r.multiplier}× · ${fmt(Math.floor(r.bet * r.multiplier))}` : `Next tile → ${r.next_multiplier}×`;
+    go.onclick = () => act("mines_cashout");
+  } else {
+    go.disabled = false; go.className = "go"; go.textContent = "START · " + minesPick + " MINES"; go.onclick = () => act("mines_start", {bet: betValue(), mines: minesPick});
+    if (r && r.status === "won") { toast("💎 +" + fmt(r.payout) + " at " + r.multiplier + "×"); haptic("success"); }
+    if (r && r.status === "lost") { toast("💥 Boom! Lost " + fmt(r.bet)); haptic("error"); }
+  }
+}
+
+// ── Hi-Lo ──
+const RED = s => s === "♥" || s === "♦";
+const face = c => (c[0] === "T" ? "10" : c[0]);
+function cardHtml(c, small) { return `<div class="card ${RED(c[1]) ? "red" : ""} ${small ? "small" : ""}"><span>${face(c)}</span><span class="s">${c[1]}</span></div>`; }
+function renderHilo() {
+  const r = last(), go = $("go");
+  $("extra").innerHTML = "";
+  if (!r) { $("stage").innerHTML = '<div class="overlay"><div class="big">🃏</div><div class="sub">Higher or lower? Ties count for you.</div></div>'; }
+  else {
+    const cards = r.cards, prev = cards.slice(Math.max(0, cards.length - 5), -1);
+    $("stage").innerHTML = '<div class="cards">' + prev.map(c => cardHtml(c, true)).join("") + cardHtml(cards[cards.length - 1]) + "</div>";
+  }
+  if (live()) {
+    const o = r.odds;
+    $("extra").innerHTML = `<div class="row">
+      <button class="guess" id="hi">⬆ Higher<small>${o.higher.chance}% · ${o.higher.next}×</small></button>
+      <button class="guess" id="lo">⬇ Lower<small>${o.lower.chance}% · ${o.lower.next}×</small></button></div>`;
+    $("hi").onclick = () => act("hilo_guess", {guess: "higher"});
+    $("lo").onclick = () => act("hilo_guess", {guess: "lower"});
+    const n = r.cards.length - 1;
+    go.className = "go cash"; go.disabled = n === 0;
+    go.textContent = n ? `CASH OUT ${r.multiplier}× · ${fmt(Math.floor(r.bet * r.multiplier))}` : "Make your first guess";
+    go.onclick = () => act("hilo_cashout");
+  } else {
+    go.disabled = false; go.className = "go"; go.textContent = "DEAL"; go.onclick = () => act("hilo_start", {bet: betValue()});
+    if (r && r.status === "won") { toast("✅ +" + fmt(r.payout) + " at " + r.multiplier + "×"); haptic("success"); }
+    if (r && r.status === "lost") { toast("❌ Wrong call — lost " + fmt(r.bet)); haptic("error"); }
+  }
+}
+
+(async () => {
+  try {
+    const data = await call("auth", {init_data: tg ? tg.initData : ""});
+    token = data.token; apply(data);
+  } catch (e) { $("stage").innerHTML = '<div class="overlay"><div class="sub">' + e.message + "</div></div>"; $("go").disabled = true; }
+})();
+</script>
+</body>
+</html>

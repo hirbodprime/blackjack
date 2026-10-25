@@ -18,8 +18,13 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+from django.utils import timezone
+
+from game.economy_config import ARCADE_MAX_BET, ARCADE_MIN_BET, MINES_CHOICES
 from game.models import Player, RouletteTable, RouletteTableBet
+from game.services import arcade
 from game.services.economy import InsufficientChips
+from game.services.operations import BettingPaused
 from game.services.multiplayer_roulette import RouletteTableError, place_table_bet
 
 
@@ -172,3 +177,93 @@ def place_bet(request):
         return JsonResponse(_state_payload(table, session["uid"]))
     except (ValueError, TypeError, signing.BadSignature, signing.SignatureExpired, RouletteTable.DoesNotExist, RouletteTableError, InsufficientChips, json.JSONDecodeError) as exc:
         return _json_error(str(exc), 400)
+
+
+# ── Arcade (solo games opened from the bot's private chat) ─────────────────
+
+ARCADE_SALT = "casino-arcade"
+ARCADE_SESSION_AGE = 3600
+ARCADE_ACTIONS = {
+    "crash_start": lambda uid, p: arcade.crash_start(uid, int(p.get("bet", 0))),
+    "crash_cashout": lambda uid, p: arcade.crash_cashout(uid),
+    "mines_start": lambda uid, p: arcade.mines_start(uid, int(p.get("bet", 0)), int(p.get("mines", 3))),
+    "mines_reveal": lambda uid, p: arcade.mines_reveal(uid, int(p.get("tile", -1))),
+    "mines_cashout": lambda uid, p: arcade.mines_cashout(uid),
+    "hilo_start": lambda uid, p: arcade.hilo_start(uid, int(p.get("bet", 0))),
+    "hilo_guess": lambda uid, p: arcade.hilo_guess(uid, str(p.get("guess", ""))),
+    "hilo_cashout": lambda uid, p: arcade.hilo_cashout(uid),
+}
+
+
+def _arcade_uid(request) -> int:
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        raise ValueError("Authentication required.")
+    return signing.loads(header[7:], salt=ARCADE_SALT, max_age=ARCADE_SESSION_AGE)["uid"]
+
+
+def _arcade_payload(uid: int, round_=None) -> dict:
+    player = Player.objects.get(pk=uid)
+    if round_ is None:
+        round_ = arcade.current_round(uid)
+    return {
+        "ok": True,
+        "now": timezone.now().isoformat(),
+        "player": {"name": player.name, "chips": player.chips},
+        "round": arcade.public_state(round_),
+        "limits": {"min": ARCADE_MIN_BET, "max": ARCADE_MAX_BET, "mines": list(MINES_CHOICES)},
+    }
+
+
+@require_GET
+@xframe_options_exempt
+def arcade_app(request):
+    response = render(request, "casino/arcade.html")
+    response["Cache-Control"] = "no-store"
+    response["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org; "
+        "style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;"
+    )
+    return response
+
+
+@csrf_exempt
+@require_POST
+def arcade_auth(request):
+    try:
+        payload = json.loads(request.body or b"{}")
+        data = _validate_init_data(payload.get("init_data", ""))
+        uid = int(data["user"]["id"])
+        if not Player.objects.filter(pk=uid, is_frozen=False).exists():
+            raise ValueError("Start the bot privately before opening the arcade.")
+        token = signing.dumps({"uid": uid}, salt=ARCADE_SALT, compress=True)
+        return JsonResponse({"token": token, **_arcade_payload(uid)})
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        return _json_error(str(exc), 403)
+
+
+@require_GET
+def arcade_state(request):
+    try:
+        return JsonResponse(_arcade_payload(_arcade_uid(request)))
+    except (ValueError, signing.BadSignature, signing.SignatureExpired, Player.DoesNotExist) as exc:
+        return _json_error(str(exc), 403)
+
+
+@csrf_exempt
+@require_POST
+def arcade_action(request, action):
+    try:
+        uid = _arcade_uid(request)
+    except (ValueError, signing.BadSignature, signing.SignatureExpired) as exc:
+        return _json_error(str(exc), 403)
+    handler = ARCADE_ACTIONS.get(action)
+    if handler is None:
+        return _json_error("Unknown action.", 404)
+    try:
+        round_ = handler(uid, json.loads(request.body or b"{}"))
+        return JsonResponse(_arcade_payload(uid, round_))
+    except InsufficientChips:
+        return _json_error("Not enough chips.")
+    except (arcade.ArcadeError, BettingPaused, ValueError, TypeError, json.JSONDecodeError) as exc:
+        return _json_error(str(exc))

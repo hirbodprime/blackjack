@@ -36,7 +36,7 @@ KIND_REFERENCE_TYPES = {
     Tournament.Kind.POKER: ("poker_table",),
     Tournament.Kind.MINIGAMES: (
         "minigame", "telegram_update", "spin", "roulette", "crash_game",
-        "roulette_table", "friend_challenge",
+        "roulette_table", "friend_challenge", "arcade",
     ),
 }
 

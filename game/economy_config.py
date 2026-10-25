@@ -73,3 +73,13 @@ def tournament_prizes(pool: int) -> tuple[int, ...]:
         int((Decimal(pool) * share).to_integral_value(rounding=ROUND_DOWN))
         for share in TOURNAMENT_SPLIT
     )
+
+# ── Arcade mini app ─────────────────────────────────────────────────────────
+ARCADE_MIN_BET = 10
+ARCADE_MAX_BET = 50_000
+ARCADE_MAX_PAYOUT = 500_000
+ARCADE_RTP = Decimal("0.97")  # mines and hi-lo
+CRASH_RTP = Decimal("0.96")
+CRASH_GROWTH_PER_SECOND = 0.12  # multiplier = e^(rate * seconds)
+MINES_TILES = 25
+MINES_CHOICES = (1, 3, 5, 10)

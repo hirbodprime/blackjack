@@ -314,6 +314,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sync_to_async(Stats.objects.create)(player=player, wins=0, loses=0, how_many_21=0)
         print("📊 Stats created")
 
+    if (
+        context.args and context.args[0] == "arcade" and settings.onboarding_complete
+        and update.message.chat.type == ChatType.PRIVATE
+    ):
+        from game.telegram.hub import arcade_button
+
+        await update.message.reply_text(
+            "🕹 Tap to open the arcade:",
+            reply_markup=InlineKeyboardMarkup([[arcade_button(True, context.bot.username)]]),
+        )
+        return
+
     if not settings.onboarding_complete and update.message.chat.type == ChatType.PRIVATE:
         await update.message.reply_text(
             t("onboarding.language", settings.language),

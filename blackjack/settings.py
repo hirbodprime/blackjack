@@ -174,7 +174,15 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': database_path,
-        'OPTIONS': {'timeout': 20},
+        'OPTIONS': {
+            'timeout': 20,
+            # WAL lets the bot and the admin site read while the other writes,
+            # and synchronous=NORMAL avoids a full fsync on every commit.
+            'init_command': 'PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;',
+            # Take the write lock at BEGIN so concurrent writers wait for the
+            # timeout instead of failing with "database is locked".
+            'transaction_mode': 'IMMEDIATE',
+        },
         'TEST': {'NAME': None},
     }
 }

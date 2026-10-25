@@ -21,8 +21,9 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.utils import timezone
 
 from game.economy_config import ARCADE_MAX_BET, ARCADE_MIN_BET, MINES_CHOICES
-from game.models import Player, RouletteTable, RouletteTableBet
+from game.models import Group, Player, RouletteTable, RouletteTableBet
 from game.services import arcade
+from game.services import arcade_ranks as ranks
 from game.services.achievements import grant_on_play
 from game.services.economy import InsufficientChips
 from game.services.operations import BettingPaused
@@ -185,25 +186,34 @@ def place_bet(request):
 ARCADE_SALT = "casino-arcade"
 ARCADE_SESSION_AGE = 3600
 ARCADE_ACTIONS = {
-    "crash_start": lambda uid, p: arcade.crash_start(uid, int(p.get("bet", 0))),
-    "crash_cashout": lambda uid, p: arcade.crash_cashout(uid),
-    "mines_start": lambda uid, p: arcade.mines_start(uid, int(p.get("bet", 0)), int(p.get("mines", 3))),
-    "mines_reveal": lambda uid, p: arcade.mines_reveal(uid, int(p.get("tile", -1))),
-    "mines_cashout": lambda uid, p: arcade.mines_cashout(uid),
-    "hilo_start": lambda uid, p: arcade.hilo_start(uid, int(p.get("bet", 0))),
-    "hilo_guess": lambda uid, p: arcade.hilo_guess(uid, str(p.get("guess", ""))),
-    "hilo_cashout": lambda uid, p: arcade.hilo_cashout(uid),
+    "crash_start": lambda uid, chat, p: arcade.crash_start(uid, int(p.get("bet", 0)), chat),
+    "crash_cashout": lambda uid, chat, p: arcade.crash_cashout(uid),
+    "mines_start": lambda uid, chat, p: arcade.mines_start(uid, int(p.get("bet", 0)), int(p.get("mines", 3)), chat),
+    "mines_reveal": lambda uid, chat, p: arcade.mines_reveal(uid, int(p.get("tile", -1))),
+    "mines_cashout": lambda uid, chat, p: arcade.mines_cashout(uid),
+    "hilo_start": lambda uid, chat, p: arcade.hilo_start(uid, int(p.get("bet", 0)), chat),
+    "hilo_guess": lambda uid, chat, p: arcade.hilo_guess(uid, str(p.get("guess", ""))),
+    "hilo_cashout": lambda uid, chat, p: arcade.hilo_cashout(uid),
 }
 
 
-def _arcade_uid(request) -> int:
+def _arcade_session(request) -> tuple[int, int | None]:
+    """(player id, group id or None) from the signed arcade session."""
     header = request.headers.get("Authorization", "")
     if not header.startswith("Bearer "):
         raise ValueError("Authentication required.")
-    return signing.loads(header[7:], salt=ARCADE_SALT, max_age=ARCADE_SESSION_AGE)["uid"]
+    session = signing.loads(header[7:], salt=ARCADE_SALT, max_age=ARCADE_SESSION_AGE)
+    return session["uid"], session.get("chat")
 
 
-def _arcade_payload(uid: int, round_=None) -> dict:
+def _group_name(chat_id: int | None) -> str | None:
+    if chat_id is None:
+        return None
+    group = Group.objects.filter(group_chat_id=str(chat_id)).exclude(group_name=None).first()
+    return group.group_name if group else "This group"
+
+
+def _arcade_payload(uid: int, round_=None, chat_id: int | None = None) -> dict:
     player = Player.objects.get(pk=uid)
     if round_ is None:
         round_ = arcade.current_round(uid)
@@ -213,6 +223,7 @@ def _arcade_payload(uid: int, round_=None) -> dict:
         "player": {"name": player.name, "chips": player.chips},
         "round": arcade.public_state(round_),
         "limits": {"min": ARCADE_MIN_BET, "max": ARCADE_MAX_BET, "mines": list(MINES_CHOICES)},
+        "group": {"name": _group_name(chat_id)} if chat_id is not None else None,
     }
 
 
@@ -237,8 +248,11 @@ def arcade_auth(request):
         uid = int(data["user"]["id"])
         if not Player.objects.filter(pk=uid, is_frozen=False).exists():
             raise ValueError("Start the bot privately before opening the arcade.")
-        token = signing.dumps({"uid": uid}, salt=ARCADE_SALT, compress=True)
-        return JsonResponse({"token": token, **_arcade_payload(uid)})
+        chat_id = arcade.parse_group_start_param(data.get("start_param", ""))
+        if chat_id is not None and not _is_chat_member(chat_id, uid):
+            raise ValueError("You must be a member of the group that opened this arcade.")
+        token = signing.dumps({"uid": uid, "chat": chat_id}, salt=ARCADE_SALT, compress=True)
+        return JsonResponse({"token": token, **_arcade_payload(uid, chat_id=chat_id)})
     except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         return _json_error(str(exc), 403)
 
@@ -246,25 +260,45 @@ def arcade_auth(request):
 @require_GET
 def arcade_state(request):
     try:
-        return JsonResponse(_arcade_payload(_arcade_uid(request)))
+        uid, chat_id = _arcade_session(request)
+        return JsonResponse(_arcade_payload(uid, chat_id=chat_id))
     except (ValueError, signing.BadSignature, signing.SignatureExpired, Player.DoesNotExist) as exc:
         return _json_error(str(exc), 403)
+
+
+@require_GET
+def arcade_ranks(request):
+    try:
+        uid, chat_id = _arcade_session(request)
+    except (ValueError, signing.BadSignature, signing.SignatureExpired) as exc:
+        return _json_error(str(exc), 403)
+    scope = request.GET.get("scope", "global")
+    if scope == "group" and chat_id is None:
+        return _json_error("Open the arcade from a group to see its ranking.")
+    try:
+        board = ranks.leaderboard(
+            request.GET.get("game", "all"), chat_id if scope == "group" else None,
+            request.GET.get("period", "week"), player_id=uid,
+        )
+    except ValueError as exc:
+        return _json_error(str(exc))
+    return JsonResponse({"ok": True, "scope": scope, **board})
 
 
 @csrf_exempt
 @require_POST
 def arcade_action(request, action):
     try:
-        uid = _arcade_uid(request)
+        uid, chat_id = _arcade_session(request)
     except (ValueError, signing.BadSignature, signing.SignatureExpired) as exc:
         return _json_error(str(exc), 403)
     handler = ARCADE_ACTIONS.get(action)
     if handler is None:
         return _json_error("Unknown action.", 404)
     try:
-        round_ = handler(uid, json.loads(request.body or b"{}"))
+        round_ = handler(uid, chat_id, json.loads(request.body or b"{}"))
         grant_on_play(uid)
-        return JsonResponse(_arcade_payload(uid, round_))
+        return JsonResponse(_arcade_payload(uid, round_, chat_id))
     except InsufficientChips:
         return _json_error("Not enough chips.")
     except (arcade.ArcadeError, BettingPaused, ValueError, TypeError, json.JSONDecodeError) as exc:

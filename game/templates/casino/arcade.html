@@ -15,7 +15,7 @@ button{font:inherit;cursor:pointer;border:0}
 header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .brand{font-weight:800;letter-spacing:.08em;color:var(--gold);font-size:15px}
 .chips{background:#0008;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-weight:700;font-variant-numeric:tabular-nums}
-.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
 .tab{background:#0006;color:var(--muted);border:1px solid var(--line);border-radius:12px;padding:10px 0;font-weight:700}
 .tab.on{background:linear-gradient(#3a1d14,#24110c);color:var(--gold);border-color:var(--gold)}
 .panel{background:linear-gradient(#24131a,#140b0e);border:1px solid var(--line);border-radius:18px;padding:14px;box-shadow:0 18px 50px #000a}
@@ -48,6 +48,11 @@ canvas{position:absolute;inset:0;width:100%;height:100%}
 .toast.show{opacity:1}
 .hidden{display:none!important}
 .note{color:var(--muted);font-size:12px;text-align:center;margin-top:10px}
+.seg{display:flex;gap:6px;margin-bottom:8px;overflow-x:auto}.seg .chip{flex:none;white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis}.seg .chip.on{background:var(--gold);color:#1a0d05}
+.board{margin-top:6px}.rk{display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:center;padding:10px 6px;border-bottom:1px solid #ffffff0d}
+.rk .p{font-weight:800;text-align:center}.rk .n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.rk .n small{display:block;color:var(--muted);font-weight:500;font-size:11px}
+.rk .s{font-weight:800;font-variant-numeric:tabular-nums}.rk .s.up{color:var(--green)}.rk .s.down{color:var(--red)}.rk.me{background:#f8d87914;border-radius:10px}
+.empty{color:var(--muted);text-align:center;padding:28px 0}
 </style>
 </head>
 <body>
@@ -57,8 +62,15 @@ canvas{position:absolute;inset:0;width:100%;height:100%}
     <button class="tab on" data-game="crash">🚀 Crash</button>
     <button class="tab" data-game="mines">💣 Mines</button>
     <button class="tab" data-game="hilo">🃏 Hi-Lo</button>
+    <button class="tab" data-game="ranks">🏆 Ranks</button>
   </div>
-  <div class="panel">
+  <div class="panel hidden" id="ranks">
+    <div class="seg" id="scope"></div>
+    <div class="seg" id="period"></div>
+    <div class="seg" id="rgame"></div>
+    <div class="board" id="board"></div>
+  </div>
+  <div class="panel" id="play">
     <div class="stage" id="stage"></div>
     <div class="controls">
       <div id="extra"></div>
@@ -69,11 +81,13 @@ canvas{position:absolute;inset:0;width:100%;height:100%}
       <button class="go" id="go">PLAY</button>
     </div>
   </div>
-  <div class="note">Server-decided outcomes · net winnings count toward tournaments &amp; the weekly board</div>
+  <div class="note" id="note">Server-decided outcomes · net winnings count toward tournaments &amp; the weekly board</div>
 </div>
 <div class="toast" id="toast"></div>
 <script>
-const tg = window.Telegram && Telegram.WebApp; if (tg) { tg.ready(); tg.expand(); }
+const tg = window.Telegram && Telegram.WebApp;
+if (tg && (tg.initDataUnsafe.start_param || "").startsWith("rt_")) { location.replace("/casino/roulette/" + location.search + location.hash); throw 0; }
+if (tg) { tg.ready(); tg.expand(); }
 const base = location.pathname.replace(/arcade\/?$/, "");
 let token = null, state = null, game = "crash", skew = 0, raf = null, busy = false, limits = {min: 10, max: 50000, mines: [1,3,5,10]}, minesPick = 3;
 const $ = id => document.getElementById(id);
@@ -82,7 +96,8 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 function haptic(kind) { try { tg && tg.HapticFeedback.notificationOccurred(kind); } catch (e) {} }
 
 async function call(path, body) {
-  const res = await fetch(base + "api/arcade/" + path + "/", {
+  const [name, query] = path.split("?");
+  const res = await fetch(base + "api/arcade/" + name + "/" + (query ? "?" + query : ""), {
     method: body === undefined ? "GET" : "POST",
     headers: {"Content-Type": "application/json", ...(token ? {Authorization: "Bearer " + token} : {})},
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -108,14 +123,19 @@ document.querySelector("[data-max]").onclick = () => { $("bet").value = Math.min
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => selectGame(t.dataset.game));
 function selectGame(g, force) {
   const r = state && state.round;
-  if (!force && r && r.status === "active" && r.game !== g) { toast("Finish your current round first"); return; }
-  game = g; document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.game === g)); render();
+  if (!force && g !== "ranks" && r && r.status === "active" && r.game !== g) { toast("Finish your current round first"); return; }
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.game === g));
+  const ranks = g === "ranks";
+  $("ranks").classList.toggle("hidden", !ranks); $("play").classList.toggle("hidden", ranks); $("note").classList.toggle("hidden", ranks);
+  if (ranks) { cancelAnimationFrame(raf); loadRanks(); return; }
+  game = g; render();
 }
 const live = () => state && state.round && state.round.game === game && state.round.status === "active";
 const last = () => state && state.round && state.round.game === game ? state.round : null;
 
 function render() {
   cancelAnimationFrame(raf);
+  if (!$("play") || $("play").classList.contains("hidden")) return;
   $("betrow").classList.toggle("hidden", live());
   ({crash: renderCrash, mines: renderMines, hilo: renderHilo})[game]();
 }
@@ -213,10 +233,41 @@ function renderHilo() {
   }
 }
 
+// ── Ranks ──
+let rk = {scope: "global", period: "week", game: "all"};
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const MEDAL = ["🥇", "🥈", "🥉"];
+function seg(id, key, options) {
+  $(id).innerHTML = options.map(([v, label]) => `<button class="chip ${rk[key] === v ? "on" : ""}" data-v="${esc(v)}">${esc(label)}</button>`).join("");
+  $(id).querySelectorAll("button").forEach(b => b.onclick = () => { rk[key] = b.dataset.v; loadRanks(); });
+}
+function rowHtml(r) {
+  const cls = r.score > 0 ? "up" : r.score < 0 ? "down" : "";
+  const best = r.best ? ` · best ${esc(r.best)}×` : "";
+  return `<div class="rk ${r.me ? "me" : ""}"><div class="p">${MEDAL[r.rank - 1] || r.rank}</div>
+    <div class="n">${esc(r.name || "Player")}${r.me ? " ◀" : ""}<small>${fmt(r.rounds)} ${rk.game === "roulette" ? "tables" : "rounds"}${best}</small></div>
+    <div class="s ${cls}">${r.score > 0 ? "+" : ""}${fmt(r.score)}</div></div>`;
+}
+async function loadRanks() {
+  const group = state && state.group;
+  seg("scope", "scope", group ? [["group", "👥 " + group.name], ["global", "🌍 Global"]] : [["global", "🌍 Global"]]);
+  seg("period", "period", [["week", "📅 This week"], ["all", "♾ All time"]]);
+  seg("rgame", "game", [["all", "All"], ["crash", "🚀 Crash"], ["mines", "💣 Mines"], ["hilo", "🃏 Hi-Lo"], ["roulette", "🎡 Roulette"]]);
+  const want = JSON.stringify(rk);
+  $("board").innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const d = await call("ranks?" + new URLSearchParams(rk));
+    if (JSON.stringify(rk) !== want) return;
+    let html = d.top.length ? d.top.map(rowHtml).join("") : '<div class="empty">No one has played yet — be the first!</div>';
+    if (d.me && !d.top.some(r => r.me)) html += '<div class="empty" style="padding:6px 0">⋯</div>' + rowHtml(d.me);
+    $("board").innerHTML = html + `<div class="note">${fmt(d.players)} players · score = net winnings</div>`;
+  } catch (e) { $("board").innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; }
+}
+
 (async () => {
   try {
     const data = await call("auth", {init_data: tg ? tg.initData : ""});
-    token = data.token; apply(data);
+    token = data.token; if (data.group) rk.scope = "group"; apply(data);
   } catch (e) { $("stage").innerHTML = '<div class="overlay"><div class="sub">' + e.message + "</div></div>"; $("go").disabled = true; }
 })();
 </script>

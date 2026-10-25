@@ -98,9 +98,12 @@ def race_keyboard(lang: str = "en"):
     ]])
 
 
-def group_launcher(bot_username: str, lang: str = "en"):
+def group_launcher(bot_username: str, lang: str = "en", chat_id: int | None = None):
+    from game.telegram.hub import arcade_button
+
     fa = lang == "fa"
     return InlineKeyboardMarkup([
+        *([[arcade_button(False, bot_username, chat_id)]] if chat_id is not None else []),
         [Btn("🃏 بلک‌جک" if fa else "🃏 Blackjack", callback_data="cmd:startblackjack"),
          Btn("💎 شرط بالا" if fa else "💎 High roller", callback_data="cmd:highroller")],
         [Btn("♠️ پوکر" if fa else "♠️ Poker", callback_data="race:poker"),
@@ -121,7 +124,7 @@ async def show_group_launcher(update, context) -> None:
     await update.effective_message.reply_text(
         GROUP_LAUNCHER_TEXT.get(lang, GROUP_LAUNCHER_TEXT["en"]),
         parse_mode=ParseMode.HTML,
-        reply_markup=group_launcher(context.bot.username, lang),
+        reply_markup=group_launcher(context.bot.username, lang, update.effective_chat.id),
     )
 
 

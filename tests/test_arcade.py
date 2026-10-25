@@ -92,12 +92,12 @@ class ArcadeRoundTests(TestCase):
 
 
 class ArcadeApiTests(TestCase):
-    def init_data(self, user_id):
+    def init_data(self, user_id, **extra):
         import hashlib, hmac, json, time
         from urllib.parse import urlencode
         from django.conf import settings
 
-        values = {"auth_date": str(int(time.time())), "user": json.dumps({"id": user_id})}
+        values = {"auth_date": str(int(time.time())), "user": json.dumps({"id": user_id}), **extra}
         check = "\n".join(f"{k}={values[k]}" for k in sorted(values))
         secret = hmac.new(b"WebAppData", settings.TELEGRAM_BOT_TOKEN.encode(), hashlib.sha256).digest()
         values["hash"] = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
@@ -120,3 +120,63 @@ class ArcadeApiTests(TestCase):
         from django.template.loader import get_template
 
         self.assertIn("BIG PAPA ARCADE", get_template("casino/arcade.html").template.source)
+
+    def test_group_launch_tags_rounds_and_ranks_by_group(self):
+        from django.test import override_settings
+
+        Player.objects.create(id=8821, name="Grouper", chips=1_000)
+        Player.objects.create(id=8822, name="Elsewhere", chips=1_000)
+        ArcadeRound.objects.create(player_id=8822, game="crash", bet=100, payout=900, status="won", multiplier=9, chat_id=-200)
+        param = arcade.group_start_param(-100)
+        with override_settings(TELEGRAM_BOT_TOKEN="123:test"), \
+                mock.patch("game.casino_views._is_chat_member", return_value=True):
+            forged = self.client.post("/casino/api/arcade/auth/", {"init_data": self.init_data(8821, start_param="ag_-200_0000000000000000")}, content_type="application/json")
+            self.assertEqual(forged.status_code, 403)
+            auth = self.client.post("/casino/api/arcade/auth/", {"init_data": self.init_data(8821, start_param=param)}, content_type="application/json")
+            self.assertEqual(auth.status_code, 200, auth.content)
+            self.assertIsNotNone(auth.json()["group"])
+            headers = {"HTTP_AUTHORIZATION": f"Bearer {auth.json()['token']}"}
+            with mock.patch.object(arcade, "_draw", side_effect=["5♠", "9♥"]):
+                self.client.post("/casino/api/arcade/hilo_start/", {"bet": 100}, content_type="application/json", **headers)
+                self.client.post("/casino/api/arcade/hilo_guess/", {"guess": "higher"}, content_type="application/json", **headers)
+                self.client.post("/casino/api/arcade/hilo_cashout/", {}, content_type="application/json", **headers)
+            self.assertEqual(ArcadeRound.objects.get(player_id=8821).chat_id, -100)
+
+            group = self.client.get("/casino/api/arcade/ranks/?scope=group&period=all", **headers).json()
+            self.assertEqual([r["name"] for r in group["top"]], ["Grouper"])
+            self.assertTrue(group["me"]["me"])
+            world = self.client.get("/casino/api/arcade/ranks/?scope=global&period=all", **headers).json()
+            self.assertEqual([r["name"] for r in world["top"]], ["Elsewhere", "Grouper"])
+            self.assertEqual(world["top"][0]["score"], 800)
+            self.assertEqual(world["top"][0]["best"], "9.00")
+            crash = self.client.get("/casino/api/arcade/ranks/?scope=global&game=hilo&period=all", **headers).json()
+            self.assertEqual([r["name"] for r in crash["top"]], ["Grouper"])
+            bad = self.client.get("/casino/api/arcade/ranks/?game=nope", **headers)
+            self.assertEqual(bad.status_code, 400)
+
+
+class ArcadeRankTests(TestCase):
+    def test_roulette_counts_only_completed_tables_and_merges_into_all(self):
+        from game.models import RouletteTable, RouletteTableBet
+        from game.services import arcade_ranks
+
+        p = Player.objects.create(id=8831, name="Wheel", chips=0)
+        done = RouletteTable.objects.create(chat_id=-1, created_by=p, status="complete", closes_at=timezone.now(), seed_hash="x", access_token="a")
+        void = RouletteTable.objects.create(chat_id=-1, created_by=p, status="cancelled", closes_at=timezone.now(), seed_hash="x", access_token="b")
+        RouletteTableBet.objects.create(table=done, player=p, kind="red", selection="red", amount=100, payout=200, won=True, idempotency_key="k1")
+        RouletteTableBet.objects.create(table=void, player=p, kind="red", selection="red", amount=500, idempotency_key="k2")
+        ArcadeRound.objects.create(player=p, game="mines", bet=50, status="lost", chat_id=-1)
+        roulette = arcade_ranks.leaderboard("roulette", chat_id=-1, period="all")
+        self.assertEqual(roulette["top"][0]["score"], 100)
+        everything = arcade_ranks.leaderboard("all", chat_id=-1, period="week", player_id=p.pk)
+        self.assertEqual((everything["top"][0]["score"], everything["top"][0]["rounds"]), (50, 2))
+        self.assertEqual(arcade_ranks.leaderboard("all", chat_id=-999, period="all")["top"], [])
+
+    def test_group_start_param_round_trip(self):
+        param = arcade.group_start_param(-1001234567890)
+        self.assertLessEqual(len(param), 64)
+        self.assertRegex(param, r"^[A-Za-z0-9_-]+$")
+        self.assertEqual(arcade.parse_group_start_param(param), -1001234567890)
+        self.assertIsNone(arcade.parse_group_start_param("rt_1_abc"))
+        with self.assertRaises(arcade.ArcadeError):
+            arcade.parse_group_start_param("ag_-5_deadbeefdeadbeef")

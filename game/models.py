@@ -986,6 +986,8 @@ class ArcadeRound(models.Model):
         LOST = "lost", "Lost"
 
     player = models.ForeignKey(Player, on_delete=models.PROTECT, related_name="arcade_rounds")
+    # The group the arcade was opened from, for that group's leaderboard; null when opened privately.
+    chat_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     game = models.CharField(max_length=8, choices=Game.choices)
     bet = models.PositiveIntegerField()
     state = models.JSONField(default=dict)

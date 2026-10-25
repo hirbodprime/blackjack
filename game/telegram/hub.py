@@ -17,7 +17,7 @@ from game.economy_config import (
 from game.i18n import pick, translate
 from game.services.achievements import localized, rarity_label, rarity_map, showcase, showcase_many
 from game.models import Achievement, Player, PlayerAchievement, Season, Tournament, UserSettings
-from game.services import competitions, seasons
+from game.services import arcade, competitions, seasons
 from game.services.challenges import DIFFICULTY_ICON, quest_text, todays_board
 from game.services.horses import (
     InvalidStarterChoice, StarterAlreadyClaimed, claim_starter_horse_async,
@@ -142,16 +142,21 @@ def _home_row(lang: str, back: str | None = None):
 
 # ── Sections ────────────────────────────────────────────────────────────────
 
-def arcade_button(private: bool, bot_username: str) -> Btn:
-    """Mini apps only open inline from a private chat; groups get a deep link to it."""
+def arcade_group_url(bot_username: str, chat_id: int) -> str:
+    # Main Mini App link: opens over the group chat and ties play to that group's ranking.
+    return f"https://t.me/{bot_username}?startapp={arcade.group_start_param(chat_id)}"
+
+
+def arcade_button(private: bool, bot_username: str, chat_id: int | None = None) -> Btn:
+    """web_app buttons only work in private chats; groups get a Main Mini App link instead."""
     if private:
         return Btn("🕹 Arcade · Crash · Mines · Hi-Lo", web_app=WebAppInfo(f"{settings.CASINO_PUBLIC_URL}/casino/arcade/"))
-    return Btn("🕹 Arcade (opens in private)", url=f"https://t.me/{bot_username}?start=arcade")
+    return Btn("🕹 Arcade · Crash · Mines · Hi-Lo", url=arcade_group_url(bot_username, chat_id))
 
 
-def render_play(lang: str, bot_username: str, private: bool = True):
+def render_play(lang: str, bot_username: str, private: bool = True, chat_id: int | None = None):
     rows = [
-        [arcade_button(private, bot_username)],
+        [arcade_button(private, bot_username, chat_id)],
         [Btn(translate("play.blackjack", lang), callback_data="play:blackjack"),
          Btn(pick(lang, "♠️ Poker", "♠️ پوکر"), callback_data="play:poker")],
         [Btn(translate("play.horses", lang), callback_data="play:horses"),
@@ -419,7 +424,9 @@ async def hub_callback(update, context) -> None:
         return
 
     renderers = {
-        "play": lambda: render_play(lang, context.bot.username, query.message.chat.type == ChatType.PRIVATE),
+        "play": lambda: render_play(
+            lang, context.bot.username, query.message.chat.type == ChatType.PRIVATE, query.message.chat.id
+        ),
         "daily": lambda: render_daily(user_id, lang),
         "compete": lambda: render_compete(lang),
         "season": lambda: render_season(user_id, lang),

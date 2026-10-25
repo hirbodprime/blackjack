@@ -12,5 +12,6 @@ urlpatterns = [
     path("arcade/", casino_views.arcade_app, name="casino-arcade"),
     path("api/arcade/auth/", casino_views.arcade_auth, name="casino-arcade-auth"),
     path("api/arcade/state/", casino_views.arcade_state, name="casino-arcade-state"),
+    path("api/arcade/ranks/", casino_views.arcade_ranks, name="casino-arcade-ranks"),
     path("api/arcade/<slug:action>/", casino_views.arcade_action, name="casino-arcade-action"),
 ]

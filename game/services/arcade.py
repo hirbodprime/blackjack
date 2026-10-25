@@ -4,11 +4,14 @@ The client only animates; every outcome is decided and checked here, and every
 chip moves through the ledger (``reference_type="arcade"``).
 """
 
+import hashlib
+import hmac
 import math
 import secrets
 from datetime import datetime
 from decimal import ROUND_DOWN, Decimal
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -47,7 +50,7 @@ def _active(player_id: int, game: str | None = None, *, lock: bool = True) -> Ar
     return current
 
 
-def _open(player_id: int, game: str, bet: int, state: dict) -> ArcadeRound:
+def _open(player_id: int, game: str, bet: int, state: dict, chat_id: int | None = None) -> ArcadeRound:
     ensure_betting_open()
     if not ARCADE_MIN_BET <= bet <= ARCADE_MAX_BET:
         raise ArcadeError(f"Bets are {ARCADE_MIN_BET:,}–{ARCADE_MAX_BET:,} chips.")
@@ -58,7 +61,7 @@ def _open(player_id: int, game: str, bet: int, state: dict) -> ArcadeRound:
             _settle(existing, won=False)
         else:
             raise ArcadeError("Finish your current round first.")
-    round_ = ArcadeRound.objects.create(player=player, game=game, bet=bet, state=state)
+    round_ = ArcadeRound.objects.create(player=player, game=game, bet=bet, state=state, chat_id=chat_id)
     adjust_balance(
         player, -bet, category=ChipTransaction.Category.BET,
         description=f"Arcade {game} bet", reference_type="arcade", reference_id=round_.pk,
@@ -110,10 +113,10 @@ def _crash_finished(round_: ArcadeRound, now: datetime | None = None) -> bool:
 
 
 @transaction.atomic
-def crash_start(player_id: int, bet: int) -> ArcadeRound:
+def crash_start(player_id: int, bet: int, chat_id: int | None = None) -> ArcadeRound:
     return _open(player_id, ArcadeRound.Game.CRASH, bet, {
         "point": str(crash_point()), "started_at": timezone.now().isoformat(),
-    })
+    }, chat_id)
 
 
 @transaction.atomic
@@ -136,11 +139,11 @@ def mines_multiplier(mines: int, revealed: int) -> Decimal:
 
 
 @transaction.atomic
-def mines_start(player_id: int, bet: int, mines: int) -> ArcadeRound:
+def mines_start(player_id: int, bet: int, mines: int, chat_id: int | None = None) -> ArcadeRound:
     if mines not in MINES_CHOICES:
         raise ArcadeError("Choose 1, 3, 5 or 10 mines.")
     layout = _rng.sample(range(MINES_TILES), mines)
-    return _open(player_id, ArcadeRound.Game.MINES, bet, {"mines": layout, "count": mines, "revealed": []})
+    return _open(player_id, ArcadeRound.Game.MINES, bet, {"mines": layout, "count": mines, "revealed": []}, chat_id)
 
 
 @transaction.atomic
@@ -192,8 +195,8 @@ def hilo_step_multiplier(card: str, guess: str) -> Decimal:
 
 
 @transaction.atomic
-def hilo_start(player_id: int, bet: int) -> ArcadeRound:
-    return _open(player_id, ArcadeRound.Game.HILO, bet, {"cards": [_draw()], "mult": "1"})
+def hilo_start(player_id: int, bet: int, chat_id: int | None = None) -> ArcadeRound:
+    return _open(player_id, ArcadeRound.Game.HILO, bet, {"cards": [_draw()], "mult": "1"}, chat_id)
 
 
 @transaction.atomic
@@ -225,6 +228,34 @@ def hilo_cashout(player_id: int) -> ArcadeRound:
     if len(round_.state["cards"]) < 2:
         raise ArcadeError("Make at least one guess first.")
     return _settle(round_, won=True, multiplier=_floor2(Decimal(round_.state["mult"])))
+
+
+# ── Group launch ────────────────────────────────────────────────────────────
+
+GROUP_PREFIX = "ag"
+
+
+def _group_signature(chat_id: int) -> str:
+    return hmac.new(settings.SECRET_KEY.encode(), f"arcade-group:{chat_id}".encode(), hashlib.sha256).hexdigest()[:16]
+
+
+def group_start_param(chat_id: int) -> str:
+    """``startapp`` payload that opens the arcade tied to one group (≤64 chars, [A-Za-z0-9_-])."""
+    return f"{GROUP_PREFIX}_{chat_id}_{_group_signature(chat_id)}"
+
+
+def parse_group_start_param(value: str) -> int | None:
+    """The group id from a launch payload, or None for a private launch; rejects forged ones."""
+    if not value.startswith(GROUP_PREFIX + "_"):
+        return None
+    try:
+        _, chat, signature = value.split("_", 2)
+        chat_id = int(chat)
+    except ValueError:
+        raise ArcadeError("This arcade link is invalid.")
+    if not hmac.compare_digest(signature, _group_signature(chat_id)):
+        raise ArcadeError("This arcade link is invalid.")
+    return chat_id
 
 
 # ── Client view ─────────────────────────────────────────────────────────────

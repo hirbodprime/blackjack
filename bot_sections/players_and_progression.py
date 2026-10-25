@@ -1,3 +1,54 @@
+import asyncio
+from datetime import (
+    datetime,
+)
+
+from asgiref.sync import (
+    sync_to_async,
+)
+from django.core.exceptions import (
+    ObjectDoesNotExist,
+)
+from django.utils import (
+    timezone,
+)
+from telegram import (
+    Update,
+)
+from telegram.error import (
+    RetryAfter,
+    TimedOut,
+)
+from telegram.ext import (
+    ContextTypes,
+)
+
+from bot_sections.core_and_menus import (
+    update_daily_quest_progress,
+)
+from game.models import (
+    Achievement,
+    ChipTransaction,
+    JoinGame,
+    Player,
+    PlayerAchievement,
+    Stats,
+)
+from game.services.blackjack import (
+    InsufficientChips,
+)
+from game.services.economy import (
+    adjust_balance_async,
+)
+from game.services.operations import (
+    get_bot_control_async,
+)
+from game.services.progression import (
+    award_xp_async,
+    deduct_xp_amount_async,
+)
+
+
 def xp_for_next_level(level: int) -> int:
     """
     Returns the XP required *to complete* the current `level` and bump to `level+1`.
@@ -208,6 +259,7 @@ async def is_player_in_another_game(player_id: int, current_chat_id: int) -> boo
     return is_in_another_game
 from telegram.error import TelegramError
 
+
 async def check_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
@@ -252,6 +304,8 @@ async def check_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bo
         return False  # Player does not exist
 
 from datetime import timedelta
+
+
 async def claim_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
 

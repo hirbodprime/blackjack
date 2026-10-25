@@ -6,8 +6,8 @@ an administrative control panel.
 
 ## Project layout
 
-- `blackjack.py` loads the Telegram bot source sections in compatibility order.
-- `bot_sections/` contains the current command and game-handler sections.
+- `blackjack.py` starts the Telegram bot (`bot_sections.application.main`).
+- `bot_sections/` contains the Telegram command and callback handlers.
 - `game/models.py` contains the persistent game state.
 - `game/services/` contains independently testable game rules.
 - `blackjack/` contains Django configuration and deployment entry points.

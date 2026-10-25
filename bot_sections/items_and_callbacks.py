@@ -1,3 +1,127 @@
+import random
+from datetime import (
+    datetime,
+    timedelta,
+)
+
+from asgiref.sync import (
+    sync_to_async,
+)
+from django.core.exceptions import (
+    ObjectDoesNotExist,
+)
+from django.db.models import (
+    Avg,
+    Count,
+    F,
+    Sum,
+)
+from django.utils import (
+    timezone,
+)
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
+from telegram.error import (
+    BadRequest,
+)
+from telegram.ext import (
+    ContextTypes,
+)
+from telegram.helpers import (
+    escape_markdown,
+)
+
+from bot_sections.blackjack_game import (
+    help_command,
+)
+from bot_sections.core_and_menus import (
+    build_back_to_profile_button,
+    build_bj_boosters_menu,
+    build_bj_potions_menu,
+    build_bj_special_passes_menu,
+    build_blackjack_items_menu,
+    build_daily_quests_menu,
+    build_items_activate_menu,
+    build_items_deactivate_menu,
+    build_items_menu,
+    build_leaderboards_menu,
+    build_main_menu,
+    build_mystery_box_menu,
+    build_notification_settings_menu,
+    build_profile_menu,
+    build_quests_menu,
+    build_quests_menu_daily,
+    build_settings_menu,
+    build_shop_menu,
+    build_social_menu,
+    build_special_passes_menu,
+    build_support_menu,
+    build_tournaments_menu,
+)
+from bot_sections.horse_racing_and_social import (
+    horse_menu_callback,
+)
+from bot_sections.players_and_progression import (
+    normalize_player_level_xp,
+    xp_for_next_level,
+)
+from game.economy_config import (
+    MYSTERY_BOX_COOLDOWN_SECONDS,
+)
+from game.models import (
+    ITEM_TYPE_CHOICES,
+    Achievement,
+    ChipTransaction,
+    DailyQuest,
+    Game,
+    GameParameter,
+    HorseBet,
+    HorseRaceWin,
+    OwnedHorse,
+    Player,
+    PlayerAchievement,
+    PlayerActiveItem,
+    PlayerDailyQuestProgress,
+    PlayerItem,
+    QuestHistory,
+    ReferralEarning,
+    Stats,
+    UserSettings,
+    generate_referral_code,
+)
+from game.services.blackjack import (
+    InsufficientChips,
+)
+from game.services.economy import (
+    adjust_balance_async,
+    purchase_item_async,
+)
+from game.services.items import (
+    ItemCategoryAlreadyActive,
+    ItemUnavailable,
+    activate_inventory_item_async,
+    consume_xp_booster_async,
+)
+from game.services.mystery import (
+    open_mystery_box_async,
+)
+from game.services.rewards import (
+    RewardAlreadyClaimed,
+    claim_daily_box_async,
+    claim_daily_chips_async,
+    claim_daily_xp_async,
+)
+from game.telegram.player_experience import (
+    play_home_keyboard,
+)
+from lang import (
+    t,
+)
+
+
 async def purchase_item(player: Player, item_type: str):
     cost = ITEM_COSTS.get(item_type)
     if cost is None:
@@ -917,9 +1041,6 @@ async def handle_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if data.startswith("menu:buy_sale:"):
         # We assume handle_items_callback(...) is already defined elsewhere
         await horse_menu_callback(update, context)
-        return True    
-    if data.startswith("language:set:"):
-        await handle_language_callback(update,context)
         return True    
 
     if data in MYSTERY_BOXES:

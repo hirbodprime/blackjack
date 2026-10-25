@@ -1,3 +1,92 @@
+import asyncio
+import random
+import re
+
+from asgiref.sync import (
+    sync_to_async,
+)
+from django.db.models import (
+    Avg,
+    Count,
+    Sum,
+)
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
+from telegram.error import (
+    BadRequest,
+    RetryAfter,
+    TimedOut,
+)
+from telegram.ext import (
+    ContextTypes,
+)
+
+from bot_sections.core_and_menus import (
+    apply_referral_bonus,
+    update_daily_quest_progress,
+)
+from bot_sections.players_and_progression import (
+    check_player,
+)
+from game.economy_config import (
+    horse_race_payout_pool,
+)
+from game.models import (
+    ChipTransaction,
+    Dealer,
+    GameParameter,
+    HorseAppliedUpgrade,
+    HorseBet,
+    HorseRace,
+    HorseRaceWin,
+    HorseSale,
+    HorseUpgrade,
+    OwnedHorse,
+    Player,
+    PlayerUpgrade,
+    UserSettings,
+)
+from game.services.blackjack import (
+    BettingPaused,
+    InsufficientChips,
+)
+from game.services.economy import (
+    adjust_balance_async,
+)
+from game.services.horses import (
+    HorseNotOwned,
+    HorseUnavailable,
+    InvalidHorseSale,
+    UpgradeAlreadyOwned,
+    buy_horse_async,
+    buy_horse_for_recipient_async,
+    buy_horse_upgrade_async,
+    customize_horse_async,
+    gift_owned_horse_async,
+    purchase_horse_sale_async,
+)
+from game.services.language import (
+    group_language,
+)
+from game.services.racing import (
+    ActiveRaceBet,
+    AlreadyBet,
+    RaceAlreadyStarted,
+    complete_race_async,
+    place_race_bet_async,
+    repair_recorded_races_async,
+)
+from game.telegram.runtime import (
+    record_telegram_failure,
+)
+from lang import (
+    t,
+)
+
+
 def escape_markdown_v2(text: str) -> str:
     return re.sub(r'([_*\[\]()~`>#+=|{}.!\\-])', r'\\\1', text)
 

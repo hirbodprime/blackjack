@@ -1,11 +1,12 @@
-# Bot source sections
+# Bot handler modules
 
-These files are loaded in the order declared in the top-level `blackjack.py`.
-They share one global namespace on purpose. This preserves the behavior of the
-original monolithic module, including late global lookups, handler registration
-order, and polling startup.
+Ordinary Python modules with explicit imports. Importing the package runs
+`django.setup()`, so handlers can import models at module level.
 
-Keep top-level executable statements in their existing order. Functions may
-call functions declared in later sections because those names are resolved when
-the function runs. Moving a top-level statement across sections can change
-startup behavior and should be covered by a compatibility test first.
+`application.py` builds the `telegram.ext.Application` and registers handlers.
+Registration order matters: within a handler group only the first matching
+handler runs, and the unfiltered `handle_menu_callback` receives every callback
+not claimed earlier and dispatches internally.
+
+Keep game rules in `game/services/` and keep these modules to parsing updates,
+calling services, and rendering replies.

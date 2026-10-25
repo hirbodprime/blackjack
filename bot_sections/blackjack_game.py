@@ -1,4 +1,99 @@
-from game.services.cards import calculate_hand_value, dealer_should_hit, deal_card, deck
+import asyncio
+import random
+from datetime import (
+    timedelta,
+)
+
+from asgiref.sync import (
+    sync_to_async,
+)
+from django.core.exceptions import (
+    ObjectDoesNotExist,
+)
+from django.utils import (
+    timezone,
+)
+from telegram import (
+    Update,
+)
+from telegram.error import (
+    RetryAfter,
+    TimedOut,
+)
+from telegram.ext import (
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+from telegram.helpers import (
+    escape_markdown,
+)
+
+from bot_sections.core_and_menus import (
+    apply_referral_bonus,
+    escape_md,
+    update_daily_quest_progress,
+)
+from bot_sections.horse_racing_and_social import (
+    escape_markdown_v2,
+)
+from bot_sections.players_and_progression import (
+    add_xp,
+    check_player,
+    deduct_xp,
+    safe_send_reaction,
+    unlock_achievement,
+)
+from game.economy_config import (
+    apply_potion_multiplier,
+)
+from game.models import (
+    ITEM_TYPE_CHOICES,
+    ActivePoll,
+    ChipTransaction,
+    Dealer,
+    Game,
+    GameParameter,
+    Group,
+    JoinGame,
+    NextGameNotification,
+    Player,
+    PlayerActiveItem,
+    RoundWinner,
+    Stats,
+    UserSettings,
+)
+from game.services.blackjack import (
+    ActiveInAnotherGame,
+    AlreadyJoined,
+    BettingPaused,
+    InsufficientChips,
+    join_game_with_chips_async,
+    refund_joined_player_async,
+)
+from game.services.cards import calculate_hand_value, deal_card, dealer_should_hit
+from game.services.economy import (
+    adjust_balance_async,
+)
+from game.services.language import (
+    group_language,
+)
+from game.services.table_games import (
+    GroupTableBusy,
+    ensure_blackjack_can_open,
+)
+from game.services.turns import (
+    apply_player_timeout_async,
+    begin_player_turn_async,
+    record_player_action_async,
+)
+from game.telegram.runtime import (
+    record_telegram_failure,
+)
+from lang import (
+    t,
+)
+
 game_start_reactions = [
     "A new round begins! Are you ready? 🃏",
     "let the cards decide your fate! 💰",

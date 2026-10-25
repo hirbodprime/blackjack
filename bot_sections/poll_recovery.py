@@ -1,5 +1,27 @@
+import asyncio
+
+from django.utils import (
+    timezone,
+)
+from telegram import (
+    BotCommand,
+)
+
+from bot_sections.blackjack_game import (
+    remove_game_if_no_poll_answer,
+)
+from game.models import (
+    ActivePoll,
+    Game,
+)
+from game.services.recovery import (
+    recover_interrupted_games_async,
+)
+
+
 async def handle_stale_polls_and_reschedule(context, timeout=60):
     from asgiref.sync import sync_to_async
+
     from game.telegram.poker import resume_poker_tables
     from game.telegram.roulette_table import resume_roulette_tables
 

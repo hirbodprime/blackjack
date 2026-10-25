@@ -1,6 +1,81 @@
-from django.db import transaction
+import asyncio
+import math
+import random
 
+from django.core.exceptions import (
+    ObjectDoesNotExist,
+)
+from django.utils import (
+    timezone,
+)
+from telegram import (
+    Update,
+)
+from telegram.error import (
+    RetryAfter,
+)
+from telegram.ext import (
+    ContextTypes,
+)
+from telegram.helpers import (
+    escape_markdown,
+)
 
+from bot_sections.core_and_menus import (
+    apply_referral_bonus,
+    update_daily_quest_progress,
+)
+from bot_sections.players_and_progression import (
+    check_player,
+)
+from game.economy_config import (
+    SLOT_JACKPOT_MULTIPLIER,
+    SLOT_PAIR_MULTIPLIER,
+    standard_win_payout,
+)
+from game.models import (
+    ChipTransaction,
+    CrashGame,
+    GameParameter,
+    Group,
+    Player,
+    Stats,
+)
+from game.services.blackjack import (
+    BettingPaused,
+    InsufficientChips,
+)
+from game.services.chance import (
+    settle_roulette_async,
+    settle_spin_async,
+)
+from game.services.crash import (
+    ActiveCrashGame,
+    NoActiveCrashGame,
+    cash_out_crash_game_async,
+    mark_crash_game_crashed_async,
+    start_crash_game_async,
+)
+from game.services.economy import (
+    InsufficientDealerChips,
+    InsufficientExperience,
+    NoOutstandingLoan,
+    adjust_balance_async,
+    issue_loan_async,
+    repay_loan_async,
+    transfer_chips_async,
+)
+from game.services.operations import (
+    ensure_betting_open_async,
+    get_bot_control_async,
+    is_player_admin_async,
+)
+from game.services.rps_bot import (
+    choose_and_record_rps,
+)
+from game.telegram.runtime import (
+    record_telegram_failure,
+)
 
 
 async def save_player(player):
@@ -537,8 +612,9 @@ async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🎲 Dice rolled a {dice_value}!\nYou lose your bet of {bet_amount} chips.")
 
 
-from django.db.models import F, Sum, Count
 from asgiref.sync import sync_to_async
+from django.db.models import F
+
 
 # Utility function to truncate player names and ensure it doesn't exceed 8 characters
 def format_name(name, max_length=8):

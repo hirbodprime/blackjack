@@ -1,156 +1,33 @@
-import random
-from telegram import Update, Bot, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode,ChatType
-from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes, MessageHandler, filters,CallbackQueryHandler, filters
-from telegram.helpers import escape_markdown
-import asyncio
-from telegram.error import TimedOut,RetryAfter,BadRequest
-
-
-import math
-
-import os
-import django
-
-# Set the environment variable to point to your Django settings module
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'blackjack.settings')
-from django.db.models import Sum, Avg, Count
-
-# Initialize Django
-django.setup()
-from dotenv import load_dotenv
-import time
 import re
-from game.models import (Game, Player, JoinGame,Stats,Dealer,RoundWinner,Group,ITEM_TYPE_CHOICES,
-                         PlayerItem,PlayerActiveItem,UserSettings,
-                         NextGameNotification,Achievement,ReferralEarning,
-                         DailyQuest,PlayerDailyQuestProgress,
-                         PlayerAchievement,HorseRaceWin,OwnedHorse,
-                         GameParameter,QuestHistory,ActivePoll,
-                         HorseAppliedUpgrade,HorseSale,CrashGame,
-                         PlayerUpgrade,HorseUpgrade,generate_referral_code)
-from game.models import ChipTransaction
-from game.services.economy import (
-    InsufficientDealerChips,
-    InsufficientExperience,
-    NoOutstandingLoan,
-    adjust_balance_async,
-    issue_loan_async,
-    purchase_item_async,
-    repay_loan_async,
-    transfer_chips_async,
-)
-from game.services.blackjack import (
-    ActiveInAnotherGame,
-    AlreadyJoined,
-    BettingPaused,
-    InsufficientChips,
-    join_game_with_chips_async,
-    refund_joined_player_async,
-)
-from game.services.operations import (
-    ensure_betting_open_async,
-    get_bot_control_async,
-    is_player_admin_async,
-)
-from game.telegram.update_guard import TelegramUpdateGuard
-from game.telegram.runtime import (
-    record_telegram_failure,
-    telegram_error_handler,
-    telegram_shutdown,
-)
-from game.telegram.player_experience import (
-    compact_command,
-    history_command,
-    modern_help_command,
-    language_command,
-    onboarding_callback,
-    onboarding_command,
-    onboarding_language_keyboard,
-    play_command,
-    play_home_keyboard,
-    play_menu_callback,
-)
-from game.telegram.retention import (
-    buy_item_command, cancel_listing_command, challenge_command,
-    marketplace_command, notifications_command, profile_command,
-    retention_callback, sell_item_command, weekly_command,
-)
-from game.services.racing import (
-    ActiveRaceBet,
-    AlreadyBet,
-    RaceAlreadyStarted,
-    complete_race_async,
-    place_race_bet_async,
-    repair_recorded_races_async,
-)
-from game.services.crash import (
-    ActiveCrashGame,
-    NoActiveCrashGame,
-    cash_out_crash_game_async,
-    mark_crash_game_crashed_async,
-    start_crash_game_async,
-)
-from game.services.chance import settle_roulette_async, settle_spin_async
-from game.services.recovery import recover_interrupted_games_async
-from game.services.mystery import open_mystery_box_async
-from game.services.horses import (
-    HorseNotOwned,
-    HorseUnavailable,
-    InvalidHorseSale,
-    UpgradeAlreadyOwned,
-    buy_horse_async,
-    buy_horse_for_recipient_async,
-    buy_horse_upgrade_async,
-    customize_horse_async,
-    gift_owned_horse_async,
-    purchase_horse_sale_async,
-)
-from game.services.progression import award_xp_async, deduct_xp_amount_async
-from game.services.referrals import award_referral_bonus_async
-from game.services.rewards import (
-    RewardAlreadyClaimed,
-    claim_daily_box_async,
-    claim_daily_chips_async,
-    claim_daily_xp_async,
-)
-from game.services.quests import advance_daily_quest_async
-from game.services.items import (
-    ItemCategoryAlreadyActive,
-    ItemUnavailable,
-    activate_inventory_item_async,
-    consume_xp_booster_async,
-)
-from game.services.language import group_language
-from game.services.table_games import GroupTableBusy, ensure_blackjack_can_open
-from game.services.rps_bot import choose_and_record_rps
-from game.services.turns import (
-    apply_player_timeout_async,
-    begin_player_turn_async,
-    record_player_action_async,
-)
+
+from asgiref.sync import sync_to_async
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ChatType
+from telegram.ext import ContextTypes
+
 from game.economy_config import (
-    MYSTERY_BOX_COOLDOWN_SECONDS,
     SIGNUP_REFERRED_REWARD,
     SIGNUP_REFERRER_REWARD,
-    SLOT_JACKPOT_MULTIPLIER,
-    SLOT_PAIR_MULTIPLIER,
-    apply_potion_multiplier,
-    horse_race_payout_pool,
     referral_share,
-    standard_win_payout,
 )
-
-from django.core.exceptions import ObjectDoesNotExist
-from asgiref.sync import sync_to_async
-from game.models import HorseRace, HorseBet, Player
-
-
-from datetime import datetime, timedelta
-from django.utils import timezone
+from game.models import (
+    ChipTransaction,
+    DailyQuest,
+    Player,
+    Stats,
+    UserSettings,
+    generate_referral_code,
+)
+from game.services.economy import (
+    adjust_balance_async,
+)
+from game.services.quests import advance_daily_quest_async
+from game.services.referrals import award_referral_bonus_async
+from game.telegram.player_experience import (
+    onboarding_language_keyboard,
+    play_command,
+)
 from lang import t
-load_dotenv()
-from asgiref.sync import sync_to_async
 
 
 async def add_chips(
@@ -705,13 +582,6 @@ def build_settings_menu():
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
-def build_language_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🇺🇸 English", callback_data="language:set:en")],
-        [InlineKeyboardButton("🇮🇷 فارسی", callback_data="language:set:fa")],
-        [InlineKeyboardButton("🔙 Back", callback_data="settings:menu")],
-    ])
-
 # 8. Support submenu
 
 def build_back_to_profile_button():
@@ -719,19 +589,3 @@ def build_back_to_profile_button():
 
 
 
-ITEM_COSTS = {
-    # Potions
-    "double_chip_potion": 30000,
-    "triple_chip_potion": 80000,
-    "10x_chip_potion":    400000,
-    # Boosters
-    "xp_booster_500":     100000,
-    "xp_booster_2000":    400000,
-    "xp_booster_15000":   2800000,
-    "xp_booster_50000":   9000000,
-    # Special Passes
-    "insurance_pass":     5000,
-    "first_hand_20_pass": 12000,
-    "first_hand_11_potion":8000,
-    # … (any others, e.g. mystery boxes if you wire them up) …
-}

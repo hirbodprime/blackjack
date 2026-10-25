@@ -42,19 +42,16 @@ class BotApplicationTests(SimpleTestCase):
         ):
             self.assertIn(command, commands)
 
-    def test_catch_all_callback_handler_precedes_prefixed_ones(self):
-        # The unfiltered menu handler receives every unclaimed callback and
-        # dispatches internally, so it must stay ahead of the prefixed ones.
+    def test_catch_all_callback_handler_is_registered_last(self):
+        # The unfiltered menu handler claims every remaining callback and
+        # dispatches internally, so any handler after it would never run.
         app = self.build()
         callbacks = [
-            handler.callback.__name__
-            for handler in app.handlers[0]
+            handler for handler in app.handlers[0]
             if isinstance(handler, CallbackQueryHandler)
         ]
-        self.assertLess(
-            callbacks.index("handle_menu_callback"),
-            callbacks.index("horse_menu_callback"),
-        )
+        self.assertEqual(callbacks[-1].callback.__name__, "handle_menu_callback")
+        self.assertIsNone(callbacks[-1].pattern)
 
     def test_recovery_runs_as_application_startup_hook(self):
         from bot_sections.poll_recovery import handle_stale_polls_and_reschedule

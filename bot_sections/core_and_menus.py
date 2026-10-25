@@ -331,7 +331,7 @@ def build_special_passes_menu():
     keyboard = [
         [
             InlineKeyboardButton("🛡️ Insurance Pass (5k)",   callback_data="shop:insurance_pass"),
-            InlineKeyboardButton("🃏 First-Hand-20 Pass (12k)", callback_data="shop:first_hand_20"),
+            InlineKeyboardButton("🃏 First-Hand-20 Pass (8k)", callback_data="shop:first_hand_20_pass"),
         ],
         [
             InlineKeyboardButton("🔙 Back to Shop Menu", callback_data="shop:main"),
@@ -558,15 +558,6 @@ def build_daily_quests_menu():
     return InlineKeyboardMarkup(keyboard)
 
 
-# 6. Social submenu
-def build_social_menu():
-    keyboard = [
-        [
-            InlineKeyboardButton("👥 Invite a Friend", callback_data="social:invite"),
-        ],
-        [InlineKeyboardButton("🔙 Back to Main", callback_data="menu:main")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
 # language
 # 7. Settings submenu
 def build_settings_menu():

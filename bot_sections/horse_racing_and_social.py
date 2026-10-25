@@ -24,6 +24,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
+from bot_sections.routing import CallbackRouter
 from bot_sections.core_and_menus import (
     apply_referral_bonus,
     update_daily_quest_progress,
@@ -1215,434 +1216,126 @@ async def horse(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
+HORSE_MENU_ROUTES = CallbackRouter()
 
-    # ─── Back to main menu ───
-    if data == "menu:mainhorse":
-        context.user_data.pop("awaiting_buy_horse", None)
-        context.user_data.pop("awaiting_set_emoji", None)
-        await query.edit_message_text(
-            "🏇 *Horse Racing Shop Menu* 🏇\n\n"
+
+# ─── Back to main menu ───
+@HORSE_MENU_ROUTES.on('menu:mainhorse')
+async def _horse_mainhorse(update, context, query, data):
+    context.user_data.pop("awaiting_buy_horse", None)
+    context.user_data.pop("awaiting_set_emoji", None)
+    await query.edit_message_text(
+        "🏇 *Horse Racing Shop Menu* 🏇\n\n"
             "Choose an option below:",
-            parse_mode="Markdown",
-            reply_markup=await build_main_menu_keyboard()
-        )
-        return
-
-    # ─── Buy Horse submenu ───
-    # ─── Buy Horse submenu (now shows sale listings, too) ───
-    if data == "menu:buy_horse":
-        # ─── 1) Static pricing rules text ───
-        params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
-
-            
-        if params.buyhorse_event:
-            event_price = params.todays_horse_price
-            lines = [
-                "🐎 *Buy Horse*\n",
-                "• Reply with the exact horse number you want to buy \\(unowned\\)\\. Pricing rules:\n",
-                "  – 1\\-digit \\(e\\.g\\. 7\\): ~100000~ {} chips\n".format(event_price),
-                "  – 2\\-digit \\(e\\.g\\. 42\\): ~80000~ {} chips\n".format(event_price),
-                "  – 3\\-digit \\(e\\.g\\. 123\\): ~60000~ {} chips\n".format(event_price),
-                "  – “All\\-same” digits \\(e\\.g\\. 11, 777, 2222\\): ~120000~ {} chips\n".format(event_price)
-            ]
-        else:
-            lines = [
-                "🐎 *Buy Horse*\n",
-                "• Reply with the exact horse number you want to buy \\(unowned\\)\\. Pricing rules:\n",
-                "  – 1\\-digit \\(e\\.g\\. 7\\): 100000 chips\n",
-                "  – 2\\-digit \\(e\\.g\\. 42\\): 80000 chips\n",
-                "  – 3\\-digit \\(e\\.g\\. 123\\): 60000 chips\n",
-                "  – “All\\-same” digits \\(e\\.g\\. 11, 777, 2222\\): 120000 chips\n"
-            ]
-
-        # ─── 2) Fetch all active sale listings ───
-        sale_list = await sync_to_async(list)(
-            HorseSale.objects
-                .select_related("horse__user", "horse")
-                .all()
-        )
-
-        if sale_list:
-            lines.append("🛒 *Horses for Sale:*")
-            # Collect OwnedHorse instances to query applied upgrades in bulk
-            owned_horses = [listing.horse for listing in sale_list]
-
-            # ─── 3) Bulk fetch all applied upgrades for these horses ───
-            applied_list = await sync_to_async(list)(
-                HorseAppliedUpgrade.objects
-                    .filter(horse__in=owned_horses)
-                    .select_related("upgrade", "horse")
-            )
-
-            # ─── 4) Build a mapping: horse_number → [list of spell names] ───
-            spells_map = {oh.horse_number: [] for oh in owned_horses}
-            for au in applied_list:
-                num = au.horse.horse_number
-                spells_map[num].append(au.upgrade.name)
-
-            # ─── 5) Append each sale to the text block ───
-            for listing in sale_list:
-                oh = listing.horse
-                price = listing.price
-                number = oh.horse_number
-
-                # (a) Base label: custom name or “Horse <number>”
-                if oh.name:
-                    display_label = f"{oh.name} \\({number}\\)"
-                else:
-                    display_label = f"Horse {number}"
-
-                # (b) Emoji if set
-                emoji_text = f"{oh.emoji} " if oh.emoji else ""
-
-                # (c) Spells from spells_map
-                spell_names = spells_map.get(number, [])
-                if spell_names:
-                    spells_text = " – Applied: " + ", ".join(spell_names)
-                else:
-                    spells_text = ""
-
-                lines.append(f"  – {emoji_text}{display_label}{spells_text} — {price:,} chips")
-
-            lines.append("")  # blank line before “↩️ Back”
-
-        lines.append("↩️ Back")
-
-        # ─── 6) Mark that a raw number should run the unowned‐purchase logic ───
-        context.user_data["awaiting_buy_horse"] = True
-
-        # ─── 7) Build the keyboard: one button per sale listing, plus Back ───
-        keyboard = []
-        if sale_list:
-            for listing in sale_list:
-                oh = listing.horse
-                price = listing.price
-                number = oh.horse_number
-
-                if oh.name:
-                    display_label = f"{oh.name} \\({number}\\)"
-                else:
-                    display_label = f"Horse {number}"
-
-                emoji_text = f"{oh.emoji} " if oh.emoji else ""
-                spell_names = spells_map.get(number, [])
-                if spell_names:
-                    spells_text = " – Applied: " + ", ".join(spell_names)
-                else:
-                    spells_text = ""
-
-                btn_text = f"{emoji_text}{display_label}{spells_text} — {price:,} chips"
-                keyboard.append([
-                    InlineKeyboardButton(
-                        btn_text,
-                        callback_data=f"menu:buy_sale:{number}"
-                    )
-                ])
-
-        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
-
-        await query.edit_message_text(
-            "\n".join(lines),
-            parse_mode="MarkdownV2",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # ─── Global Horse‐Racing Leaderboard (no backticks) ─────────────────────────
-    if data == "menu:global_horse_leaderboard":
-        # 1) Annotate wins & chips per player
-        leaderboard_qs = await sync_to_async(
-            lambda: list(
-                HorseRaceWin.objects
-                    .filter(user__isnull=False)
-                    .values("user__id", "user__name")
-                    .annotate(
-                        wins=Count("id"),
-                        chips=Sum("amount")
-                    )
-                    .order_by("-wins", "-chips")
-            )
-        )()
-
-        top5 = leaderboard_qs[:5]
-        user_id = query.from_user.id
-
-        # Find calling user’s index
-        user_index = next(
-            (idx for idx, e in enumerate(leaderboard_qs) if e["user__id"] == user_id),
-            None
-        )
-
-        # Build lines without backticks:
-        lines = ["🌍 *Global Leaderboard* 🌍", ""]
-
-        # Top 5 entries
-        for idx, entry in enumerate(top5, start=1):
-            name = entry["user__name"] or f"User {entry['user__id']}"
-            wins = entry["wins"]
-            chips_amt = entry["chips"] or 0
-            # Format: "1 . Alice      🏆 Wins: 12   💰 Chips: 4800"
-            # Use fixed‐width fields by padding/truncating name to ~10 chars
-            lines.append(
-                f"{idx:>2} . {name:<12}   🏆 Wins: {wins:<3}   💰 Chips: {chips_amt}"
-            )
-
-        lines.append("")  # blank separator
-
-        # “Your Position” section
-        if user_index is None:
-            lines.append("🏅 *Your Position* (Not Ranked Yet):")
-            lines.append("   • No wins recorded.")
-        else:
-            user_rank = user_index + 1
-            lines.append(f"🏅 *Your Position* (Rank {user_rank}):")
-
-            # Show up to two above and two below
-            start = max(0, user_index - 2)
-            end = min(len(leaderboard_qs), user_index + 3)
-            for idx in range(start, end):
-                e = leaderboard_qs[idx]
-                name = e["user__name"] or f"User {e['user__id']}"
-                wins = e["wins"]
-                chips_amt = e["chips"] or 0
-                display_rank = idx + 1
-                prefix = "👉" if e["user__id"] == user_id else "  "
-                lines.append(
-                    f"{prefix}{display_rank:>2} . {name:<12}   🏆 Wins: {wins:<3}   💰 Chips: {chips_amt}"
-                )
-
-        text = "\n".join(lines)
-        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-        await query.edit_message_text(
-            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
+        parse_mode="Markdown",
+        reply_markup=await build_main_menu_keyboard()
+    )
+    return
 
 
-    # ─── Race Stats ───────────────────────────────────────────────────────────────
-    # ─── My Horse‐Racing Stats ─────────────────────────────────────────────────
-    if data == "menu:my_horse_statsrace":
-        user_id = query.from_user.id
+# ─── Buy Horse submenu ───
+# ─── Buy Horse submenu (now shows sale listings, too) ───
+@HORSE_MENU_ROUTES.on('menu:buy_horse')
+async def _horse_buy_horse(update, context, query, data):
+    params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
 
-        # 1) Total races this user has participated in (i.e. placed ≥1 bet)
-        races_participated = await sync_to_async(
-            lambda: HorseBet.objects.filter(user_id=user_id)
-                                     .values_list("race", flat=True)
-                                     .distinct()
-                                     .count()
-        )()
-
-        # 2) Total chips wagered by this user (sum of all their HorseBet.bet_amount)
-        total_wagered_q = await sync_to_async(
-            lambda: HorseBet.objects.filter(user_id=user_id)
-                                     .aggregate(total=Sum("bet_amount"))
-        )()
-        total_wagered = total_wagered_q["total"] or 0
-
-        # 3) Average bet size for this user
-        avg_bet_q = await sync_to_async(
-            lambda: HorseBet.objects.filter(user_id=user_id)
-                                     .aggregate(avg=Avg("bet_amount"))
-        )()
-        avg_bet = avg_bet_q["avg"] or 0
-
-        # 4) Total horses owned by this user
-        horses_owned = await sync_to_async(
-            lambda: OwnedHorse.objects.filter(user__id=user_id).count()
-        )()
-
-        # 5) Total wins (number of times this user appears in HorseRaceWin)
-        total_wins = await sync_to_async(
-            lambda: HorseRaceWin.objects.filter(user__id=user_id).count()
-        )()
-
-        # 6) Total chips earned (sum of HorseRaceWin.amount where user=this user)
-        total_earned_q = await sync_to_async(
-            lambda: HorseRaceWin.objects.filter(user__id=user_id)
-                                         .aggregate(total=Sum("amount"))
-        )()
-        total_earned = total_earned_q["total"] or 0
-
-        # 7) Horse‐Level Win Rate: For each horse this user owns,
-        #    compute (wins_of_that_horse) / (bets_on_that_horse by this user).
-        #    Then average across all their horses. If user has no horses, skip.
-        horse_ids = await sync_to_async(
-            lambda: list(
-                OwnedHorse.objects.filter(user__id=user_id)
-                                  .values_list("horse_number", flat=True)
-            )
-        )()
-
-        if horse_ids:
-            win_rate_list = []
-            for hnum in horse_ids:
-                wins_for_horse = await sync_to_async(
-                    lambda: HorseRaceWin.objects.filter(
-                        user__id=user_id, horse_number=hnum
-                    ).count()
-                )()
-                bets_on_horse = await sync_to_async(
-                    lambda: HorseBet.objects.filter(
-                        user_id=user_id, horse_number=hnum
-                    ).count()
-                )()
-                if bets_on_horse > 0:
-                    win_rate_list.append(wins_for_horse / bets_on_horse)
-                else:
-                    win_rate_list.append(0.0)
-
-            # Average across all horses
-            horse_win_rate = (sum(win_rate_list) / len(win_rate_list)) * 100  # as percentage
-        else:
-            horse_win_rate = 0.0
-
-        # 8) Player Win Rate: (# races in which they bet AND won) / (# races participated)
-        #    “Races in which they won” = distinct race IDs from HorseRaceWin for this user
-        races_won = await sync_to_async(
-            lambda: HorseRaceWin.objects.filter(user__id=user_id)
-                                        .values_list("race", flat=True)
-                                        .distinct()
-                                        .count()
-        )()
-
-        if races_participated > 0:
-            player_win_rate = (races_won / races_participated) * 100
-        else:
-            player_win_rate = 0.0
-
-        # ─── Build a Markdown block using the same “🎮 Your Stats 🎮” style ────────
+        
+    if params.buyhorse_event:
+        event_price = params.todays_horse_price
         lines = [
-            "🎮 *Your Horse‐Racing Stats* 🎮",
-            "",
-            f"🐎 Races participated: *{races_participated}*",
-            f"💰 Total chips wagered: *{total_wagered:,}* chips",
-            f"📊 Avg. bet size: *{avg_bet:.2f}* chips",
-            f"🏠 Horses owned: *{horses_owned}*",
-            f"🏆 Total wins: *{total_wins}*",
-            f"🎉 Total chips earned: *{total_earned:,}* chips",
-            f"🐴 Horse‐level win rate: *{horse_win_rate:.1f}%*",
-            f"🎲 Player win rate: *{player_win_rate:.1f}%*",
+            "🐎 *Buy Horse*\n",
+            "• Reply with the exact horse number you want to buy \\(unowned\\)\\. Pricing rules:\n",
+            "  – 1\\-digit \\(e\\.g\\. 7\\): ~100000~ {} chips\n".format(event_price),
+            "  – 2\\-digit \\(e\\.g\\. 42\\): ~80000~ {} chips\n".format(event_price),
+            "  – 3\\-digit \\(e\\.g\\. 123\\): ~60000~ {} chips\n".format(event_price),
+            "  – “All\\-same” digits \\(e\\.g\\. 11, 777, 2222\\): ~120000~ {} chips\n".format(event_price)
         ]
-        text = "\n".join(lines)
+    else:
+        lines = [
+            "🐎 *Buy Horse*\n",
+            "• Reply with the exact horse number you want to buy \\(unowned\\)\\. Pricing rules:\n",
+            "  – 1\\-digit \\(e\\.g\\. 7\\): 100000 chips\n",
+            "  – 2\\-digit \\(e\\.g\\. 42\\): 80000 chips\n",
+            "  – 3\\-digit \\(e\\.g\\. 123\\): 60000 chips\n",
+            "  – “All\\-same” digits \\(e\\.g\\. 11, 777, 2222\\): 120000 chips\n"
+        ]
 
-        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-        await query.edit_message_text(
-            text,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
+    # ─── 2) Fetch all active sale listings ───
+    sale_list = await sync_to_async(list)(
+        HorseSale.objects
+            .select_related("horse__user", "horse")
+            .all()
+    )
 
-
-
-
-
-
-
-
-    if data == "menu:set_emoji":
-        user_id = query.from_user.id
-        owned_horses = await sync_to_async(list)(
-            OwnedHorse.objects.filter(user__id=user_id)
-        )
-
-        if not owned_horses:
-            text = "🎨 You don’t own any horses to set an emoji on.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
-
-        keyboard = []
-        for h in owned_horses:
-            # Determine display label: “Name (number)” if name exists, else “Horse <number>”
-            if h.name:
-                display_label = f"{h.name} ({h.horse_number})"
-            else:
-                display_label = f"Horse {h.horse_number}"
-
-            emoji_text = f"{h.emoji} " if h.emoji else ""
-            btn_text = f"{emoji_text}{display_label}"
-            keyboard.append([
-                InlineKeyboardButton(
-                    btn_text,
-                    callback_data=f"menu:setemoji_choose:{h.horse_number}"
-                )
-            ])
-        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
-
-        await query.edit_message_text(
-            "🎨 *Set Emoji* – Choose which horse to change:\n\n↩️ Back",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-        #
-    # ─── “Sale Horses” submenu ───
-    #
-    #
-    # ─── “Sale Horses” submenu — show spells + name/emoji + price ───
-    #
-    if data == "menu:sale_horses":
-        # 1) Fetch all active listings (with select_related to grab the OwnedHorse itself)
-        sale_list = await sync_to_async(list)(
-            HorseSale.objects
-                .select_related("horse__user", "horse")
-                .all()
-        )
-
-        if not sale_list:
-            text = "🛒 There are currently no horses listed for sale.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
-
-        # 2) Build a list of just the OwnedHorse objects for these listings
+    if sale_list:
+        lines.append("🛒 *Horses for Sale:*")
+        # Collect OwnedHorse instances to query applied upgrades in bulk
         owned_horses = [listing.horse for listing in sale_list]
 
-        # 3) In one bulk call, fetch all HorseAppliedUpgrade records for those OwnedHorse IDs
-        #    We use `horse__in=owned_horses` and select_related("upgrade") so we get each upgrade name.
+        # ─── 3) Bulk fetch all applied upgrades for these horses ───
         applied_list = await sync_to_async(list)(
             HorseAppliedUpgrade.objects
                 .filter(horse__in=owned_horses)
                 .select_related("upgrade", "horse")
         )
 
-        # 4) Build a mapping: horse_number → [list of spell names]
-        spells_map = {}
-        for h in owned_horses:
-            spells_map[h.horse_number] = []
+        # ─── 4) Build a mapping: horse_number → [list of spell names] ───
+        spells_map = {oh.horse_number: [] for oh in owned_horses}
         for au in applied_list:
             num = au.horse.horse_number
             spells_map[num].append(au.upgrade.name)
 
-        # 5) Now build the keyboard—pure Python from here on (no more ORM calls)
-        keyboard = []
+        # ─── 5) Append each sale to the text block ───
         for listing in sale_list:
             oh = listing.horse
             price = listing.price
             number = oh.horse_number
 
-            # (a) Display label: custom name or “Horse <number>”
+            # (a) Base label: custom name or “Horse <number>”
             if oh.name:
-                display_label = f"{oh.name} ({number})"
+                display_label = f"{oh.name} \\({number}\\)"
             else:
                 display_label = f"Horse {number}"
 
-            # (b) Emoji (if any)
+            # (b) Emoji if set
             emoji_text = f"{oh.emoji} " if oh.emoji else ""
 
-            # (c) Spells (look up in spells_map)
+            # (c) Spells from spells_map
             spell_names = spells_map.get(number, [])
             if spell_names:
                 spells_text = " – Applied: " + ", ".join(spell_names)
             else:
                 spells_text = ""
 
-            # (d) Construct button text
+            lines.append(f"  – {emoji_text}{display_label}{spells_text} — {price:,} chips")
+
+        lines.append("")  # blank line before “↩️ Back”
+
+    lines.append("↩️ Back")
+
+    # ─── 6) Mark that a raw number should run the unowned‐purchase logic ───
+    context.user_data["awaiting_buy_horse"] = True
+
+    # ─── 7) Build the keyboard: one button per sale listing, plus Back ───
+    keyboard = []
+    if sale_list:
+        for listing in sale_list:
+            oh = listing.horse
+            price = listing.price
+            number = oh.horse_number
+
+            if oh.name:
+                display_label = f"{oh.name} \\({number}\\)"
+            else:
+                display_label = f"Horse {number}"
+
+            emoji_text = f"{oh.emoji} " if oh.emoji else ""
+            spell_names = spells_map.get(number, [])
+            if spell_names:
+                spells_text = " – Applied: " + ", ".join(spell_names)
+            else:
+                spells_text = ""
+
             btn_text = f"{emoji_text}{display_label}{spells_text} — {price:,} chips"
             keyboard.append([
                 InlineKeyboardButton(
@@ -1651,933 +1344,1248 @@ async def horse_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
             ])
 
-        # 6) Add the Back button at the bottom
-        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
+    keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
 
-        # 7) Finally, edit the message
-        await query.edit_message_text(
-            "🛒 *Horses for Sale:*  (Tap to buy)\n\n↩️ Back",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        "\n".join(lines),
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+# ─── Global Horse‐Racing Leaderboard (no backticks) ─────────────────────────
+@HORSE_MENU_ROUTES.on('menu:global_horse_leaderboard')
+async def _horse_global_horse_leaderboard(update, context, query, data):
+    leaderboard_qs = await sync_to_async(
+        lambda: list(
+            HorseRaceWin.objects
+                .filter(user__isnull=False)
+                .values("user__id", "user__name")
+                .annotate(
+                    wins=Count("id"),
+                    chips=Sum("amount")
+                )
+                .order_by("-wins", "-chips")
         )
+    )()
+
+    top5 = leaderboard_qs[:5]
+    user_id = query.from_user.id
+
+    # Find calling user’s index
+    user_index = next(
+        (idx for idx, e in enumerate(leaderboard_qs) if e["user__id"] == user_id),
+        None
+    )
+
+    # Build lines without backticks:
+    lines = ["🌍 *Global Leaderboard* 🌍", ""]
+
+    # Top 5 entries
+    for idx, entry in enumerate(top5, start=1):
+        name = entry["user__name"] or f"User {entry['user__id']}"
+        wins = entry["wins"]
+        chips_amt = entry["chips"] or 0
+        # Format: "1 . Alice      🏆 Wins: 12   💰 Chips: 4800"
+        # Use fixed‐width fields by padding/truncating name to ~10 chars
+        lines.append(
+            f"{idx:>2} . {name:<12}   🏆 Wins: {wins:<3}   💰 Chips: {chips_amt}"
+        )
+
+    lines.append("")  # blank separator
+
+    # “Your Position” section
+    if user_index is None:
+        lines.append("🏅 *Your Position* (Not Ranked Yet):")
+        lines.append("   • No wins recorded.")
+    else:
+        user_rank = user_index + 1
+        lines.append(f"🏅 *Your Position* (Rank {user_rank}):")
+
+        # Show up to two above and two below
+        start = max(0, user_index - 2)
+        end = min(len(leaderboard_qs), user_index + 3)
+        for idx in range(start, end):
+            e = leaderboard_qs[idx]
+            name = e["user__name"] or f"User {e['user__id']}"
+            wins = e["wins"]
+            chips_amt = e["chips"] or 0
+            display_rank = idx + 1
+            prefix = "👉" if e["user__id"] == user_id else "  "
+            lines.append(
+                f"{prefix}{display_rank:>2} . {name:<12}   🏆 Wins: {wins:<3}   💰 Chips: {chips_amt}"
+            )
+
+    text = "\n".join(lines)
+    keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+    await query.edit_message_text(
+        text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+# ─── Race Stats ───────────────────────────────────────────────────────────────
+# ─── My Horse‐Racing Stats ─────────────────────────────────────────────────
+@HORSE_MENU_ROUTES.on('menu:my_horse_statsrace')
+async def _horse_my_horse_statsrace(update, context, query, data):
+    user_id = query.from_user.id
+
+    # 1) Total races this user has participated in (i.e. placed ≥1 bet)
+    races_participated = await sync_to_async(
+        lambda: HorseBet.objects.filter(user_id=user_id)
+                                 .values_list("race", flat=True)
+                                 .distinct()
+                                 .count()
+    )()
+
+    # 2) Total chips wagered by this user (sum of all their HorseBet.bet_amount)
+    total_wagered_q = await sync_to_async(
+        lambda: HorseBet.objects.filter(user_id=user_id)
+                                 .aggregate(total=Sum("bet_amount"))
+    )()
+    total_wagered = total_wagered_q["total"] or 0
+
+    # 3) Average bet size for this user
+    avg_bet_q = await sync_to_async(
+        lambda: HorseBet.objects.filter(user_id=user_id)
+                                 .aggregate(avg=Avg("bet_amount"))
+    )()
+    avg_bet = avg_bet_q["avg"] or 0
+
+    # 4) Total horses owned by this user
+    horses_owned = await sync_to_async(
+        lambda: OwnedHorse.objects.filter(user__id=user_id).count()
+    )()
+
+    # 5) Total wins (number of times this user appears in HorseRaceWin)
+    total_wins = await sync_to_async(
+        lambda: HorseRaceWin.objects.filter(user__id=user_id).count()
+    )()
+
+    # 6) Total chips earned (sum of HorseRaceWin.amount where user=this user)
+    total_earned_q = await sync_to_async(
+        lambda: HorseRaceWin.objects.filter(user__id=user_id)
+                                     .aggregate(total=Sum("amount"))
+    )()
+    total_earned = total_earned_q["total"] or 0
+
+    # 7) Horse‐Level Win Rate: For each horse this user owns,
+    #    compute (wins_of_that_horse) / (bets_on_that_horse by this user).
+    #    Then average across all their horses. If user has no horses, skip.
+    horse_ids = await sync_to_async(
+        lambda: list(
+            OwnedHorse.objects.filter(user__id=user_id)
+                              .values_list("horse_number", flat=True)
+        )
+    )()
+
+    if horse_ids:
+        win_rate_list = []
+        for hnum in horse_ids:
+            wins_for_horse = await sync_to_async(
+                lambda: HorseRaceWin.objects.filter(
+                    user__id=user_id, horse_number=hnum
+                ).count()
+            )()
+            bets_on_horse = await sync_to_async(
+                lambda: HorseBet.objects.filter(
+                    user_id=user_id, horse_number=hnum
+                ).count()
+            )()
+            if bets_on_horse > 0:
+                win_rate_list.append(wins_for_horse / bets_on_horse)
+            else:
+                win_rate_list.append(0.0)
+
+        # Average across all horses
+        horse_win_rate = (sum(win_rate_list) / len(win_rate_list)) * 100  # as percentage
+    else:
+        horse_win_rate = 0.0
+
+    # 8) Player Win Rate: (# races in which they bet AND won) / (# races participated)
+    #    “Races in which they won” = distinct race IDs from HorseRaceWin for this user
+    races_won = await sync_to_async(
+        lambda: HorseRaceWin.objects.filter(user__id=user_id)
+                                    .values_list("race", flat=True)
+                                    .distinct()
+                                    .count()
+    )()
+
+    if races_participated > 0:
+        player_win_rate = (races_won / races_participated) * 100
+    else:
+        player_win_rate = 0.0
+
+    # ─── Build a Markdown block using the same “🎮 Your Stats 🎮” style ────────
+    lines = [
+        "🎮 *Your Horse‐Racing Stats* 🎮",
+        "",
+        f"🐎 Races participated: *{races_participated}*",
+        f"💰 Total chips wagered: *{total_wagered:,}* chips",
+        f"📊 Avg. bet size: *{avg_bet:.2f}* chips",
+        f"🏠 Horses owned: *{horses_owned}*",
+        f"🏆 Total wins: *{total_wins}*",
+        f"🎉 Total chips earned: *{total_earned:,}* chips",
+        f"🐴 Horse‐level win rate: *{horse_win_rate:.1f}%*",
+        f"🎲 Player win rate: *{player_win_rate:.1f}%*",
+    ]
+    text = "\n".join(lines)
+
+    keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+    await query.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+@HORSE_MENU_ROUTES.on('menu:set_emoji')
+async def _horse_set_emoji(update, context, query, data):
+    user_id = query.from_user.id
+    owned_horses = await sync_to_async(list)(
+        OwnedHorse.objects.filter(user__id=user_id)
+    )
+
+    if not owned_horses:
+        text = "🎨 You don’t own any horses to set an emoji on.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return
+
+    keyboard = []
+    for h in owned_horses:
+        # Determine display label: “Name (number)” if name exists, else “Horse <number>”
+        if h.name:
+            display_label = f"{h.name} ({h.horse_number})"
+        else:
+            display_label = f"Horse {h.horse_number}"
+
+        emoji_text = f"{h.emoji} " if h.emoji else ""
+        btn_text = f"{emoji_text}{display_label}"
+        keyboard.append([
+            InlineKeyboardButton(
+                btn_text,
+                callback_data=f"menu:setemoji_choose:{h.horse_number}"
+            )
+        ])
+    keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
+
+    await query.edit_message_text(
+        "🎨 *Set Emoji* – Choose which horse to change:\n\n↩️ Back",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+    #
+# ─── “Sale Horses” submenu ───
+#
+#
+# ─── “Sale Horses” submenu — show spells + name/emoji + price ───
+#
+@HORSE_MENU_ROUTES.on('menu:sale_horses')
+async def _horse_sale_horses(update, context, query, data):
+    sale_list = await sync_to_async(list)(
+        HorseSale.objects
+            .select_related("horse__user", "horse")
+            .all()
+    )
+
+    if not sale_list:
+        text = "🛒 There are currently no horses listed for sale.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    # 2) Build a list of just the OwnedHorse objects for these listings
+    owned_horses = [listing.horse for listing in sale_list]
+
+    # 3) In one bulk call, fetch all HorseAppliedUpgrade records for those OwnedHorse IDs
+    #    We use `horse__in=owned_horses` and select_related("upgrade") so we get each upgrade name.
+    applied_list = await sync_to_async(list)(
+        HorseAppliedUpgrade.objects
+            .filter(horse__in=owned_horses)
+            .select_related("upgrade", "horse")
+    )
+
+    # 4) Build a mapping: horse_number → [list of spell names]
+    spells_map = {}
+    for h in owned_horses:
+        spells_map[h.horse_number] = []
+    for au in applied_list:
+        num = au.horse.horse_number
+        spells_map[num].append(au.upgrade.name)
+
+    # 5) Now build the keyboard—pure Python from here on (no more ORM calls)
+    keyboard = []
+    for listing in sale_list:
+        oh = listing.horse
+        price = listing.price
+        number = oh.horse_number
+
+        # (a) Display label: custom name or “Horse <number>”
+        if oh.name:
+            display_label = f"{oh.name} ({number})"
+        else:
+            display_label = f"Horse {number}"
+
+        # (b) Emoji (if any)
+        emoji_text = f"{oh.emoji} " if oh.emoji else ""
+
+        # (c) Spells (look up in spells_map)
+        spell_names = spells_map.get(number, [])
+        if spell_names:
+            spells_text = " – Applied: " + ", ".join(spell_names)
+        else:
+            spells_text = ""
+
+        # (d) Construct button text
+        btn_text = f"{emoji_text}{display_label}{spells_text} — {price:,} chips"
+        keyboard.append([
+            InlineKeyboardButton(
+                btn_text,
+                callback_data=f"menu:buy_sale:{number}"
+            )
+        ])
+
+    # 6) Add the Back button at the bottom
+    keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
+
+    # 7) Finally, edit the message
+    await query.edit_message_text(
+        "🛒 *Horses for Sale:*  (Tap to buy)\n\n↩️ Back",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
 
 #
 # ─── “Buy Sale Listing” handler ────────────────────────────────────────────────
 #
-    if data.startswith("menu:buy_sale:"):
-        horse_number = int(data.split(":")[2])
-        buyer_id = query.from_user.id
-        print(f"[BUY_SALE] Buyer {buyer_id} clicked horse #{horse_number}")
+@HORSE_MENU_ROUTES.on_prefix('menu:buy_sale:')
+async def _horse_buy_sale(update, context, query, data):
+    horse_number = int(data.split(":")[2])
+    buyer_id = query.from_user.id
+    print(f"[BUY_SALE] Buyer {buyer_id} clicked horse #{horse_number}")
 
-        # 1) Fetch the listing & related OwnedHorse
-        try:
-            sale = await sync_to_async(
-                HorseSale.objects.select_related("horse__user").get
-            )(horse__horse_number=horse_number)
-            print(f"[BUY_SALE] Found sale listing id={sale.id}")
-        except HorseSale.DoesNotExist:
-            print("[BUY_SALE] Listing no longer exists")
-            await query.edit_message_text("❌ That listing no longer exists.\n\n↩️ Back")
-            return
-
-        owned_horse = sale.horse
-        seller      = owned_horse.user
-        price       = sale.price
-        print(
-            f"[BUY_SALE] Horse owner={seller.id} price={price:,} "
-            f"emoji='{owned_horse.emoji}' name='{owned_horse.name}'"
-        )
-
-        # 2) Prevent self-purchase
-        if seller.id == buyer_id:
-            print("[BUY_SALE] Buyer tried to buy own horse – blocked")
-            await query.edit_message_text("❌ You cannot buy your own listing.\n\n↩️ Back")
-            return
-
-        # 3) Atomically transfer payment, ownership, and remove the listing
-        try:
-            sale_result = await purchase_horse_sale_async(buyer_id, horse_number)
-        except InsufficientChips:
-            buyer = await sync_to_async(Player.objects.get)(id=buyer_id)
-            await query.edit_message_text(
-                f"❌ Not enough chips! You need {price:,} but you have {buyer.chips:,}.\n\n↩️ Back"
-            )
-            return
-        except InvalidHorseSale:
-            await query.edit_message_text("❌ That listing is no longer available.\n\n↩️ Back")
-            return
-
-        buyer = sale_result.buyer
-        seller_player = sale_result.seller
-        owned_horse = sale_result.horse
-        price = sale_result.price
-
-        # 7) Notify both parties
-        display_label = (
-            f"{owned_horse.name} ({horse_number})" if owned_horse.name
-            else f"Horse {horse_number}"
-        )
-
-        await query.edit_message_text(
-            f"✅ You bought {display_label} from {seller_player.name or seller_player.id} "
-            f"for {price:,} chips!"
-        )
-        print(f"[BUY_SALE] Buyer message sent")
-
-        # Try DM’ing the seller
-        try:
-            await context.bot.send_message(
-                chat_id=seller_player.id,
-                text=(
-                    f"🎉 Your horse {display_label} was purchased by "
-                    f"{buyer.name or buyer.id} for {price:,} chips!"
-                )
-            )
-            print(f"[BUY_SALE] Seller DM sent")
-        except Exception as e:
-            print(f"[BUY_SALE] Could not DM seller: {e}")
-
+    # 1) Fetch the listing & related OwnedHorse
+    try:
+        sale = await sync_to_async(
+            HorseSale.objects.select_related("horse__user").get
+        )(horse__horse_number=horse_number)
+        print(f"[BUY_SALE] Found sale listing id={sale.id}")
+    except HorseSale.DoesNotExist:
+        print("[BUY_SALE] Listing no longer exists")
+        await query.edit_message_text("❌ That listing no longer exists.\n\n↩️ Back")
         return
 
-    # ─── My Horses submenu (show horses + owned spells) ───
-        # ─── “List Horse” submenu ───
-    #
-    if data == "menu:list_horse":
-        user_id = query.from_user.id
-        # Fetch all horses this user owns that are NOT already listed
-        owned_horses = await sync_to_async(list)(
-            OwnedHorse.objects
-                      .filter(user__id=user_id)
-                      .exclude(sale_listing__isnull=False)
-        )
-        if not owned_horses:
-            text = "📈 You don’t have any horses available to list for sale.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
+    owned_horse = sale.horse
+    seller      = owned_horse.user
+    price       = sale.price
+    print(
+        f"[BUY_SALE] Horse owner={seller.id} price={price:,} "
+            f"emoji='{owned_horse.emoji}' name='{owned_horse.name}'"
+    )
 
-        # Build a keyboard listing each owned horse (showing name(number) or “Horse <number>”)
-        keyboard = []
-        for h in owned_horses:
+    # 2) Prevent self-purchase
+    if seller.id == buyer_id:
+        print("[BUY_SALE] Buyer tried to buy own horse – blocked")
+        await query.edit_message_text("❌ You cannot buy your own listing.\n\n↩️ Back")
+        return
+
+    # 3) Atomically transfer payment, ownership, and remove the listing
+    try:
+        sale_result = await purchase_horse_sale_async(buyer_id, horse_number)
+    except InsufficientChips:
+        buyer = await sync_to_async(Player.objects.get)(id=buyer_id)
+        await query.edit_message_text(
+            f"❌ Not enough chips! You need {price:,} but you have {buyer.chips:,}.\n\n↩️ Back"
+        )
+        return
+    except InvalidHorseSale:
+        await query.edit_message_text("❌ That listing is no longer available.\n\n↩️ Back")
+        return
+
+    buyer = sale_result.buyer
+    seller_player = sale_result.seller
+    owned_horse = sale_result.horse
+    price = sale_result.price
+
+    # 7) Notify both parties
+    display_label = (
+        f"{owned_horse.name} ({horse_number})" if owned_horse.name
+        else f"Horse {horse_number}"
+    )
+
+    await query.edit_message_text(
+        f"✅ You bought {display_label} from {seller_player.name or seller_player.id} "
+            f"for {price:,} chips!"
+    )
+    print(f"[BUY_SALE] Buyer message sent")
+
+    # Try DM’ing the seller
+    try:
+        await context.bot.send_message(
+            chat_id=seller_player.id,
+            text=(
+                f"🎉 Your horse {display_label} was purchased by "
+                    f"{buyer.name or buyer.id} for {price:,} chips!"
+            )
+        )
+        print(f"[BUY_SALE] Seller DM sent")
+    except Exception as e:
+        print(f"[BUY_SALE] Could not DM seller: {e}")
+
+    return
+
+
+# ─── My Horses submenu (show horses + owned spells) ───
+    # ─── “List Horse” submenu ───
+#
+@HORSE_MENU_ROUTES.on('menu:list_horse')
+async def _horse_list_horse(update, context, query, data):
+    user_id = query.from_user.id
+    # Fetch all horses this user owns that are NOT already listed
+    owned_horses = await sync_to_async(list)(
+        OwnedHorse.objects
+                  .filter(user__id=user_id)
+                  .exclude(sale_listing__isnull=False)
+    )
+    if not owned_horses:
+        text = "📈 You don’t have any horses available to list for sale.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    # Build a keyboard listing each owned horse (showing name(number) or “Horse <number>”)
+    keyboard = []
+    for h in owned_horses:
+        if h.name:
+            display_label = f"{h.name} ({h.horse_number})"
+        else:
+            display_label = f"Horse {h.horse_number}"
+        emoji_text = f"{h.emoji} " if h.emoji else ""
+        btn_text = f"{emoji_text}{display_label}"
+        keyboard.append([
+            InlineKeyboardButton(
+                btn_text,
+                callback_data=f"menu:list_choose:{h.horse_number}"
+            )
+        ])
+    keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
+
+    await query.edit_message_text(
+        "📈 *List Horse for Sale* – Choose which of your horses to list:\n\n↩️ Back",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+#
+# ─── “List Horse → Pick Horse” ───
+#
+@HORSE_MENU_ROUTES.on_prefix('menu:list_choose:')
+async def _horse_list_choose(update, context, query, data):
+    horse_number = int(data.split(":")[2])
+    user_id = query.from_user.id
+
+    # Verify user still owns that horse and it’s not already listed
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
+        )
+    except OwnedHorse.DoesNotExist:
+        await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+        return
+
+    # Make sure it isn't already listed
+    if await sync_to_async(
+        HorseSale.objects.filter(horse=owned_horse).exists
+    )():
+        await query.edit_message_text(
+            f"⚠️ That horse is already listed for sale.\n\n↩️ Back",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]])
+        )
+        return
+
+    # Save in user_data so text‐handler knows we’re in “awaiting_list_price” mode
+    context.user_data["awaiting_list_horse"] = horse_number
+
+    # Ask the user for the price
+    if owned_horse.name:
+        display_label = f"{owned_horse.name} ({horse_number})"
+    else:
+        display_label = f"Horse {horse_number}"
+
+    keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+    await query.edit_message_text(
+        f"📈 *List → {display_label}*\n\n"
+            "Please reply with the price (in chips) at which you want to list this horse for sale.\n\n↩️ Back",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+@HORSE_MENU_ROUTES.on('menu:my_horses')
+async def _horse_my_horses(update, context, query, data):
+    user_id = query.from_user.id
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await query.edit_message_text("❌ You’re not registered yet.")
+        return
+
+    horses = await sync_to_async(list)(
+        OwnedHorse.objects.filter(user=player)
+    )
+    owned_upgrades = await sync_to_async(list)(
+        PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+    )
+
+    if not horses and not owned_upgrades:
+        text = "🐎 You don’t own any horses yet.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    lines = []
+    if horses:
+        lines.append("🐴 *Your Horses:*")
+        for h in horses:
+            # Fetch any applied upgrades
+            applied = await sync_to_async(list)(
+                HorseAppliedUpgrade.objects.filter(horse=h).select_related("upgrade")
+            )
+            applied_names = [ap.upgrade.name for ap in applied]
+
+            # Determine display label: if custom name exists, show "Name(number)"
             if h.name:
                 display_label = f"{h.name} ({h.horse_number})"
             else:
                 display_label = f"Horse {h.horse_number}"
-            emoji_text = f"{h.emoji} " if h.emoji else ""
-            btn_text = f"{emoji_text}{display_label}"
-            keyboard.append([
-                InlineKeyboardButton(
-                    btn_text,
-                    callback_data=f"menu:list_choose:{h.horse_number}"
-                )
-            ])
-        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
 
+            emoji_text = f" {h.emoji}" if h.emoji else ""
+
+            if applied_names:
+                lines.append(
+                    f"• {display_label}{emoji_text}  _(Applied: {', '.join(applied_names)})_"
+                )
+            else:
+                lines.append(f"• {display_label}{emoji_text}")
+    else:
+        lines.append("🐴 You don’t own any horses.")
+
+    lines.append("\n↩️ Back")
+    keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+    await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
+                                  reply_markup=InlineKeyboardMarkup(keyboard))
+    return
+
+
+    # if owned_upgrades:
+    #     lines.append("\n🔧 *Your Purchased Spells:*")
+    #     for pu in owned_upgrades:
+    #         lines.append(
+    #             f"• {pu.upgrade.name} – {pu.upgrade.description} _(Cost: {pu.upgrade.cost})_"
+    #         )
+    # else:
+    #     lines.append("\n🔧 You haven’t purchased any spells.")
+    # lines.append("\n↩️ Back")
+    # keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+    # await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
+    #                               reply_markup=InlineKeyboardMarkup(keyboard))
+    # return
+@HORSE_MENU_ROUTES.on('menu:rename_horse')
+async def _horse_rename_horse(update, context, query, data):
+    user_id = query.from_user.id
+    # Fetch all horses owned by this user
+    owned_horses = await sync_to_async(list)(
+        OwnedHorse.objects.filter(user__id=user_id)
+    )
+
+    if not owned_horses:
+        text = "✏️ You don’t own any horses to rename.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    # Build a keyboard listing each horse (show name if set, else “Horse <number>”)
+    params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+    if params.rename_horse_event:
+
+        lines = ["✏️ *Rename Horse* ~60 000 chips~ 1 chip – Choose which horse to rename:",""]
+    else:
+        lines = ["✏️ *Rename Horse* (60 000 chips) – Choose which horse to rename:",""]
+    keyboard = []
+    for h in owned_horses:
+        display = h.name if h.name else f"Horse {h.horse_number}"
+        keyboard.append([
+            InlineKeyboardButton(
+                display,
+                callback_data=f"menu:rename_choose:{h.horse_number}"
+            )
+        ])
+
+    # Back button
+    keyboard.append([ InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse") ])
+
+    await query.edit_message_text(
+        "\n".join(lines),
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+@HORSE_MENU_ROUTES.on('menu:gift_horse')
+async def _horse_gift_horse(update, context, query, data):
+    user_id = query.from_user.id
+
+    # Offer two choices: gift an owned horse, or buy+gift a new one
+    keyboard = [
+        [InlineKeyboardButton("🎁 Gift Owned Horse",    callback_data="menu:gift_owned")],
+        [InlineKeyboardButton("🎁 Buy & Gift Horse",    callback_data="menu:buy_and_gift")],
+        [InlineKeyboardButton("↩️ Back",                 callback_data="menu:mainhorse")],
+    ]
+    await query.edit_message_text(
+        "🎁 *Gift Horse* – Choose an option:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+#
+# ─── Gift Owned Horse → Show List of Owned Horses ───
+#
+@HORSE_MENU_ROUTES.on('menu:gift_owned')
+async def _horse_gift_owned(update, context, query, data):
+    user_id = query.from_user.id
+    # Fetch all horses the user owns:
+    owned_horses = await sync_to_async(list)(
+        OwnedHorse.objects.filter(user__id=user_id)
+    )
+    if not owned_horses:
+        text = "❌ You don’t own any horses to gift.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    # Build a keyboard listing each owned horse (show name(number) or Horse <number>)
+    keyboard = []
+    for h in owned_horses:
+        if h.name:
+            display_label = f"{h.name} ({h.horse_number})"
+        else:
+            display_label = f"Horse {h.horse_number}"
+        emoji_text = f"{h.emoji} " if h.emoji else ""
+        btn_text = f"{emoji_text}{display_label}"
+        keyboard.append([
+            InlineKeyboardButton(btn_text, callback_data=f"menu:gift_owned_choose:{h.horse_number}")
+        ])
+    keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")])
+
+    await query.edit_message_text(
+        "🎁 *Gift Owned Horse* – Choose which horse to gift:\n\n↩️ Back",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+#
+# ─── Gift Owned → Picked a Horse to Gift ───
+#
+@HORSE_MENU_ROUTES.on_prefix('menu:gift_owned_choose:')
+async def _horse_gift_owned_choose(update, context, query, data):
+    horse_number = int(data.split(":")[2])
+    user_id = query.from_user.id
+
+    # Verify the user still owns that horse
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
+        )
+    except OwnedHorse.DoesNotExist:
+        await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+        return
+
+    # Save flag + which horse they intend to gift
+    context.user_data["awaiting_gift_owned"] = horse_number
+
+    # Ask them for the recipient’s Telegram @username or ID
+    if owned_horse.name:
+        display_label = f"{owned_horse.name} ({horse_number})"
+    else:
+        display_label = f"Horse {horse_number}"
+
+    keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")]]
+    await query.edit_message_text(
+        f"🎁 *Gift → {display_label}*\n\n"
+            "Please reply with the recipient’s numeric user ID (they can run /myid to see it).\n"
+            "Fee: 10 000 chips.\n\n↩️ Back",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+#
+# ─── Buy & Gift Horse → Ask for the horse number to buy & gift ───
+#
+@HORSE_MENU_ROUTES.on('menu:buy_and_gift')
+async def _horse_buy_and_gift(update, context, query, data):
+    context.user_data["awaiting_buy_and_gift"] = True
+
+    keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")]]
+    await query.edit_message_text(
+        "🎁 *Buy & Gift Horse* – Please reply with the horse number you want to purchase and gift.\n\n"
+            "Cost = normal purchase cost for that number. ↩️ Back",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+# ─── “My Spells” submenu (new) ───
+@HORSE_MENU_ROUTES.on('menu:my_spells')
+async def _horse_my_spells(update, context, query, data):
+    user_id = query.from_user.id
+
+    # Fetch the Player (if they exist)
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await query.edit_message_text("❌ You’re not registered yet.")
+        return
+
+    # Get all spells this player has purchased
+    owned_upgrades = await sync_to_async(list)(
+        PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+    )
+
+    if not owned_upgrades:
+        text = "🔧 You haven’t purchased any spells yet.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    # Build a simple list of “name – description (cost)”
+    lines = ["🔧 *Your Purchased Spells:*",""]
+    for pu in owned_upgrades:
+        lines.append(f"• *{pu.upgrade.name}* — {pu.upgrade.description} _(Cost: {pu.upgrade.cost})_")
+    # lines.append("\n↩️ Back")
+
+    keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+    await query.edit_message_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+# ─── Buy Spell submenu ───
+@HORSE_MENU_ROUTES.on('menu:buy_spell')
+async def _horse_buy_spell(update, context, query, data):
+    upgrades = await sync_to_async(list)(HorseUpgrade.objects.all())
+    if not upgrades:
+        text = "📜 No spells available right now.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    lines = ["📜 *Available Spells:*",""]
+    keyboard = []
+    for up in upgrades:
+        lines.append(f"{up.id}. *{up.name}* – {up.description} _(Cost: {up.cost})_\n")
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{up.name} (Cost: {up.cost})",
+                callback_data=f"menu:buy_spell_choose:{up.id}"
+            )
+        ])
+    lines.append("\n↩️ Back")
+    keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
+
+    await query.edit_message_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+# ─── Apply Spell submenu ───
+@HORSE_MENU_ROUTES.on('menu:apply_spell')
+async def _horse_apply_spell(update, context, query, data):
+    user_id = query.from_user.id
+    horses = await sync_to_async(list)(
+        OwnedHorse.objects.filter(user__id=user_id)
+    )
+    if not horses:
+        text = "❌ You don’t own any horses to apply a spell to.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    keyboard = []
+    for h in horses:
+        # Build display label: “Name (number)” if name exists, else “Horse <number>”
+        if h.name:
+            display_label = f"{h.name} ({h.horse_number})"
+        else:
+            display_label = f"Horse {h.horse_number}"
+
+        emoji_text = f"{h.emoji} " if h.emoji else ""
+        btn_text = f"{emoji_text}{display_label}"
+        keyboard.append([
+            InlineKeyboardButton(
+                btn_text,
+                callback_data=f"menu:apply_choose_horse:{h.horse_number}"
+            )
+        ])
+    keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
+    await query.edit_message_text(
+        "✨ *Apply Spell* – Choose which horse to enhance:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+@HORSE_MENU_ROUTES.on('menu:unapply_spell')
+async def _horse_unapply_spell(update, context, query, data):
+    user_id = query.from_user.id
+    horses = await sync_to_async(list)(
+        OwnedHorse.objects.filter(user__id=user_id)
+    )
+    if not horses:
+        text = "❌ You don’t own any horses to remove a spell from.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    keyboard = []
+    for h in horses:
+        # Build display label: “Name (number)” if name exists, else “Horse <number>”
+        if h.name:
+            display_label = f"{h.name} ({h.horse_number})"
+        else:
+            display_label = f"Horse {h.horse_number}"
+
+        emoji_text = f"{h.emoji} " if h.emoji else ""
+        btn_text = f"{emoji_text}{display_label}"
+        keyboard.append([
+            InlineKeyboardButton(
+                btn_text,
+                callback_data=f"menu:unapply_choose_horse:{h.horse_number}"
+            )
+        ])
+    keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
+    await query.edit_message_text(
+        "❌ *Unapply Spell* – Pick a horse:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+@HORSE_MENU_ROUTES.on_prefix('menu:rename_choose:')
+async def _horse_rename_choose(update, context, query, data):
+    horse_number = int(data.split(":")[2])
+    user_id = query.from_user.id
+
+    # Verify they own that horse
+    try:
+        await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
+        )
+    except OwnedHorse.DoesNotExist:
+        await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+        return
+
+    # Set the flag so catch_all_text knows we’re in “rename” mode
+    context.user_data["awaiting_rename_horse"] = horse_number
+
+    keyboard = [[ InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse") ]]
+    params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
+    if params.rename_horse_event:
         await query.edit_message_text(
-            "📈 *List Horse for Sale* – Choose which of your horses to list:\n\n↩️ Back",
+            f"✏️ *Rename → Horse {horse_number}*\n\n"
+                "Please send the new name for your horse.\n"
+                "Cost: 1 chip.\n\n↩️ Back",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    else:
+        await query.edit_message_text(
+            f"✏️ *Rename → Horse {horse_number}*\n\n"
+                "Please send the new name for your horse.\n"
+                "Cost: 60 000 chips.\n\n↩️ Back",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 
-    #
-    # ─── “List Horse → Pick Horse” ───
-    #
-    if data.startswith("menu:list_choose:"):
-        horse_number = int(data.split(":")[2])
-        user_id = query.from_user.id
 
-        # Verify user still owns that horse and it’s not already listed
-        try:
-            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
-                user__id=user_id, horse_number=horse_number
-            )
-        except OwnedHorse.DoesNotExist:
-            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
-            return
+@HORSE_MENU_ROUTES.on_prefix('menu:setemoji_choose:')
+async def _horse_setemoji_choose(update, context, query, data):
+    horse_number = int(data.split(":")[2])
 
-        # Make sure it isn't already listed
-        if await sync_to_async(
-            HorseSale.objects.filter(horse=owned_horse).exists
-        )():
-            await query.edit_message_text(
-                f"⚠️ That horse is already listed for sale.\n\n↩️ Back",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]])
-            )
-            return
+    # Fetch the OwnedHorse so we can show its label in the prompt
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=query.from_user.id, horse_number=horse_number
+        )
+    except OwnedHorse.DoesNotExist:
+        await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+        return
 
-        # Save in user_data so text‐handler knows we’re in “awaiting_list_price” mode
-        context.user_data["awaiting_list_horse"] = horse_number
+    if owned_horse.name:
+        display_label = f"{owned_horse.name} ({horse_number})"
+    else:
+        display_label = f"Horse {horse_number}"
 
-        # Ask the user for the price
-        if owned_horse.name:
-            display_label = f"{owned_horse.name} ({horse_number})"
-        else:
-            display_label = f"Horse {horse_number}"
+    # ── INSERT PRINT HERE ──
+    print("DEBUG: awaiting_set_emoji set to", horse_number)
+    context.user_data["awaiting_set_emoji"] = horse_number
 
-        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+    # Now ask the user to send their new emoji:
+    keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
+    await query.edit_message_text(
+        f"🎨 *Set Emoji → {display_label}*\n\n"
+            "Please send the emoji you want to assign to this horse.\n"
+            "Cost: 9 000 chips.\n\n↩️ Back",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+#
+# ─── SUBMENU: “Buy Spell → Choose Spell” ───
+#
+@HORSE_MENU_ROUTES.on_prefix('menu:buy_spell_choose:')
+async def _horse_buy_spell_choose(update, context, query, data):
+    upgrade_id = int(data.split(":")[2])
+    user_id = query.from_user.id
+
+    try:
+        player = await sync_to_async(Player.objects.get)(id=user_id)
+    except Player.DoesNotExist:
+        await query.edit_message_text("❌ You’re not registered.")
+        return
+
+    try:
+        upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+    except HorseUpgrade.DoesNotExist:
+        await query.edit_message_text("❌ That spell no longer exists.")
+        return
+
+    try:
+        await buy_horse_upgrade_async(user_id, upgrade_obj.id)
+    except UpgradeAlreadyOwned:
         await query.edit_message_text(
-            f"📈 *List → {display_label}*\n\n"
-            "Please reply with the price (in chips) at which you want to list this horse for sale.\n\n↩️ Back",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            f"⚠️ You already own *{upgrade_obj.name}*.",
+            parse_mode="Markdown"
         )
         return
-    if data == "menu:my_horses":
-        user_id = query.from_user.id
-        try:
-            player = await sync_to_async(Player.objects.get)(id=user_id)
-        except Player.DoesNotExist:
-            await query.edit_message_text("❌ You’re not registered yet.")
-            return
-
-        horses = await sync_to_async(list)(
-            OwnedHorse.objects.filter(user=player)
+    except InsufficientChips:
+        await query.edit_message_text(
+            f"❌ Not enough chips! *{upgrade_obj.name}* costs {upgrade_obj.cost}.",
+            parse_mode="Markdown"
         )
-        owned_upgrades = await sync_to_async(list)(
-            PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+        return
+
+    await query.edit_message_text(
+        f"✅ You bought *{upgrade_obj.name}*!",
+        parse_mode="Markdown"
+    )
+    return
+
+
+    #
+# ─── SUBMENU: “Apply Spell → Choose Horse” ───
+#
+@HORSE_MENU_ROUTES.on_prefix('menu:apply_choose_horse:')
+async def _horse_apply_choose_horse(update, context, query, data):
+    horse_number = int(data.split(":")[2])
+    user_id = query.from_user.id
+
+    # 1) Verify horse ownership
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
         )
+    except OwnedHorse.DoesNotExist:
+        await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
+        return
 
-        if not horses and not owned_upgrades:
-            text = "🐎 You don’t own any horses yet.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
+    # Build display_label = "Name (66)" if name exists, else "Horse 66"
+    if owned_horse.name:
+        display_label = f"{owned_horse.name} ({horse_number})"
+    else:
+        display_label = f"Horse {horse_number}"
 
-        lines = []
-        if horses:
-            lines.append("🐴 *Your Horses:*")
-            for h in horses:
-                # Fetch any applied upgrades
-                applied = await sync_to_async(list)(
-                    HorseAppliedUpgrade.objects.filter(horse=h).select_related("upgrade")
-                )
-                applied_names = [ap.upgrade.name for ap in applied]
-
-                # Determine display label: if custom name exists, show "Name(number)"
-                if h.name:
-                    display_label = f"{h.name} ({h.horse_number})"
-                else:
-                    display_label = f"Horse {h.horse_number}"
-
-                emoji_text = f" {h.emoji}" if h.emoji else ""
-
-                if applied_names:
-                    lines.append(
-                        f"• {display_label}{emoji_text}  _(Applied: {', '.join(applied_names)})_"
-                    )
-                else:
-                    lines.append(f"• {display_label}{emoji_text}")
-        else:
-            lines.append("🐴 You don’t own any horses.")
-
-        lines.append("\n↩️ Back")
-        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-        await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
+    # 2) Check if any upgrade is already applied to this horse
+    existing_count = await sync_to_async(
+        lambda: HorseAppliedUpgrade.objects.filter(horse=owned_horse).count()
+    )()
+    if existing_count > 0:
+        # Only one upgrade allowed per horse
+        text = (
+            f"⚠️ {display_label} already has an upgrade applied.\n"
+                "You can only apply one upgrade per horse.\n\n↩️ Back"
+        )
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")]]
+        await query.edit_message_text(text, parse_mode="Markdown",
                                       reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-
-        # if owned_upgrades:
-        #     lines.append("\n🔧 *Your Purchased Spells:*")
-        #     for pu in owned_upgrades:
-        #         lines.append(
-        #             f"• {pu.upgrade.name} – {pu.upgrade.description} _(Cost: {pu.upgrade.cost})_"
-        #         )
-        # else:
-        #     lines.append("\n🔧 You haven’t purchased any spells.")
-
-        # lines.append("\n↩️ Back")
-        # keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
-        # await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
-        #                               reply_markup=InlineKeyboardMarkup(keyboard))
-        # return
-    if data == "menu:rename_horse":
-        user_id = query.from_user.id
-        # Fetch all horses owned by this user
-        owned_horses = await sync_to_async(list)(
-            OwnedHorse.objects.filter(user__id=user_id)
-        )
-
-        if not owned_horses:
-            text = "✏️ You don’t own any horses to rename.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
-
-        # Build a keyboard listing each horse (show name if set, else “Horse <number>”)
-        params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
-        if params.rename_horse_event:
-
-            lines = ["✏️ *Rename Horse* ~60 000 chips~ 1 chip – Choose which horse to rename:",""]
-        else:
-            lines = ["✏️ *Rename Horse* (60 000 chips) – Choose which horse to rename:",""]
-        keyboard = []
-        for h in owned_horses:
-            display = h.name if h.name else f"Horse {h.horse_number}"
-            keyboard.append([
-                InlineKeyboardButton(
-                    display,
-                    callback_data=f"menu:rename_choose:{h.horse_number}"
-                )
-            ])
-
-        # Back button
-        keyboard.append([ InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse") ])
-
-        await query.edit_message_text(
-            "\n".join(lines),
-            parse_mode="MarkdownV2",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-    if data == "menu:gift_horse":
-        user_id = query.from_user.id
-
-        # Offer two choices: gift an owned horse, or buy+gift a new one
-        keyboard = [
-            [InlineKeyboardButton("🎁 Gift Owned Horse",    callback_data="menu:gift_owned")],
-            [InlineKeyboardButton("🎁 Buy & Gift Horse",    callback_data="menu:buy_and_gift")],
-            [InlineKeyboardButton("↩️ Back",                 callback_data="menu:mainhorse")],
-        ]
-        await query.edit_message_text(
-            "🎁 *Gift Horse* – Choose an option:",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    # 3) Fetch all spells the user has purchased
+    player = await sync_to_async(Player.objects.get)(id=user_id)
+    owned_spells = await sync_to_async(list)(
+        PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
+    )
+    if not owned_spells:
+        text = f"🔧 You haven’t purchased any spells to apply to {display_label}.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-    #
-    # ─── Gift Owned Horse → Show List of Owned Horses ───
-    #
-    if data == "menu:gift_owned":
-        user_id = query.from_user.id
-        # Fetch all horses the user owns:
-        owned_horses = await sync_to_async(list)(
-            OwnedHorse.objects.filter(user__id=user_id)
-        )
-        if not owned_horses:
-            text = "❌ You don’t own any horses to gift.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
+    # 4) Build a keyboard listing each owned spell
+    keyboard = []
+    for pu in owned_spells:
+        up = pu.upgrade
+        keyboard.append([InlineKeyboardButton(
+            up.name,
+            callback_data=f"menu:apply_choose_spell:{horse_number}:{up.id}"
+        )])
+    keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")])
 
-        # Build a keyboard listing each owned horse (show name(number) or Horse <number>)
-        keyboard = []
-        for h in owned_horses:
-            if h.name:
-                display_label = f"{h.name} ({h.horse_number})"
-            else:
-                display_label = f"Horse {h.horse_number}"
-            emoji_text = f"{h.emoji} " if h.emoji else ""
-            btn_text = f"{emoji_text}{display_label}"
-            keyboard.append([
-                InlineKeyboardButton(btn_text, callback_data=f"menu:gift_owned_choose:{h.horse_number}")
-            ])
-        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")])
-
-        await query.edit_message_text(
-            "🎁 *Gift Owned Horse* – Choose which horse to gift:\n\n↩️ Back",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    #
-    # ─── Gift Owned → Picked a Horse to Gift ───
-    #
-    if data.startswith("menu:gift_owned_choose:"):
-        horse_number = int(data.split(":")[2])
-        user_id = query.from_user.id
-
-        # Verify the user still owns that horse
-        try:
-            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
-                user__id=user_id, horse_number=horse_number
-            )
-        except OwnedHorse.DoesNotExist:
-            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
-            return
-
-        # Save flag + which horse they intend to gift
-        context.user_data["awaiting_gift_owned"] = horse_number
-
-        # Ask them for the recipient’s Telegram @username or ID
-        if owned_horse.name:
-            display_label = f"{owned_horse.name} ({horse_number})"
-        else:
-            display_label = f"Horse {horse_number}"
-
-        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")]]
-        await query.edit_message_text(
-            f"🎁 *Gift → {display_label}*\n\n"
-            "Please reply with the recipient’s numeric user ID (they can run /myid to see it).\n"
-            "Fee: 10 000 chips.\n\n↩️ Back",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    #
-    # ─── Buy & Gift Horse → Ask for the horse number to buy & gift ───
-    #
-    if data == "menu:buy_and_gift":
-        # Mark that we’re in “buy and gift” mode
-        context.user_data["awaiting_buy_and_gift"] = True
-
-        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:gift_horse")]]
-        await query.edit_message_text(
-            "🎁 *Buy & Gift Horse* – Please reply with the horse number you want to purchase and gift.\n\n"
-            "Cost = normal purchase cost for that number. ↩️ Back",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # ─── “My Spells” submenu (new) ───
-    if data == "menu:my_spells":
-        user_id = query.from_user.id
-
-        # Fetch the Player (if they exist)
-        try:
-            player = await sync_to_async(Player.objects.get)(id=user_id)
-        except Player.DoesNotExist:
-            await query.edit_message_text("❌ You’re not registered yet.")
-            return
-
-        # Get all spells this player has purchased
-        owned_upgrades = await sync_to_async(list)(
-            PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
-        )
-
-        if not owned_upgrades:
-            text = "🔧 You haven’t purchased any spells yet.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
-
-        # Build a simple list of “name – description (cost)”
-        lines = ["🔧 *Your Purchased Spells:*",""]
-        for pu in owned_upgrades:
-            lines.append(f"• *{pu.upgrade.name}* — {pu.upgrade.description} _(Cost: {pu.upgrade.cost})_")
-        # lines.append("\n↩️ Back")
-
-        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-        await query.edit_message_text(
-            "\n".join(lines),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # ─── Buy Spell submenu ───
-    if data == "menu:buy_spell":
-        upgrades = await sync_to_async(list)(HorseUpgrade.objects.all())
-        if not upgrades:
-            text = "📜 No spells available right now.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
-
-        lines = ["📜 *Available Spells:*",""]
-        keyboard = []
-        for up in upgrades:
-            lines.append(f"{up.id}. *{up.name}* – {up.description} _(Cost: {up.cost})_\n")
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{up.name} (Cost: {up.cost})",
-                    callback_data=f"menu:buy_spell_choose:{up.id}"
-                )
-            ])
-        lines.append("\n↩️ Back")
-        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
-
-        await query.edit_message_text(
-            "\n".join(lines),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # ─── Apply Spell submenu ───
-    if data == "menu:apply_spell":
-        user_id = query.from_user.id
-        horses = await sync_to_async(list)(
-            OwnedHorse.objects.filter(user__id=user_id)
-        )
-        if not horses:
-            text = "❌ You don’t own any horses to apply a spell to.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
-
-        keyboard = []
-        for h in horses:
-            # Build display label: “Name (number)” if name exists, else “Horse <number>”
-            if h.name:
-                display_label = f"{h.name} ({h.horse_number})"
-            else:
-                display_label = f"Horse {h.horse_number}"
-
-            emoji_text = f"{h.emoji} " if h.emoji else ""
-            btn_text = f"{emoji_text}{display_label}"
-            keyboard.append([
-                InlineKeyboardButton(
-                    btn_text,
-                    callback_data=f"menu:apply_choose_horse:{h.horse_number}"
-                )
-            ])
-        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
-        await query.edit_message_text(
-            "✨ *Apply Spell* – Choose which horse to enhance:",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-
-
-
-
-
-
-
-
-
-    if data == "menu:unapply_spell":
-        user_id = query.from_user.id
-        horses = await sync_to_async(list)(
-            OwnedHorse.objects.filter(user__id=user_id)
-        )
-        if not horses:
-            text = "❌ You don’t own any horses to remove a spell from.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:main")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
-
-        keyboard = []
-        for h in horses:
-            # Build display label: “Name (number)” if name exists, else “Horse <number>”
-            if h.name:
-                display_label = f"{h.name} ({h.horse_number})"
-            else:
-                display_label = f"Horse {h.horse_number}"
-
-            emoji_text = f"{h.emoji} " if h.emoji else ""
-            btn_text = f"{emoji_text}{display_label}"
-            keyboard.append([
-                InlineKeyboardButton(
-                    btn_text,
-                    callback_data=f"menu:unapply_choose_horse:{h.horse_number}"
-                )
-            ])
-        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")])
-        await query.edit_message_text(
-            "❌ *Unapply Spell* – Pick a horse:",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    if data.startswith("menu:rename_choose:"):
-        horse_number = int(data.split(":")[2])
-        user_id = query.from_user.id
-
-        # Verify they own that horse
-        try:
-            await sync_to_async(OwnedHorse.objects.get)(
-                user__id=user_id, horse_number=horse_number
-            )
-        except OwnedHorse.DoesNotExist:
-            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
-            return
-
-        # Set the flag so catch_all_text knows we’re in “rename” mode
-        context.user_data["awaiting_rename_horse"] = horse_number
-
-        keyboard = [[ InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse") ]]
-        params, _ = await sync_to_async(GameParameter.objects.get_or_create)(pk=1)
-        if params.rename_horse_event:
-            await query.edit_message_text(
-                f"✏️ *Rename → Horse {horse_number}*\n\n"
-                "Please send the new name for your horse.\n"
-                "Cost: 1 chip.\n\n↩️ Back",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return
-        else:
-            await query.edit_message_text(
-                f"✏️ *Rename → Horse {horse_number}*\n\n"
-                "Please send the new name for your horse.\n"
-                "Cost: 60 000 chips.\n\n↩️ Back",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return
-    if data.startswith("menu:setemoji_choose:"):
-        horse_number = int(data.split(":")[2])
-
-        # Fetch the OwnedHorse so we can show its label in the prompt
-        try:
-            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
-                user__id=query.from_user.id, horse_number=horse_number
-            )
-        except OwnedHorse.DoesNotExist:
-            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
-            return
-
-        if owned_horse.name:
-            display_label = f"{owned_horse.name} ({horse_number})"
-        else:
-            display_label = f"Horse {horse_number}"
-
-        # ── INSERT PRINT HERE ──
-        print("DEBUG: awaiting_set_emoji set to", horse_number)
-        context.user_data["awaiting_set_emoji"] = horse_number
-
-        # Now ask the user to send their new emoji:
-        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:mainhorse")]]
-        await query.edit_message_text(
-            f"🎨 *Set Emoji → {display_label}*\n\n"
-            "Please send the emoji you want to assign to this horse.\n"
-            "Cost: 9 000 chips.\n\n↩️ Back",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-
-
-
-
-
-
-
-
-
-
-    #
-    # ─── SUBMENU: “Buy Spell → Choose Spell” ───
-    #
-    if data.startswith("menu:buy_spell_choose:"):
-        upgrade_id = int(data.split(":")[2])
-        user_id = query.from_user.id
-
-        try:
-            player = await sync_to_async(Player.objects.get)(id=user_id)
-        except Player.DoesNotExist:
-            await query.edit_message_text("❌ You’re not registered.")
-            return
-
-        try:
-            upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
-        except HorseUpgrade.DoesNotExist:
-            await query.edit_message_text("❌ That spell no longer exists.")
-            return
-
-        try:
-            await buy_horse_upgrade_async(user_id, upgrade_obj.id)
-        except UpgradeAlreadyOwned:
-            await query.edit_message_text(
-                f"⚠️ You already own *{upgrade_obj.name}*.",
-                parse_mode="Markdown"
-            )
-            return
-        except InsufficientChips:
-            await query.edit_message_text(
-                f"❌ Not enough chips! *{upgrade_obj.name}* costs {upgrade_obj.cost}.",
-                parse_mode="Markdown"
-            )
-            return
-
-        await query.edit_message_text(
-            f"✅ You bought *{upgrade_obj.name}*!",
-            parse_mode="Markdown"
-        )
-        return
-
-        #
-    # ─── SUBMENU: “Apply Spell → Choose Horse” ───
-    #
-    if data.startswith("menu:apply_choose_horse:"):
-        horse_number = int(data.split(":")[2])
-        user_id = query.from_user.id
-
-        # 1) Verify horse ownership
-        try:
-            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
-                user__id=user_id, horse_number=horse_number
-            )
-        except OwnedHorse.DoesNotExist:
-            await query.edit_message_text("❌ You do not own that horse.\n\n↩️ Back")
-            return
-
-        # Build display_label = "Name (66)" if name exists, else "Horse 66"
-        if owned_horse.name:
-            display_label = f"{owned_horse.name} ({horse_number})"
-        else:
-            display_label = f"Horse {horse_number}"
-
-        # 2) Check if any upgrade is already applied to this horse
-        existing_count = await sync_to_async(
-            lambda: HorseAppliedUpgrade.objects.filter(horse=owned_horse).count()
-        )()
-        if existing_count > 0:
-            # Only one upgrade allowed per horse
-            text = (
-                f"⚠️ {display_label} already has an upgrade applied.\n"
-                "You can only apply one upgrade per horse.\n\n↩️ Back"
-            )
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")]]
-            await query.edit_message_text(text, parse_mode="Markdown",
-                                          reply_markup=InlineKeyboardMarkup(keyboard))
-            return
-
-        # 3) Fetch all spells the user has purchased
-        player = await sync_to_async(Player.objects.get)(id=user_id)
-        owned_spells = await sync_to_async(list)(
-            PlayerUpgrade.objects.filter(player=player).select_related("upgrade")
-        )
-        if not owned_spells:
-            text = f"🔧 You haven’t purchased any spells to apply to {display_label}.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")]]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            return
-
-        # 4) Build a keyboard listing each owned spell
-        keyboard = []
-        for pu in owned_spells:
-            up = pu.upgrade
-            keyboard.append([InlineKeyboardButton(
-                up.name,
-                callback_data=f"menu:apply_choose_spell:{horse_number}:{up.id}"
-            )])
-        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:apply_spell")])
-
-        # Use display_label in the header
-        await query.edit_message_text(
-            f"✨ *Apply Spell → {display_label}*\n\n"
+    # Use display_label in the header
+    await query.edit_message_text(
+        f"✨ *Apply Spell → {display_label}*\n\n"
             "Choose which spell to apply (only one per horse):",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+#
+# ─── SUBMENU: “Apply Spell → Confirm” ───
+#
+@HORSE_MENU_ROUTES.on_prefix('menu:apply_choose_spell:')
+async def _horse_apply_choose_spell(update, context, query, data):
+    parts = data.split(":")
+    horse_number = int(parts[2])
+    upgrade_id = int(parts[3])
+    user_id = query.from_user.id
+
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
         )
+    except OwnedHorse.DoesNotExist:
+        await query.edit_message_text("❌ You do not own that horse.")
         return
 
-
-
-
-
-
-
-
-
-
-    #
-    # ─── SUBMENU: “Apply Spell → Confirm” ───
-    #
-    if data.startswith("menu:apply_choose_spell:"):
-        parts = data.split(":")
-        horse_number = int(parts[2])
-        upgrade_id = int(parts[3])
-        user_id = query.from_user.id
-
-        try:
-            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
-                user__id=user_id, horse_number=horse_number
-            )
-        except OwnedHorse.DoesNotExist:
-            await query.edit_message_text("❌ You do not own that horse.")
-            return
-
-        try:
-            upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
-        except HorseUpgrade.DoesNotExist:
-            await query.edit_message_text("❌ That spell no longer exists.")
-            return
-
-        has_it = await sync_to_async(
-            PlayerUpgrade.objects.filter(player__id=user_id, upgrade=upgrade_obj).exists
-        )()
-        if not has_it:
-            await query.edit_message_text("❌ You haven’t purchased that spell.")
-            return
-
-        blocking_pair = {"Double Dash", "Risky Rocket"}
-        if upgrade_obj.name in blocking_pair:
-            other_name = "Risky Rocket" if upgrade_obj.name == "Double Dash" else "Double Dash"
-            existing_names = await sync_to_async(
-                lambda: list(
-                    HorseAppliedUpgrade.objects.filter(horse=owned_horse)
-                                               .values_list("upgrade__name", flat=True)
-                )
-            )()
-            if other_name in existing_names:
-                await query.edit_message_text(
-                    f"❌ You cannot apply *{upgrade_obj.name}* because *{other_name}* is already on Horse {horse_number}.",
-                    parse_mode="Markdown"
-                )
-                return
-
-        other_horse_number = await sync_to_async(
-            lambda: HorseAppliedUpgrade.objects
-                .filter(owner__id=user_id, upgrade=upgrade_obj)
-                .exclude(horse=owned_horse)
-                .values_list('horse__horse_number', flat=True)
-                .first()
-        )()
-        
-        if other_horse_number:
-            await query.edit_message_text(
-                f"❌ You’ve already applied *{upgrade_obj.name}* to "
-                f"Horse {other_horse_number}, so you can’t apply it here too.",
-                parse_mode="Markdown"
-            )
-            return
-
-        # 2) Then check “already on this same horse?”
-        already_on_this = await sync_to_async(
-            HorseAppliedUpgrade.objects
-                .filter(owner__id=user_id, horse=owned_horse, upgrade=upgrade_obj)
-                .exists
-        )()
-        if already_on_this:
-            await query.edit_message_text(
-                f"⚠️ You already applied *{upgrade_obj.name}* to Horse {horse_number}.",
-                parse_mode="Markdown"
-            )
-            return
-
-        # 3) If neither check blocked you, it’s safe to apply:
-        player_obj = await sync_to_async(Player.objects.get)(id=user_id)
-
-        await sync_to_async(HorseAppliedUpgrade.objects.create)(
-            owner=player_obj,
-            horse=owned_horse,
-            upgrade=upgrade_obj
-        )
-        
-        await query.edit_message_text(
-            f"✅ *{upgrade_obj.name}* has been applied to Horse {horse_number}!",
-            parse_mode="Markdown"
-        )
+    try:
+        upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+    except HorseUpgrade.DoesNotExist:
+        await query.edit_message_text("❌ That spell no longer exists.")
         return
-       #
-    # ─── SUBMENU: “Unapply Spell → Choose Horse” ───
 
+    has_it = await sync_to_async(
+        PlayerUpgrade.objects.filter(player__id=user_id, upgrade=upgrade_obj).exists
+    )()
+    if not has_it:
+        await query.edit_message_text("❌ You haven’t purchased that spell.")
+        return
 
-    if data.startswith("menu:unapply_choose_horse:"):
-        horse_number = int(data.split(":")[2])
-        user_id = query.from_user.id
-
-        try:
-            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
-                user__id=user_id, horse_number=horse_number
-            )
-        except OwnedHorse.DoesNotExist:
-            await query.edit_message_text("❌ You do not own that horse.")
-            return
-
-        # Build display_label = "Name (66)" if name exists, else "Horse 66"
-        if owned_horse.name:
-            display_label = f"{owned_horse.name} ({horse_number})"
-        else:
-            display_label = f"Horse {horse_number}"
-
-        # Fetch all applied upgrades on this horse
-        applied_list = await sync_to_async(
+    blocking_pair = {"Double Dash", "Risky Rocket"}
+    if upgrade_obj.name in blocking_pair:
+        other_name = "Risky Rocket" if upgrade_obj.name == "Double Dash" else "Double Dash"
+        existing_names = await sync_to_async(
             lambda: list(
-                HorseAppliedUpgrade.objects
-                    .filter(horse=owned_horse)
-                    .select_related("upgrade")
+                HorseAppliedUpgrade.objects.filter(horse=owned_horse)
+                                           .values_list("upgrade__name", flat=True)
             )
         )()
-
-        if not applied_list:
-            text = f"⚠️ {display_label} has no spells to remove.\n\n↩️ Back"
-            keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:unapply_spell")]]
-            try:
-                await query.edit_message_text(
-                    text,
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except BadRequest as e:
-                if "Message is not modified" not in str(e):
-                    raise
-            return
-
-        # Build a list of “Spell Name” buttons for each applied upgrade
-        lines = [f"❌ *Unapply Spell → {display_label}*",""]
-        keyboard = []
-        for ap in applied_list:
-            up = ap.upgrade
-            callback_str = f"menu:unapply_choose_spell:{horse_number}:{up.id}"
-            lines.append(f"• *{up.name}* — {up.description}")
-            keyboard.append([InlineKeyboardButton(up.name, callback_data=callback_str)])
-
-        # Add a Back button at the bottom
-        lines.append("\n↩️ Back")
-        keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:unapply_spell")])
-
-        await query.edit_message_text(
-            "\n".join(lines),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-
-
-
-
-
-
-
-
-
-    #
-    # ─── SUBMENU: “Unapply Spell → Confirm” ───
-    #
-    if data.startswith("menu:unapply_choose_spell:"):
-        parts = data.split(":")
-        horse_number = int(parts[2])
-        upgrade_id = int(parts[3])
-        user_id = query.from_user.id
-
-        try:
-            owned_horse = await sync_to_async(OwnedHorse.objects.get)(
-                user__id=user_id, horse_number=horse_number
-            )
-        except OwnedHorse.DoesNotExist:
-            await query.edit_message_text("❌ You do not own that horse.")
-            return
-
-        try:
-            upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
-        except HorseUpgrade.DoesNotExist:
-            await query.edit_message_text("❌ That spell no longer exists.")
-            return
-
-        applied_qs = await sync_to_async(HorseAppliedUpgrade.objects.filter)(
-            owner__id=user_id, horse=owned_horse, upgrade=upgrade_obj
-        )
-        if not await sync_to_async(applied_qs.exists)():
+        if other_name in existing_names:
             await query.edit_message_text(
-                f"❌ *{upgrade_obj.name}* is not applied to Horse {horse_number}.",
+                f"❌ You cannot apply *{upgrade_obj.name}* because *{other_name}* is already on Horse {horse_number}.",
                 parse_mode="Markdown"
             )
             return
 
-        # 5) Delete the applied upgrade
-        await sync_to_async(applied_qs.delete)()
+    other_horse_number = await sync_to_async(
+        lambda: HorseAppliedUpgrade.objects
+            .filter(owner__id=user_id, upgrade=upgrade_obj)
+            .exclude(horse=owned_horse)
+            .values_list('horse__horse_number', flat=True)
+            .first()
+    )()
+    
+    if other_horse_number:
         await query.edit_message_text(
-            f"✅ Unapplied *{upgrade_obj.name}* from Horse {horse_number}.",
+            f"❌ You’ve already applied *{upgrade_obj.name}* to "
+                f"Horse {other_horse_number}, so you can’t apply it here too.",
             parse_mode="Markdown"
         )
         return
 
+    # 2) Then check “already on this same horse?”
+    already_on_this = await sync_to_async(
+        HorseAppliedUpgrade.objects
+            .filter(owner__id=user_id, horse=owned_horse, upgrade=upgrade_obj)
+            .exists
+    )()
+    if already_on_this:
+        await query.edit_message_text(
+            f"⚠️ You already applied *{upgrade_obj.name}* to Horse {horse_number}.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # 3) If neither check blocked you, it’s safe to apply:
+    player_obj = await sync_to_async(Player.objects.get)(id=user_id)
+
+    await sync_to_async(HorseAppliedUpgrade.objects.create)(
+        owner=player_obj,
+        horse=owned_horse,
+        upgrade=upgrade_obj
+    )
+    
+    await query.edit_message_text(
+        f"✅ *{upgrade_obj.name}* has been applied to Horse {horse_number}!",
+        parse_mode="Markdown"
+    )
+    return
+
+
+   #
+# ─── SUBMENU: “Unapply Spell → Choose Horse” ───
+@HORSE_MENU_ROUTES.on_prefix('menu:unapply_choose_horse:')
+async def _horse_unapply_choose_horse(update, context, query, data):
+    horse_number = int(data.split(":")[2])
+    user_id = query.from_user.id
+
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
+        )
+    except OwnedHorse.DoesNotExist:
+        await query.edit_message_text("❌ You do not own that horse.")
+        return
+
+    # Build display_label = "Name (66)" if name exists, else "Horse 66"
+    if owned_horse.name:
+        display_label = f"{owned_horse.name} ({horse_number})"
+    else:
+        display_label = f"Horse {horse_number}"
+
+    # Fetch all applied upgrades on this horse
+    applied_list = await sync_to_async(
+        lambda: list(
+            HorseAppliedUpgrade.objects
+                .filter(horse=owned_horse)
+                .select_related("upgrade")
+        )
+    )()
+
+    if not applied_list:
+        text = f"⚠️ {display_label} has no spells to remove.\n\n↩️ Back"
+        keyboard = [[InlineKeyboardButton("↩️ Back", callback_data="menu:unapply_spell")]]
+        try:
+            await query.edit_message_text(
+                text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise
+        return
+
+    # Build a list of “Spell Name” buttons for each applied upgrade
+    lines = [f"❌ *Unapply Spell → {display_label}*",""]
+    keyboard = []
+    for ap in applied_list:
+        up = ap.upgrade
+        callback_str = f"menu:unapply_choose_spell:{horse_number}:{up.id}"
+        lines.append(f"• *{up.name}* — {up.description}")
+        keyboard.append([InlineKeyboardButton(up.name, callback_data=callback_str)])
+
+    # Add a Back button at the bottom
+    lines.append("\n↩️ Back")
+    keyboard.append([InlineKeyboardButton("↩️ Back", callback_data="menu:unapply_spell")])
+
+    await query.edit_message_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
+
+
+#
+# ─── SUBMENU: “Unapply Spell → Confirm” ───
+#
+@HORSE_MENU_ROUTES.on_prefix('menu:unapply_choose_spell:')
+async def _horse_unapply_choose_spell(update, context, query, data):
+    parts = data.split(":")
+    horse_number = int(parts[2])
+    upgrade_id = int(parts[3])
+    user_id = query.from_user.id
+
+    try:
+        owned_horse = await sync_to_async(OwnedHorse.objects.get)(
+            user__id=user_id, horse_number=horse_number
+        )
+    except OwnedHorse.DoesNotExist:
+        await query.edit_message_text("❌ You do not own that horse.")
+        return
+
+    try:
+        upgrade_obj = await sync_to_async(HorseUpgrade.objects.get)(id=upgrade_id)
+    except HorseUpgrade.DoesNotExist:
+        await query.edit_message_text("❌ That spell no longer exists.")
+        return
+
+    applied_qs = await sync_to_async(HorseAppliedUpgrade.objects.filter)(
+        owner__id=user_id, horse=owned_horse, upgrade=upgrade_obj
+    )
+    if not await sync_to_async(applied_qs.exists)():
+        await query.edit_message_text(
+            f"❌ *{upgrade_obj.name}* is not applied to Horse {horse_number}.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # 5) Delete the applied upgrade
+    await sync_to_async(applied_qs.delete)()
+    await query.edit_message_text(
+        f"✅ Unapplied *{upgrade_obj.name}* from Horse {horse_number}.",
+        parse_mode="Markdown"
+    )
+    return
+
+
+async def dispatch_horse_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, query, data):
+    """Handle horse-shop callbacks routed from handle_menu_callback."""
+    handler = HORSE_MENU_ROUTES.resolve(data)
+    if handler is not None:
+        return await handler(update, context, query, data)
 
     # ─── Fallback → show main menu ───
     context.user_data.pop("awaiting_buy_horse", None)

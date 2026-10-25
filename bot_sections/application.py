@@ -34,7 +34,6 @@ from bot_sections.core_and_menus import (
 from bot_sections.horse_racing_and_social import (
     catch_all_text,
     horse,
-    horse_menu_callback,
     horserace,
     joinrace,
     myid,
@@ -44,7 +43,6 @@ from bot_sections.horse_racing_and_social import (
     teachme,
 )
 from bot_sections.items_and_callbacks import (
-    handle_items_callback,
     handle_menu_callback,
 )
 from bot_sections.minigames_and_economy import (
@@ -181,12 +179,6 @@ def register_handlers(app):
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_menu_callback))
-    app.add_handler(
-        CallbackQueryHandler(
-            handle_items_callback,
-            pattern=r"^(menu:items|items:)"     # any callback_data exactly "menu:items" or starting with "items:"
-        )
-    )
     # app.add_handler(CallbackQueryHandler(handle_language_callback, pattern=r"^language:set:"))
 
     app.add_handler(CommandHandler("double", double_or_nothing))
@@ -195,9 +187,6 @@ def register_handlers(app):
     app.add_handler(CommandHandler("richest", richest))
 
     app.add_handler(CommandHandler("horse", horse))
-    app.add_handler(
-        CallbackQueryHandler(horse_menu_callback, pattern=r"^menu:")
-    )
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, catch_all_text)
     )
